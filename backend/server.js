@@ -1,6 +1,12 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
+try {
+  require('dotenv').config();
+} catch {
+  if (typeof process.loadEnvFile === 'function') {
+    try { process.loadEnvFile(); } catch {}
+  }
+}
 
 const app = express();
 const apiLimiter = require('./security/rate-limit');
