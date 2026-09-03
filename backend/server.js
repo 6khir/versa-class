@@ -3,8 +3,13 @@ const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
+const apiLimiter = require('./security/rate-limit');
+const helmet = require('helmet');
+
+app.use(helmet());
 app.use(cors());
 app.use(express.json());
+app.use('/api/', apiLimiter);
 
 // Health check
 app.get('/api/health', (req, res) => {
