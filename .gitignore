@@ -3,6 +3,7 @@ node_modules
 dist/
 dist_windows/
 release/*.app
+release/*.zip
 *.log
 .env
 env
