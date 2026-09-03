@@ -5,8 +5,10 @@ require('dotenv').config();
 const app = express();
 const apiLimiter = require('./security/rate-limit');
 const helmet = require('helmet');
+const compression = require('compression');
 
 app.use(helmet());
+app.use(compression());
 app.use(cors());
 app.use(express.json());
 app.use('/api/', apiLimiter);
