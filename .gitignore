@@ -1,0 +1,11 @@
+node_modules
+.DS_Store
+dist/
+dist_windows/
+release/*.app
+*.log
+.env
+env
+.cursor/
+.tmp-canva-spec/
+.tmp-ui-ref/
