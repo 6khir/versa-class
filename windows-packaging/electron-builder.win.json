@@ -1,0 +1,50 @@
+{
+  "electronVersion": "39.8.10",
+  "appId": "com.versa.class",
+  "productName": "VERSA CLASS",
+  "copyright": "Copyright © Versa",
+  "asar": true,
+  "asarUnpack": [
+    "**/*.node",
+    "**/sharp/**",
+    "**/@img/**",
+    "**/playwright-core/**"
+  ],
+  "compression": "maximum",
+  "directories": {
+    "app": "staging",
+    "output": "../dist_windows"
+  },
+  "files": [
+    "src/**/*",
+    "renderer/**/*",
+    "assets/**/*",
+    "package.json"
+  ],
+  "extraMetadata": {
+    "name": "versa-class",
+    "author": "Versa"
+  },
+  "npmRebuild": false,
+  "nodeGypRebuild": false,
+  "buildDependenciesFromSource": false,
+  "win": {
+    "icon": "staging/assets/icon.ico",
+    "signAndEditExecutable": false,
+    "target": [
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ]
+  },
+  "portable": {
+    "artifactName": "VERSA-CLASS-${version}-windows-x64.exe"
+  },
+  "nsis": {
+    "artifactName": "VERSA-CLASS-${version}-windows-x64-setup.exe",
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "deleteAppDataOnUninstall": false
+  }
+}
