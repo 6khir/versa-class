@@ -1,0 +1,16 @@
+/* renderer/components/theme.css */
+
+:root {
+  --color-primary: #0ea5e9; /* sky-500 */
+  --bg: #111827; /* zinc-900 */
+  --text: #e5e7eb; /* zinc-200 */
+  --border: #374151; /* zinc-700 */
+  --radius: 4px;
+  --transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body { font-family: "Inter", system-ui, sans-serif; background-color: var(--bg); color: var(--text); }
+
+button { cursor: pointer; border-radius: var(--radius); transition: var(--transition); }

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Create a design</title>
+</head>
+<body>
+  <button id="create">Create a design</button>
+  <button id="import">Import file</button>
+  <div role="dialog" aria-modal="true" aria-label="Create a design" id="upload-dialog">
+    <div role="tablist">
+      <button role="tab">Templates</button>
+      <button role="tab" aria-selected="true" id="upload-tab">Upload</button>
+    </div>
+    <div data-dropzone="true">
+      <p>Drop your content here or</p>
+      <button id="upload-files" type="button">Upload files</button>
+      <button id="upload-folder" type="button">Upload folder</button>
+      <p>Canva supports images, videos, and PDFs.</p>
+    </div>
+    <input id="file-input" type="file" accept="application/pdf,image/png,image/jpeg,.pdf" style="position:absolute;width:1px;height:1px;opacity:0;left:-9999px">
+    <input id="folder-input" type="file" webkitdirectory multiple style="position:absolute;width:1px;height:1px;opacity:0;left:-9999px">
+  </div>
+  <script>
+    window.__clickedUploadFiles = 0;
+    window.__clickedUploadFolder = 0;
+    window.__opened = false;
+    document.getElementById('upload-files').addEventListener('click', () => {
+      window.__clickedUploadFiles += 1;
+      fetch('https://www.canva.com/__clicked-upload-files').catch(() => {});
+    });
+    document.getElementById('upload-folder').addEventListener('click', () => {
+      window.__clickedUploadFolder += 1;
+      fetch('https://www.canva.com/__clicked-upload-folder').catch(() => {});
+    });
+    function go() {
+      const input = document.getElementById('file-input');
+      if (input.files && input.files.length && !window.__opened) {
+        window.__opened = true;
+        fetch('https://www.canva.com/__pdf-attached').catch(() => {});
+        fetch('https://www.canva.com/designs/created').finally(() => {
+          location.href = 'https://www.canva.com/design/DAFAKE123456/SHARETOKEN1/edit';
+        });
+      }
+    }
+    document.getElementById('file-input').addEventListener('change', go);
+    document.getElementById('file-input').addEventListener('input', go);
+    setInterval(go, 150);
+  </script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+<!doctype html>
+<html data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <title>Overview product scope proof</title>
+  <style>
+    body { margin: 0; font-family: Nunito, Geist, system-ui, sans-serif; background: #eef6fd; color: #023085; padding: 28px; }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    p { margin: 0 0 18px; color: #5a7aa8; font-size: 13px; }
+    .layout { display: grid; grid-template-columns: 160px 1fr; gap: 16px; max-width: 920px; }
+    .rail, .stage { background: #fff; border: 1px solid rgba(0,64,155,.14); border-radius: 16px; padding: 12px; }
+    .tab { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; border-radius: 12px; color: #5a7aa8; font-weight: 700; font-size: 13px; }
+    .tab.active { background: linear-gradient(135deg, rgba(115,184,251,.18), rgba(0,64,155,.18)); color: #023085; }
+    .tab .now { margin-left: auto; background: #48ce89; color: #023085; font-size: 8px; font-weight: 800; padding: 3px 7px; border-radius: 999px; }
+    .row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 10px 12px; border: 1px solid rgba(0,64,155,.12); border-radius: 12px; margin-bottom: 8px; }
+    .row strong { flex: 1; }
+    .chip { background: rgba(72,206,137,.85); color: #023085; border-radius: 999px; padding: 4px 8px; font-size: 10px; font-weight: 800; }
+    .btn { border: 0; border-radius: 999px; padding: 8px 12px; background: linear-gradient(135deg,#73b8fb,#00409b); color: #fff; font-weight: 700; }
+    .gone { color: #b42318; font-size: 12px; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <h1>Overview journey — Characters gone, no marketplace posting</h1>
+  <p>Stages that remain for book building: Overview · Interior · Canva · Listing (copy) · Thumbnails · Preview · Export (files)</p>
+  <div class="layout">
+    <nav class="rail">
+      <div class="tab active">1 Overview <span class="now">NOW</span></div>
+      <div class="tab">2 Interior</div>
+      <div class="tab">3 Canva</div>
+      <div class="tab">4 Listing</div>
+      <div class="tab">5 Thumbnails</div>
+      <div class="tab">6 Preview</div>
+      <div class="tab">7 Export</div>
+    </nav>
+    <section class="stage">
+      <div class="row"><span>Interior</span><span class="chip">DONE</span><strong>5 / 5 pages</strong><button class="btn">Regenerate</button></div>
+      <div class="row"><span>Canva</span><span class="chip">DONE</span><strong>Template ready</strong><button class="btn">Build Canva layer</button></div>
+      <div class="row"><span>Listing</span><span class="chip">READY</span><strong>Book details copy</strong><button class="btn">Generate listing</button></div>
+      <div class="row"><span>Mockups</span><span class="chip">WAITING</span><strong>0 / 4</strong><button class="btn">Start mockups</button></div>
+      <div class="row"><span>Preview</span><span class="chip">WAITING</span><strong>Video</strong><button class="btn">Start preview</button></div>
+      <div class="row"><span>Export</span><span class="chip">READY</span><strong>PDF · ZIP · PPTX</strong><button class="btn">Start export</button></div>
+      <p class="gone">Removed from UI: Characters · Bundle Upload · TPT upload · Ready to Upload · Show browser</p>
+    </section>
+  </div>
+</body>
+</html>

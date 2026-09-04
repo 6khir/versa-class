@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Canva home</title>
+</head>
+<body>
+  <button id="create">Create a design</button>
+  <button id="import">Import file</button>
+  <nav>
+    <a id="projects" href="#projects">Projects</a>
+    <a id="uploads-nav" href="#uploads">Uploads</a>
+    <button id="imports-in-progress" type="button">Imports in progress</button>
+  </nav>
+  <p>Drop items to upload</p>
+  <input id="file-input" type="file" accept="application/pdf,.pdf" style="position:absolute;width:1px;height:1px;opacity:0;left:-9999px">
+  <div id="upload-panel" hidden role="status" aria-label="Upload progress"></div>
+  <script>
+    window.__attachCount = 0;
+    window.__uploadPanelClosed = false;
+    window.__openedDesign = false;
+    window.__notedAttach = false;
+    function goEditor() {
+      if (window.__openedDesign) return;
+      window.__openedDesign = true;
+      fetch('https://www.canva.com/designs/created').finally(() => {
+        location.href = 'https://www.canva.com/design/DAFAKE123456/SHARETOKEN1/edit';
+      });
+    }
+    function showPanel() {
+      const panel = document.getElementById('upload-panel');
+      panel.hidden = false;
+      panel.innerHTML = `
+        <header>
+          <p id="upload-heading">1 of 1 items uploaded</p>
+          <button id="close-upload" type="button" aria-label="Close">Close</button>
+        </header>
+        <p id="file-row">book.pdf</p>
+        <p>This document is currently being imported. Please check your imports in progress.</p>
+        <p>Uploaded to <a id="uploads-link" href="#uploads">Uploads</a></p>
+        <button id="open-design" type="button">Open as design</button>
+      `;
+      document.getElementById('close-upload').addEventListener('click', () => {
+        window.__uploadPanelClosed = true;
+        fetch('https://www.canva.com/__upload-panel-closed').catch(() => {});
+        panel.hidden = true;
+      });
+      document.getElementById('open-design').addEventListener('click', goEditor);
+      document.getElementById('uploads-link').addEventListener('click', (event) => {
+        event.preventDefault();
+        goEditor();
+      });
+    }
+    function noteAttach() {
+      const input = document.getElementById('file-input');
+      if (!input.files?.length || window.__notedAttach) return;
+      window.__notedAttach = true;
+      window.__attachCount += 1;
+      fetch('https://www.canva.com/__pdf-attached').catch(() => {});
+      showPanel();
+    }
+    document.getElementById('file-input').addEventListener('change', noteAttach);
+    document.getElementById('file-input').addEventListener('input', noteAttach);
+    document.getElementById('imports-in-progress').addEventListener('click', goEditor);
+    document.getElementById('uploads-nav').addEventListener('click', (event) => {
+      event.preventDefault();
+      goEditor();
+    });
+    document.getElementById('import').addEventListener('click', () => {
+      document.getElementById('file-input').style.opacity = '1';
+    });
+  </script>
+</body>
+</html>

@@ -14,27 +14,28 @@
     <link rel="stylesheet" href="./apple-vibrancy-theme.css">
     <link rel="stylesheet" href="./midnight-theme.css">
     <link rel="stylesheet" href="./studio.css">
+    <link rel="stylesheet" href="./pro-suite.css">
   </head>
-  <body class="ui-redesign versa-studio" data-mode="library" data-layer="intro">
+  <body class="ui-redesign versa-studio pro-suite" data-mode="library" data-layer="intro">
     <a class="ui-skip" href="#ui-primary-canvas">Skip to canvas</a>
     <section id="studio-intro" class="studio-intro" aria-label="VERSA CLASS">
       <div class="studio-intro__veil" aria-hidden="true"></div>
       <p class="studio-intro__wordmark">VERSA CLASS</p>
       <div class="studio-intro__appearance appearance-switch" role="group" aria-label="Appearance">
-        <button type="button" data-action="set-appearance" data-appearance="light" aria-pressed="true" title="Day mode">
+        <button type="button" data-action="set-appearance" data-appearance="light" aria-pressed="false" title="Day mode">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M5 12H3M21 12h-2M6.2 6.2l1.4 1.4M16.4 16.4l1.4 1.4M6.2 17.8l1.4-1.4M16.4 7.6l1.4-1.4"/></svg>
           <span>Day</span>
         </button>
-        <button type="button" data-action="set-appearance" data-appearance="dark" aria-pressed="false" title="Midnight mode">
+        <button type="button" data-action="set-appearance" data-appearance="dark" aria-pressed="true" title="Night mode">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M16.5 13.5A7 7 0 0 1 10.2 4.1 7.5 7.5 0 1 0 19 14.8a6.8 6.8 0 0 1-2.5-1.3z"/></svg>
-          <span>Midnight</span>
+          <span>Night</span>
         </button>
       </div>
       <div class="studio-intro__copy">
-        <p class="studio-intro__kicker">Book studio for teachers and parents</p>
-        <h1 class="studio-intro__title">Create a complete book at scale.</h1>
-        <p class="studio-intro__lede">One quiet desk for outline, interior, listing and export.</p>
-        <button class="studio-intro__enter" id="studio-intro-enter" type="button">Start here</button>
+        <p class="studio-intro__kicker">Ready?</p>
+        <h1 class="studio-intro__title">Let’s make a book</h1>
+        <p class="studio-intro__lede">Pages, editable PowerPoint, mockups, SEO.</p>
+        <button class="studio-intro__enter" id="studio-intro-enter" type="button">Let’s go</button>
       </div>
     </section>
     <div class="ui-shell" id="ui-shell">
@@ -55,7 +56,7 @@
         </div>
         <div class="ui-header__search">
           <label class="ui-visually-hidden" for="ui-global-search">Search books and workspace</label>
-          <input class="ui-header__search-input" id="ui-global-search" type="search" placeholder="Search" autocomplete="off" aria-keyshortcuts="Meta+K Control+K">
+          <input class="ui-header__search-input" id="ui-global-search" type="search" placeholder="Search books" autocomplete="off" aria-keyshortcuts="Meta+K Control+K">
           <kbd aria-hidden="true">⌘K</kbd>
         </div>
         <div class="ui-header__actions topbar-actions">
@@ -63,7 +64,7 @@
             <button type="button" data-action="set-appearance" data-appearance="light" aria-pressed="true" title="Day mode">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M5 12H3M21 12h-2M6.2 6.2l1.4 1.4M16.4 16.4l1.4 1.4M6.2 17.8l1.4-1.4M16.4 7.6l1.4-1.4"/></svg>
             </button>
-            <button type="button" data-action="set-appearance" data-appearance="dark" aria-pressed="false" title="Midnight mode">
+            <button type="button" data-action="set-appearance" data-appearance="dark" aria-pressed="false" title="Night mode">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M16.5 13.5A7 7 0 0 1 10.2 4.1 7.5 7.5 0 1 0 19 14.8a6.8 6.8 0 0 1-2.5-1.3z"/></svg>
             </button>
           </div>
@@ -91,7 +92,7 @@
             <button type="button" data-action="set-appearance" data-appearance="light" aria-pressed="true" title="Day mode">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M5 12H3M21 12h-2M6.2 6.2l1.4 1.4M16.4 16.4l1.4 1.4M6.2 17.8l1.4-1.4M16.4 7.6l1.4-1.4"/></svg>
             </button>
-            <button type="button" data-action="set-appearance" data-appearance="dark" aria-pressed="false" title="Midnight mode">
+            <button type="button" data-action="set-appearance" data-appearance="dark" aria-pressed="false" title="Night mode">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M16.5 13.5A7 7 0 0 1 10.2 4.1 7.5 7.5 0 1 0 19 14.8a6.8 6.8 0 0 1-2.5-1.3z"/></svg>
             </button>
           </div>
@@ -101,10 +102,10 @@
           </button>
               <div id="browser-pill" class="connection-pill is-offline">
             <span class="connection-dot"></span>
-            <span id="browser-label">Browser offline</span>
+            <span id="browser-label">Engine ready</span>
           </div>
-              <button id="focus-browser-button" class="button button-ghost" type="button" disabled>Show browser</button>
-              <button id="launch-browser-button" class="button button-gold" type="button">Manage Gemini login</button>
+              <button id="focus-browser-button" class="button button-ghost" type="button" hidden disabled>Show browser</button>
+              <button id="launch-browser-button" class="button button-gold" type="button" hidden>Manage Gemini login</button>
             </div>
           </div>
         </div>
@@ -114,9 +115,9 @@
         <div class="workspace">
           <aside class="sidebar ui-sidebar" id="ui-sidebar" aria-label="Project navigation" aria-expanded="false">
           <header class="library-masthead">
-            <p class="library-masthead__kicker">VERSA CLASS</p>
-            <h2 class="library-masthead__title">Library</h2>
-            <p class="library-masthead__lede">Every title is a workspace. Open one to enter the atelier — generate, layer, list, and ship from a single book.</p>
+            <p class="library-masthead__kicker">Library</p>
+            <h2 class="library-masthead__title">Your books</h2>
+            <p class="library-masthead__lede">Open one to start.</p>
           </header>
           <button id="new-project-button" class="button button-primary button-full" data-action="new-project" type="button">＋ New book</button>
           <div class="sidebar-heading">
@@ -128,7 +129,7 @@
               <button type="button" id="library-layout-grid" data-library-layout="grid">Grid</button>
               <button type="button" id="library-layout-list" data-library-layout="list">List</button>
             </div>
-            <button id="bundle-upload-sidebar-btn" class="bundle-sidebar-btn" type="button">
+            <button id="bundle-upload-sidebar-btn" class="bundle-sidebar-btn" type="button" hidden>
               <span class="bundle-sidebar-icon">⚡</span>
               <span class="bundle-sidebar-label">Bundle</span>
               <span id="bundle-ready-badge" class="bundle-ready-badge" hidden>0</span>
@@ -327,20 +328,23 @@
               <nav class="project-workspace-nav" aria-label="Project journey">
                 <button class="workspace-tab is-active" data-action="select-workspace-view" data-view-target="overview" type="button">Overview</button>
                 <button class="workspace-tab" data-action="select-workspace-view" data-view-target="interior" type="button">Interior <i class="tab-mark" data-tab-mark="interior"></i></button>
-                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="editable" type="button">Canva <i class="tab-mark" data-tab-mark="editable"></i></button>
-                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="listing" type="button">Listing <i class="tab-mark" data-tab-mark="listing"></i></button>
+                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="editable" type="button">Editable PPT <i class="tab-mark" data-tab-mark="editable"></i></button>
                 <button class="workspace-tab" data-action="select-workspace-view" data-view-target="thumbnails" type="button">Thumbnails <i class="tab-mark" data-tab-mark="thumbnails"></i></button>
                 <button class="workspace-tab" data-action="select-workspace-view" data-view-target="preview" type="button">Preview <i class="tab-mark" data-tab-mark="preview"></i></button>
                 <button class="workspace-tab" data-action="select-workspace-view" data-view-target="export" type="button">Export <i class="tab-mark" data-tab-mark="export"></i></button>
+                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="listing" type="button">SEO <i class="tab-mark" data-tab-mark="listing"></i></button>
               </nav>
 
               <header class="studio-scale-page" id="studio-scale-page">
                 <div class="studio-scale-page__copy">
                   <p class="studio-scale-page__kicker">Atelier</p>
-                  <h2 class="studio-scale-page__title">Create a complete book at scale</h2>
+                  <h2 class="studio-scale-page__title" id="studio-scale-title">Overview</h2>
                   <p class="studio-scale-page__meta" id="studio-scale-meta">Stage 1 of 8</p>
                 </div>
-                <button type="button" class="button button-primary" id="studio-stage-run">Run</button>
+                <div class="studio-scale-page__actions">
+                  <button type="button" class="button button-pause" id="studio-stage-pause" disabled>Pause</button>
+                  <button type="button" class="button button-primary" id="studio-stage-run">Run</button>
+                </div>
               </header>
 
               <div class="studio-stage-banner">
@@ -348,7 +352,10 @@
                   <p class="studio-stage-banner__kicker" id="studio-stage-kicker">Atelier</p>
                   <h2 class="studio-stage-banner__title" id="studio-stage-title">Overview</h2>
                 </div>
-                <button type="button" class="button button-primary" id="studio-banner-run">Run</button>
+                <div class="studio-stage-banner__actions">
+                  <button type="button" class="button button-pause" id="studio-banner-pause" disabled>Pause</button>
+                  <button type="button" class="button button-primary" id="studio-banner-run">Run</button>
+                </div>
               </div>
 
               <section class="project-hero glass-panel studio-stage-settings">
@@ -370,19 +377,19 @@
                     </div>
                   </div>
                 </div>
-                <p class="studio-stage-settings__label">Done</p>
+                <p class="studio-stage-settings__label">Tools</p>
                 <div class="hero-utility-row">
                   <div id="when-complete-control" class="field when-complete-field">
                     <span>After</span>
                     <select id="when-complete-action">
-                      <option value="nothing">Idle</option>
+                      <option value="nothing">Ready</option>
                       <option value="sleep">Sleep</option>
                       <option value="shutdown">Shut down</option>
                     </select>
                   </div>
                   <button id="storybook-resume-phase2-button" class="button button-gold" data-action="retry-storybook-phase2" type="button" hidden>Resume</button>
                   <button id="output-folder-button" class="button button-ghost" type="button">Folder</button>
-                  <button id="open-project-folder-button" class="button button-ghost" data-action="reveal-project-folder" type="button">Open</button>
+                  <button id="open-project-folder-button" class="button button-ghost" data-action="reveal-project-folder" type="button">Return</button>
                   <button id="retry-all-button" class="button button-ghost" type="button">Reset</button>
                 </div>
               </section>
@@ -392,10 +399,10 @@
                 <div class="progress-header">
                   <div>
                     <span class="eyebrow">Now</span>
-                    <strong id="current-job-label">Idle</strong>
+                    <strong id="current-job-label">Ready</strong>
                   </div>
                   <div class="live-dock-aside">
-                    <span id="current-job-status" class="status-chip status-pending">Idle</span>
+                    <span id="current-job-status" class="status-chip status-pending">Ready</span>
                     <span class="live-pause-wrap">
                       <button id="live-pause-button" class="button button-pause" type="button" disabled>Pause</button>
                     </span>
@@ -427,9 +434,9 @@
                 <article class="overview-stage-card overview-stage-overall" id="overview-overall-card" data-stage="overall" data-action="select-workspace-view" data-view-target="listing">
                   <div class="product-progress-copy">
                     <span class="overview-stage-label">Product progress</span>
-                    <span class="stage-state" id="overview-overall-state">Idle</span>
+                    <span class="stage-state" id="overview-overall-state">Ready</span>
                     <small id="queue-caption">Queue paused</small>
-                    <p class="overview-open-stages" id="overview-open-stages">Listing · Mockups</p>
+                    <p class="overview-open-stages" id="overview-open-stages">Mockups · SEO</p>
                   </div>
                   <div class="product-ring" id="overview-product-ring" style="--progress: 0" aria-hidden="true">
                     <strong id="stat-percent">0%</strong>
@@ -437,50 +444,35 @@
                   <span class="stage-meter" aria-hidden="true"><i id="overview-overall-meter"></i></span>
                   <button class="stage-run-btn" data-action="start-full-automation" type="button">Start full automation</button>
                 </article>
-                <article class="overview-stage-card" data-stage="characters" data-action="select-workspace-view" data-view-target="characters" hidden>
-                  <span class="overview-stage-label">Characters</span>
-                  <span class="stage-state" id="overview-characters-state">Idle</span>
-                  <strong id="overview-character-count">0 / 0 ready</strong>
-                  <small id="overview-character-names">None</small>
-                  <span class="stage-meter" aria-hidden="true"><i id="overview-characters-meter"></i></span>
-                  <button class="stage-run-btn" data-action="run-stage" data-stage="characters" type="button">Start characters</button>
-                </article>
                 <article class="overview-stage-card" data-stage="interior" data-action="select-workspace-view" data-view-target="interior">
                   <span class="overview-stage-label">Interior</span>
-                  <span class="stage-state" id="overview-interior-state">Idle</span>
+                  <span class="stage-state" id="overview-interior-state">Ready</span>
                   <strong><span id="stat-complete">0</span> / <span id="stat-total">0</span> pages</strong>
                   <small id="overview-interior-detail">0 remaining</small>
                   <span id="stat-remaining" hidden>0</span>
                   <span class="stage-meter" aria-hidden="true"><i id="overview-interior-meter"></i></span>
                   <button class="stage-run-btn" data-action="run-stage" data-stage="interior" type="button">Start pages</button>
+                  <button class="stage-run-btn" data-action="regenerate-interior" data-stage="interior" type="button" hidden>Regenerate</button>
                 </article>
                 <article class="overview-stage-card" data-stage="editable" data-action="select-workspace-view" data-view-target="editable">
-                  <span class="overview-stage-label">Canva</span>
-                  <span class="stage-state" id="overview-editable-state">Idle</span>
+                  <span class="overview-stage-label">Canva editable</span>
+                  <span class="stage-state" id="overview-editable-state">Ready</span>
                   <strong id="overview-editable-status">Static print</strong>
                   <small id="overview-editable-detail">Toggle Editable</small>
                   <span class="stage-meter" aria-hidden="true"><i id="overview-editable-meter"></i></span>
-                  <button class="stage-run-btn" data-action="run-stage" data-stage="editable" type="button">Build Canva layer</button>
-                </article>
-                <article class="overview-stage-card" data-stage="listing" data-action="select-workspace-view" data-view-target="listing">
-                  <span class="overview-stage-label">TPT listing</span>
-                  <span class="stage-state" id="overview-listing-state">Idle</span>
-                  <strong id="overview-listing-status">Not created</strong>
-                  <small id="overview-listing-detail">Not created</small>
-                  <span class="stage-meter" aria-hidden="true"><i id="overview-listing-meter"></i></span>
-                  <button class="stage-run-btn" data-action="run-stage" data-stage="listing" type="button">Start listing</button>
+                  <button class="stage-run-btn" data-action="run-stage" data-stage="editable" type="button">Build Editable</button>
                 </article>
                 <article class="overview-stage-card" data-stage="thumbnails" data-action="select-workspace-view" data-view-target="thumbnails">
                   <span class="overview-stage-label">Mockups</span>
-                  <span class="stage-state" id="overview-thumbnails-state">Idle</span>
+                  <span class="stage-state" id="overview-thumbnails-state">Ready</span>
                   <strong id="overview-thumbnail-count">0 / 4 saved</strong>
-                  <small id="overview-thumbnail-detail">Waiting for listing</small>
+                  <small id="overview-thumbnail-detail">After pages finish</small>
                   <span class="stage-meter" aria-hidden="true"><i id="overview-thumbnails-meter"></i></span>
                   <button class="stage-run-btn" data-action="run-stage" data-stage="thumbnails" type="button">Start mockups</button>
                 </article>
                 <article class="overview-stage-card" data-stage="preview" data-action="select-workspace-view" data-view-target="preview">
                   <span class="overview-stage-label">Preview</span>
-                  <span class="stage-state" id="overview-preview-state">Idle</span>
+                  <span class="stage-state" id="overview-preview-state">Ready</span>
                   <strong id="overview-preview-status">Not generated</strong>
                   <small id="overview-preview-detail">After mockups</small>
                   <span class="stage-meter" aria-hidden="true"><i id="overview-preview-meter"></i></span>
@@ -488,11 +480,19 @@
                 </article>
                 <article class="overview-stage-card" data-stage="export" data-action="select-workspace-view" data-view-target="export">
                   <span class="overview-stage-label">Export</span>
-                  <span class="stage-state" id="overview-export-state">Idle</span>
+                  <span class="stage-state" id="overview-export-state">Ready</span>
                   <strong id="overview-export-status">Book incomplete</strong>
                   <small id="overview-export-detail">Finish pages</small>
                   <span class="stage-meter" aria-hidden="true"><i id="overview-export-meter"></i></span>
                   <button class="stage-run-btn" data-action="run-stage" data-stage="export" type="button">Start export</button>
+                </article>
+                <article class="overview-stage-card" data-stage="listing" data-action="select-workspace-view" data-view-target="listing">
+                  <span class="overview-stage-label">SEO</span>
+                  <span class="stage-state" id="overview-listing-state">Ready</span>
+                  <strong id="overview-listing-status">Not created</strong>
+                  <small id="overview-listing-detail">Last stage · title, description, tags</small>
+                  <span class="stage-meter" aria-hidden="true"><i id="overview-listing-meter"></i></span>
+                  <button class="stage-run-btn" data-action="run-stage" data-stage="listing" type="button">Start SEO</button>
                 </article>
               </section>
               </div>
@@ -524,6 +524,7 @@
                       <button class="filter-tab" data-filter="incomplete" type="button">Incomplete</button>
                       <button class="filter-tab" data-filter="attention" type="button">Needs attention</button>
                       <button id="run-interior-button" class="button button-primary" data-action="run-stage" data-stage="interior" type="button">Start pages</button>
+                      <button id="regenerate-interior-button" class="button button-primary" data-action="regenerate-interior" data-stage="interior" type="button" hidden>Regenerate</button>
                     </div>
                   </div>
                   <div id="jobs-table" class="page-preview-grid"></div>
@@ -532,20 +533,22 @@
                 <aside class="detail-panel glass-panel">
                   <p class="eyebrow">Page</p>
                   <h3 id="detail-title">Select a page</h3>
-                  <div id="detail-status-wrap"></div>
+                  <div id="detail-status-wrap" class="detail-status-wrap"></div>
                   <p id="detail-error" class="error-box" hidden></p>
                   <div id="detail-story-text-wrap" hidden>
-                    <label class="detail-label">Exact Story Text</label>
+                    <label class="detail-label">Story text</label>
                     <div id="detail-story-text" class="prompt-box story-text-box">—</div>
                   </div>
-                  <label class="detail-label">Prompt</label>
-                  <div id="detail-prompt" class="prompt-box">—</div>
+                  <details class="prompt-disclosure" id="detail-prompt-disclosure">
+                    <summary><span>Prompt</span></summary>
+                    <div id="detail-prompt" class="prompt-box">—</div>
+                  </details>
                   <div class="detail-actions">
                     <button id="copy-prompt-button" class="button button-ghost button-full" type="button">Copy prompt</button>
-                    <button id="import-image-button" class="button button-ghost button-full" type="button">Import image manually</button>
-                    <button id="adjust-crop-button" class="button button-ghost button-full" type="button" hidden>Adjust zoom/crop</button>
+                    <button id="import-image-button" class="button button-ghost button-full" type="button">Import image</button>
+                    <button id="adjust-crop-button" class="button button-ghost button-full" type="button" hidden>Adjust crop</button>
                     <button id="open-conversation-button" class="button button-ghost button-full" type="button">Open conversation</button>
-                    <button id="retry-job-button" class="button button-primary button-full" type="button">Retry this page</button>
+                    <button id="retry-job-button" class="button button-primary button-full" type="button">Retry page</button>
                   </div>
                 </aside>
               </section>
@@ -555,21 +558,21 @@
               <section class="glass-panel canva-editable-panel" data-workspace-section="editable">
                 <div class="section-header">
                   <div>
-                    <p class="eyebrow">Canva</p>
-                    <h3>Magic Layer</h3>
-                    <p class="muted">Import the finished print PDF once, then Magic Layer each page. Empty slots fill in as confirmation — the picture means Magic Layer applied.</p>
+                    <p class="eyebrow">Canva editable layer</p>
+                    <h3>Build Canva layer</h3>
+                    <p class="muted">Import the finished print PDF into Canva once, apply Magic Layer on every page, then save a verified public template link for TPT buyers.</p>
                   </div>
                 </div>
                 <div id="canva-coming-soon" class="canva-coming-soon" hidden>
-                  <strong>Coming soon on Windows</strong>
-                  <p>Canva Magic Layer will be available soon. ChatGPT, Gemini, Meta AI, listing, mockups, and TPT still work. Use Static products until this step is unlocked.</p>
+                  <strong>Canva Magic Layer is coming soon on Windows</strong>
+                  <p>ChatGPT, Gemini, Meta AI, listing, mockups, and TPT still work. Canva editable stays locked until it ships on Windows.</p>
                 </div>
-                <section class="canva-live-dashboard" id="canva-live-dashboard" aria-label="Live Canva process">
+                <section class="canva-live-dashboard" id="canva-live-dashboard" aria-label="Live editable build process">
                   <header class="canva-dash-head">
                     <div>
                       <p class="eyebrow">Live Canva process</p>
                       <h4 id="canva-dash-title">Waiting</h4>
-                      <p id="canva-dash-status">Idle until you build the Canva layer. Then you can watch the PDF load, upload to 100%, and save the template link here.</p>
+                      <p id="canva-dash-status">Ready when you build. The print PDF is imported once, then Magic Layer runs page by page.</p>
                     </div>
                     <div class="canva-dash-pills">
                       <span id="canva-dash-attempt" class="canva-dash-pill" hidden></span>
@@ -632,7 +635,7 @@
                     <span id="canva-progress-percent">0%</span>
                   </div>
                   <div class="progress-track"><span id="canva-progress-fill"></span></div>
-                  <p id="canva-progress-message">Idle. Empty page slots fill in as Magic Layer is applied.</p>
+                  <p id="canva-progress-message">Ready. Empty page slots fill in as editable vectors are built.</p>
                 </div>
                 <details class="canva-dash-details" id="canva-dash-details">
                   <summary>Show step details</summary>
@@ -654,15 +657,12 @@
                 </section>
                 <div class="export-actions">
                   <button id="run-canva-editable-button" class="button button-primary" data-action="run-canva-editable" type="button">Build Canva layer</button>
-                  <button id="open-canva-template-button" class="button button-ghost" data-action="open-canva-template" type="button">Open template link</button>
-                  <button id="clear-canva-template-button" class="button button-ghost button-danger" data-action="clear-canva-template" type="button">Remove template</button>
+                  <button id="open-canva-template-button" class="button button-ghost" data-action="open-canva-template" type="button">Open template</button>
+                  <button id="clear-canva-template-button" class="button button-ghost button-danger" data-action="clear-canva-template" type="button">Clear template</button>
                 </div>
               </section>
               </div>
 
-              <div class="workspace-pane" data-workspace-pane="listing">
-                <section id="tpt-listing-review" class="tpt-listing-review glass-panel" data-workspace-section="listing"></section>
-              </div>
               <div class="workspace-pane" data-workspace-pane="thumbnails">
                 <section id="tpt-thumbnails-review" class="tpt-listing-review glass-panel" data-workspace-section="thumbnails"></section>
               </div>
@@ -677,8 +677,8 @@
                     <p id="export-caption" class="muted"></p>
                   </div>
                   <div class="export-controls">
-                    <label class="field export-mode-field">
-                      <span>Export layout</span>
+                    <label class="field export-mode-field" for="export-mode-select">
+                      <span class="export-mode-label">Export layout</span>
                       <select id="export-mode-select">
                         <option value="STANDARD_SEQUENTIAL">Standard Single Pages (Sequential)</option>
                         <option value="BOOKLET_SADDLE_STITCH">Booklet Spreads (Saddle Stitch 2-Up)</option>
@@ -690,9 +690,12 @@
                     <button id="export-pdf-button" class="button button-gold" type="button" disabled>Export PDF</button>
                     <button id="export-zip-button" class="button button-ghost" type="button" disabled>Export ZIP</button>
                     <button id="export-pptx-button" class="button button-ghost" type="button" disabled>Export PPTX</button>
-                    <button id="open-tpt-upload-button" class="button button-ghost" type="button" disabled>TPT upload</button>
+                    <button id="open-tpt-upload-button" class="button button-ghost" type="button" hidden disabled>TPT upload</button>
                   </div>
                 </div>
+              </div>
+              <div class="workspace-pane" data-workspace-pane="listing">
+                <section id="tpt-listing-review" class="tpt-listing-review glass-panel" data-workspace-section="listing"></section>
               </div>
               </div>
               </div>
@@ -710,7 +713,7 @@
     <footer class="ui-footer" id="ui-footer" role="contentinfo">
       <div class="ui-footer__status">
         <span class="ui-footer__dot" id="ui-footer-dot" aria-hidden="true"></span>
-        <span id="ui-footer-status">Idle · 0%</span>
+        <span id="ui-footer-status">Ready · 0%</span>
         <span class="ui-footer__meter" aria-hidden="true"><i class="ui-footer__meter-fill" id="ui-footer-progress-fill"></i></span>
       </div>
       <div class="ui-footer__center" aria-hidden="true"></div>
@@ -745,7 +748,7 @@
             <span class="method-icon">↗</span>
             <span>
               <strong>Analyze product or URL (Competitor Workflow)</strong>
-              <small>Analyze a TPT/Book URL or manual metadata using the Content Gem, extract specs, and generate prompts.</small>
+              <small>Analyze a product URL or manual metadata, extract specs, and generate prompts.</small>
             </span>
             <span class="method-arrow">→</span>
           </button>
@@ -772,7 +775,7 @@
               <span>Product / Book URL</span>
               <input type="url" id="analysis-product-url" placeholder="https://www.teacherspayteachers.com/Product/... or Amazon link">
             </label>
-            <p class="field-hint">Paste a competitor product link to analyze target grade, page count, and key educational features. For Teachers Pay Teachers listings, the app captures gallery mockups and shows them to the model so it can infer structure from the previews.</p>
+            <p class="field-hint">Paste a competitor product link to analyze target grade, page count, and key educational features. Gallery mockups can help infer structure from previews.</p>
             <section id="windows-url-page-setup" class="analysis-output-setup" hidden aria-label="Windows book page setup">
               <div class="analysis-output-heading">
                 <div>
@@ -1197,7 +1200,7 @@
           <div>
             <p class="eyebrow">PROFILE &amp; DEFAULTS</p>
             <h2>Settings</h2>
-            <p>Save the information that should stay consistent across your projects and TPT listings.</p>
+            <p>Save defaults that stay consistent across your books.</p>
           </div>
           <button id="settings-close-button" class="icon-button" data-action="close-settings" type="button" aria-label="Close settings">×</button>
         </div>
@@ -1205,7 +1208,7 @@
         <div class="settings-layout">
           <nav class="settings-nav" aria-label="Settings sections">
             <button class="settings-nav-button is-active" data-action="select-settings-tab" data-settings-target="profile" type="button"><span>◎</span><span>Profile<small>Your identity and accounts</small></span></button>
-            <button class="settings-nav-button" data-action="select-settings-tab" data-settings-target="listing" type="button"><span>≡</span><span>Listing defaults<small>TPT fields kept by default</small></span></button>
+            <button class="settings-nav-button" data-action="select-settings-tab" data-settings-target="listing" type="button"><span>≡</span><span>SEO defaults<small>Tags &amp; subjects for Generate SEO</small></span></button>
             <button class="settings-nav-button" data-action="select-settings-tab" data-settings-target="workflow" type="button"><span>↻</span><span>Workflow<small>Appearance and new books</small></span></button>
             <button class="settings-nav-button" data-action="select-settings-tab" data-settings-target="automation" type="button"><span>⚡</span><span>Automation Pipeline<small>Automated execution</small></span></button>
             <button class="settings-nav-button" data-action="select-settings-tab" data-settings-target="notifications" type="button"><span>🔔</span><span>Notifications &amp; Sounds<small>Audio alerts &amp; pop-ups</small></span></button>
@@ -1223,7 +1226,7 @@
               <section class="chrome-profiles-panel">
                 <p class="eyebrow">BROWSER PROFILES</p>
                 <h4>Chrome profiles for Gemini and ChatGPT</h4>
-                <p class="field-hint">The selected Chrome profile must be signed into both Google Gemini (listing and page text) and ChatGPT (TPT Winner Mockups).</p>
+                <p class="field-hint">The selected Chrome profile must be signed into Google Gemini (listing and page text) and ChatGPT (mockups).</p>
                 <div class="profile-select-container">
                   <label for="settings-chatgpt-profile-select">Active profile to sync</label>
                   <select id="settings-chatgpt-profile-select">
@@ -1244,7 +1247,7 @@
               <section class="chrome-profiles-panel engine-picker">
                 <p class="eyebrow">ACTIVE IMAGE ENGINE</p>
                 <h4>One engine at a time for page images</h4>
-                <p class="field-hint">Gemini still writes analysis, blueprints, and prompts. Turn on ChatGPT, Gemini, or Meta AI only for interior page images.</p>
+                <p class="field-hint">Gemini still writes analysis, blueprints, and prompts. Turn on ChatGPT, Gemini, or Meta only for interior page images.</p>
                 <div class="engine-toggle-row">
                   <button class="engine-toggle is-on" id="engine-chatgpt-toggle" data-action="set-ai-engine" data-engine="chatgpt" type="button">
                     <span class="engine-toggle-brand brand-chatgpt" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/chatgpt.png" alt="ChatGPT" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></span>
@@ -1257,8 +1260,8 @@
                     <span class="engine-toggle-state" id="engine-gemini-state">Off</span>
                   </button>
                   <button class="engine-toggle" id="engine-meta-toggle" data-action="set-ai-engine" data-engine="meta" type="button">
-                    <span class="engine-toggle-brand brand-meta" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/meta.png" alt="Meta AI" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></span>
-                    <span class="engine-toggle-name">Meta AI</span>
+                    <span class="engine-toggle-brand brand-meta" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/meta.png" alt="Meta" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></span>
+                    <span class="engine-toggle-name">Meta</span>
                     <span class="engine-toggle-state" id="engine-meta-state">Off</span>
                   </button>
                 </div>
@@ -1271,7 +1274,7 @@
                     <span class="settings-status-dot"></span>
                     <small id="settings-mockups-status">Checking ChatGPT session</small>
                     <h4>ChatGPT account (mockups)</h4>
-                    <p id="settings-mockups-profile">Mockups use the TPT Winner Mockups Custom GPT. Sign in and verify ChatGPT separately from Gemini.</p>
+                    <p id="settings-mockups-profile">Mockups use the Winner Mockups Custom GPT. Sign in and verify ChatGPT separately from Gemini.</p>
                     <p id="settings-mockups-verified" class="integration-meta"></p>
                   </div>
                   <div class="integration-actions">
@@ -1297,18 +1300,18 @@
                   </div>
                 </article>
                 <article id="settings-meta-card" class="integration-card">
-                  <div class="integration-icon brand-meta" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/meta.png" alt="Meta AI" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></div>
+                  <div class="integration-icon brand-meta" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/meta.png" alt="Meta" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></div>
                   <div class="integration-copy">
                     <span class="settings-status-dot"></span>
                     <small id="settings-meta-status">Not connected</small>
-                    <h4>Meta AI (page images)</h4>
-                    <p id="settings-meta-profile">Sign in on meta.ai, then verify the local session. Used only while Meta AI is turned on for images.</p>
+                    <h4>Meta (page images)</h4>
+                    <p id="settings-meta-profile">Sign in on meta.ai, then verify the local session. Used only while Meta is turned on for images.</p>
                     <p id="settings-meta-verified" class="integration-meta"></p>
                   </div>
                   <div class="integration-actions">
                     <button class="button button-ghost button-danger" id="settings-meta-logout" data-action="settings-logout-meta" type="button" style="display: none;">Log out</button>
                     <button class="button button-ghost" data-action="settings-manage-meta" type="button">Sign in / manage</button>
-                    <button class="button button-gold" data-action="settings-verify-meta" type="button">Verify Meta AI</button>
+                    <button class="button button-gold" data-action="settings-verify-meta" type="button">Verify Meta</button>
                   </div>
                 </article>
                 <article id="settings-canva-card" class="integration-card">
@@ -1316,8 +1319,8 @@
                   <div class="integration-copy">
                     <span class="settings-status-dot"></span>
                     <small id="settings-canva-status">Not connected</small>
-                    <h4>Canva Pro (editable Magic Layer)</h4>
-                    <p id="settings-canva-profile">Sign in to Canva Pro in Chrome Canary, then verify. After interior pages finish, VERSA CLASS imports the print PDF, applies Magic Layer page by page, and saves a verified template link.</p>
+                    <h4>Canva Pro (optional / legacy)</h4>
+                    <p id="settings-canva-profile">Canva Pro must be signed in on Chrome Canary. Verify Canva in Settings before Build Canva layer.</p>
                     <p id="settings-canva-verified" class="integration-meta"></p>
                   </div>
                   <div class="integration-actions">
@@ -1344,7 +1347,7 @@
 
 
             <section class="settings-panel" data-settings-panel="listing" hidden>
-              <div class="settings-section-heading"><div><p class="eyebrow">TPT LISTING DEFAULTS</p><h3>Fields that carry into new listings</h3><p>Saved values are merged into every SEO Gem-generated listing. You can still change them per project.</p></div></div>
+              <div class="settings-section-heading"><div><p class="eyebrow">SEO DEFAULTS</p><h3>Fields merged into Generate SEO</h3><p>Saved values seed tags and subjects when the SEO stage drafts title, description, and tags. You can still edit the SEO copy per book.</p></div></div>
               <div class="settings-field-grid">
                 <label class="field field-wide"><span>Default tags <em>comma-separated, exact TPT names, up to 6</em></span><input id="settings-listing-tags" placeholder="Homeschool, Special Education"></label>
                 <label class="field field-wide"><span>Default subjects <em>comma-separated, exact TPT names, up to 3</em></span><input id="settings-listing-subjects" placeholder="English Language Arts, Math"></label>
@@ -1362,7 +1365,7 @@
             </section>
 
             <section class="settings-panel" data-settings-panel="workflow" hidden>
-              <div class="settings-section-heading"><div><p class="eyebrow">APPEARANCE</p><h3>Day and Midnight</h3><p>Same app. Day is the original sky studio. Midnight is the night version — deep, quiet, and built like a first-party Mac product.</p></div></div>
+              <div class="settings-section-heading"><div><p class="eyebrow">APPEARANCE</p><h3>Day and Night</h3><p>Same studio. Day is linen paper. Night is graphite. Both stay quiet and sharp.</p></div></div>
               <div class="appearance-chooser" role="radiogroup" aria-label="Appearance">
                 <button class="appearance-choice is-active" type="button" data-action="set-appearance" data-appearance="light">
                   <span class="appearance-preview appearance-preview-day" aria-hidden="true"><i></i><i></i></span>
@@ -1371,7 +1374,7 @@
                 </button>
                 <button class="appearance-choice" type="button" data-action="set-appearance" data-appearance="dark">
                   <span class="appearance-preview appearance-preview-night" aria-hidden="true"><i></i><i></i></span>
-                  <strong>Midnight</strong>
+                  <strong>Night</strong>
                   <small>Night studio</small>
                 </button>
                 <button class="appearance-choice" type="button" data-action="set-appearance" data-appearance="system">
@@ -1404,31 +1407,31 @@
                   <select id="auto-step-interior" class="auto-step-select" data-step="interior"><option value="always">Always Process</option><option value="ask">Ask Before Proceeding</option><option value="manual">Manual Process</option></select>
                 </div>
                 <div class="automation-step-row" id="automation-step-editable">
-                  <div><strong>4. Canva Editable Layer</strong><p class="muted" id="automation-step-editable-copy">Import the print PDF once, Magic Layer each page, save a verified template link. Skips static books. Defaults to Ask.</p></div>
+                  <div><strong>4. Canva Magic Layers</strong><p class="muted" id="automation-step-editable-copy">Import the print PDF once, Magic Layer each page, save a verified template link. Skips static books. Defaults to Ask.</p></div>
                   <select id="auto-step-editable" class="auto-step-select" data-step="editable"><option value="always">Always Process</option><option value="ask" selected>Ask Before Proceeding</option><option value="manual">Manual Process</option></select>
                 </div>
                 <div class="automation-step-row">
-                  <div><strong>5. TPT Listing Generation</strong><p class="muted">Generate TPT title, description, and tags.</p></div>
-                  <select id="auto-step-listing" class="auto-step-select" data-step="listing"><option value="always">Always Process</option><option value="ask">Ask Before Proceeding</option><option value="manual">Manual Process</option></select>
-                </div>
-                <div class="automation-step-row">
-                  <div><strong>6. Marketing Thumbnails Creation</strong><p class="muted">Generate promotional images and covers.</p></div>
+                  <div><strong>5. Marketing Thumbnails Creation</strong><p class="muted">Generate promotional images and covers.</p></div>
                   <select id="auto-step-thumbnails" class="auto-step-select" data-step="thumbnails"><option value="always">Always Process</option><option value="ask">Ask Before Proceeding</option><option value="manual">Manual Process</option></select>
                 </div>
                 <div class="automation-step-row">
-                  <div><strong>7. Preview Video (Veo 3)</strong><p class="muted">Teacher preview MP4 from mockups and pages.</p></div>
+                  <div><strong>6. Preview Video (Veo 3)</strong><p class="muted">Teacher preview MP4 from mockups and pages.</p></div>
                   <select id="auto-step-preview" class="auto-step-select" data-step="preview"><option value="always">Always Process</option><option value="ask">Ask Before Proceeding</option><option value="manual">Manual Process</option></select>
                 </div>
                 <div class="automation-step-row">
-                  <div><strong>8. PDF, ZIP &amp; PPTX Exporting</strong><p class="muted">Compile the final deliverable files.</p></div>
+                  <div><strong>7. PDF, ZIP &amp; PPTX Exporting</strong><p class="muted">Compile the final deliverable files.</p></div>
                   <select id="auto-step-export" class="auto-step-select" data-step="export"><option value="always">Always Process</option><option value="ask">Ask Before Proceeding</option><option value="manual">Manual Process</option></select>
+                </div>
+                <div class="automation-step-row">
+                  <div><strong>8. Best-seller SEO</strong><p class="muted">Upload the finished book PDF and draft title, description, and tags together.</p></div>
+                  <select id="auto-step-listing" class="auto-step-select" data-step="listing"><option value="always">Always Process</option><option value="ask">Ask Before Proceeding</option><option value="manual">Manual Process</option></select>
                 </div>
                 <div class="automation-step-row readonly-row">
                   <div><strong>9. Mark as Ready to Publish</strong><p class="muted">Final manual review step.</p></div>
                   <span class="automation-step-mode-badge manual-only">Manual Only</span>
                 </div>
               </div>
-              <div class="settings-warning">“Ask” pauses for confirmation. “Manual” skips that step and continues to the next one. Canva Editable is Ask by default because it uses your Canva Pro account.</div>
+              <div class="settings-warning">“Ask” pauses for confirmation. “Manual” skips that step and continues to the next one. Canva editable is Ask by default so you can review interior pages first.</div>
             </section>
 
             <section class="settings-panel" data-settings-panel="notifications" hidden>
@@ -1506,7 +1509,7 @@
                       <div class="update-title-row">
                         <h4>VERSA CLASS Studio</h4>
                         <span id="settings-current-version" class="version-chip">v0.1.0</span>
-                        <span id="settings-update-status-badge" class="status-chip chip-neutral">Idle</span>
+                        <span id="settings-update-status-badge" class="status-chip chip-neutral">Ready</span>
                       </div>
                       <p id="settings-update-message" class="update-status-description">Click "Check for Updates" to look for new releases.</p>
                     </div>

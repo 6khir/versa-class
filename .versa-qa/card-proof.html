@@ -1,0 +1,117 @@
+<!doctype html>
+<html data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <title>VERSA CLASS page-card proof</title>
+  <link rel="stylesheet" href="../renderer/pro-suite.css" />
+  <style>
+    body.ui-redesign.versa-studio.pro-suite {
+      margin: 0;
+      padding: 28px;
+      background: #eef6fd;
+      font-family: Nunito, Geist, system-ui, sans-serif;
+      --ink: #023085;
+      --dim: #5a7aa8;
+      --line: rgba(0, 64, 155, 0.14);
+      --line-2: rgba(0, 64, 155, 0.28);
+      --s1: #fff;
+      --s2: #f4f9fd;
+      --bg-2: #fff;
+      --accent: #00409b;
+      --ok: #48ce89;
+    }
+    .page-preview-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(220px, 1fr));
+      gap: 16px;
+      max-width: 720px;
+    }
+    .page-preview-card {
+      overflow: hidden;
+      border: 1px solid rgba(94, 186, 224, 0.28);
+      border-radius: 16px;
+      background: #fff;
+      box-shadow: 0 10px 28px rgba(70, 150, 190, 0.08);
+    }
+    .page-visual {
+      position: relative;
+      aspect-ratio: 8.5 / 11;
+      background: linear-gradient(180deg, #d9ecfb, #f7fbff);
+      display: grid;
+      place-items: center;
+      border-bottom: 1px solid rgba(94, 186, 224, 0.16);
+      color: #00409b;
+      font-weight: 800;
+      font-size: 22px;
+      text-align: center;
+      padding: 18px;
+    }
+    .page-card-body { padding: 12px; }
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 800;
+      background: rgba(72, 206, 137, 0.85);
+      color: #023085;
+    }
+    .row-button {
+      width: 30px;
+      height: 30px;
+      border: 1px solid rgba(0, 64, 155, 0.18);
+      border-radius: 8px;
+      background: #fff;
+      color: #023085;
+    }
+    h1 { color: #00409b; font-size: 18px; margin: 0 0 16px; }
+  </style>
+</head>
+<body class="ui-redesign versa-studio pro-suite">
+  <h1>Interior page cards — Regenerate full + Complete off art</h1>
+  <div class="page-preview-grid">
+    <article class="page-preview-card has-image">
+      <div class="page-visual">CLASSROOM POLICIES &amp; IMPORTANT INFO</div>
+      <div class="page-card-body">
+        <div class="page-card-heading">
+          <strong class="page-card-title">Page 3</strong>
+          <span class="page-card-status"><span class="status-chip status-complete">Complete</span></span>
+        </div>
+        <details class="page-card-prompt-wrap"><summary>Prompt</summary><p class="page-card-prompt">Collapsed by default.</p></details>
+        <div class="page-card-meta"><span>Conversation saved</span></div>
+      </div>
+      <div class="page-card-actions">
+        <div class="page-card-tools">
+          <button class="row-button" type="button">⛶</button>
+          <button class="row-button" type="button">↗</button>
+          <button class="row-button" type="button">✎</button>
+          <button class="row-button is-danger" type="button">✕</button>
+        </div>
+        <button class="row-button is-regen" type="button">Regenerate</button>
+      </div>
+    </article>
+    <article class="page-preview-card has-image">
+      <div class="page-visual">GETTING TO KNOW STUDENT</div>
+      <div class="page-card-body">
+        <div class="page-card-heading">
+          <strong class="page-card-title">Page 4</strong>
+          <span class="page-card-status"><span class="status-chip status-complete">Complete</span></span>
+        </div>
+        <details class="page-card-prompt-wrap"><summary>Prompt</summary><p class="page-card-prompt">Collapsed by default.</p></details>
+        <div class="page-card-meta"><span>Conversation saved</span></div>
+      </div>
+      <div class="page-card-actions">
+        <div class="page-card-tools">
+          <button class="row-button" type="button">⛶</button>
+          <button class="row-button" type="button">↗</button>
+          <button class="row-button" type="button">✎</button>
+          <button class="row-button is-danger" type="button">✕</button>
+        </div>
+        <button class="row-button is-regen" type="button">Regenerate</button>
+      </div>
+    </article>
+  </div>
+</body>
+</html>

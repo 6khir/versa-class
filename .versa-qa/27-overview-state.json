@@ -1,0 +1,79 @@
+{
+  "labels": [
+    "Product progress",
+    "Interior",
+    "Canva",
+    "Listing",
+    "Mockups",
+    "Preview",
+    "Export"
+  ],
+  "stages": [
+    "overall",
+    "interior",
+    "editable",
+    "listing",
+    "thumbnails",
+    "preview",
+    "export"
+  ],
+  "buttons": [
+    {
+      "text": "Start full automation",
+      "disabled": false,
+      "w": 168,
+      "h": 32,
+      "stage": "start-full-automation"
+    },
+    {
+      "text": "Regenerate",
+      "disabled": false,
+      "w": 148,
+      "h": 32,
+      "stage": "interior"
+    },
+    {
+      "text": "Build Canva layer",
+      "disabled": false,
+      "w": 148,
+      "h": 32,
+      "stage": "editable"
+    },
+    {
+      "text": "Start listing",
+      "disabled": false,
+      "w": 148,
+      "h": 32,
+      "stage": "listing"
+    },
+    {
+      "text": "Start mockups",
+      "disabled": false,
+      "w": 148,
+      "h": 32,
+      "stage": "thumbnails"
+    },
+    {
+      "text": "Start preview",
+      "disabled": false,
+      "w": 148,
+      "h": 32,
+      "stage": "preview"
+    },
+    {
+      "text": "Start export",
+      "disabled": false,
+      "w": 148,
+      "h": 32,
+      "stage": "export"
+    }
+  ],
+  "folderDisabled": false,
+  "mockupsDisabled": false,
+  "previewDisabled": false,
+  "canvaTabHidden": false,
+  "canvaCardHidden": false,
+  "charsHidden": true,
+  "format": "Editable",
+  "labelColor": "rgb(158, 201, 245)"
+}

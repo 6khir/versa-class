@@ -1,8 +1,8 @@
 const crypto = require('crypto');
 
 class DataEncryption {
-  constructor(masterKey) {
-    this.masterKey = crypto.scryptSync(masterKey, 'salt', 32);
+  constructor(masterKey, salt = process.env.ENCRYPTION_SALT || 'versa_class_scrypt_salt_v1') {
+    this.masterKey = crypto.scryptSync(masterKey, salt, 32);
   }
   
   encrypt(data) {
@@ -19,6 +19,9 @@ class DataEncryption {
   }
   
   decrypt(encryptedData) {
+    if (!encryptedData || !encryptedData.iv || !encryptedData.authTag || !encryptedData.encrypted) {
+      throw new Error('Invalid encrypted payload structure');
+    }
     const decipher = crypto.createDecipheriv(
       'aes-256-gcm',
       this.masterKey,

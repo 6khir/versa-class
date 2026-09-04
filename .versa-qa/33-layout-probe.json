@@ -1,0 +1,38 @@
+{
+  "labelColor": "rgb(215, 236, 255)",
+  "gap": 0,
+  "settings": {
+    "id": "project-hero glass-panel studio-stage-se",
+    "top": 784,
+    "bottom": 836,
+    "h": 52,
+    "padB": "10px",
+    "bg": "color(srgb 0.0470588 0.121569 0.282353 / 0.92)"
+  },
+  "footer": {
+    "id": "ui-footer",
+    "top": 836,
+    "bottom": 870,
+    "h": 34,
+    "padB": "0px",
+    "bg": "color(srgb 0.0392157 0.101961 0.219608 / 0.9)"
+  },
+  "canvas": {
+    "id": "ui-primary-canvas",
+    "top": 56,
+    "bottom": 836,
+    "h": 780,
+    "padB": "0px",
+    "bg": "color(srgb 0.0470588 0.121569 0.282353 / 0.88)"
+  },
+  "view": {
+    "id": "project-standard-view",
+    "top": 56,
+    "bottom": 836,
+    "h": 780,
+    "padB": "0px",
+    "bg": "color(srgb 0.0470588 0.121569 0.282353 / 0.88)"
+  },
+  "layer": "spine",
+  "mode": "studio"
+}

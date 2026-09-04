@@ -1,0 +1,32 @@
+<section id="canva-dashboard" class="flex flex-col gap-4 p-4 bg-var(--bg)" aria-label="Mini Canva Dashboard">
+  <div class="toolbar flex items-center gap-2" role="toolbar" aria-label="Canva controls">
+    <button id="btn-upload" class="btn" aria-label="Upload PDF (⌘U)">Upload PDF</button>
+    <button id="btn-run" class="btn" aria-label="Run Magic (⌘M)">Run Magic</button>
+    <button id="btn-approve" class="btn" aria-label="Approve Magic (⌘A)">Approve</button>
+    <button id="btn-final" class="btn" aria-label="Finalize Template (⌘F)">Finalize</button>
+    <button id="btn-copy" class="btn" aria-label="Copy Template Link (⌘C)">Copy Link</button>
+  </div>
+  <div id="telemetry-area" class="text-sm" aria-live="polite"></div>
+  <webview id="canva-webview"
+    src="https://www.canva.com"
+    nodeintegration="false"
+    contextIsolation="true"
+    style="flex:1;width:100%;border:none;"
+    sandbox="allow-scripts allow-same-origin"
+    aria-label="Canva editor"
+  ></webview>
+</section>
+<style>
+  :root { --color-primary: var(--zinc-600); --bg: var(--zinc-50); }
+  .btn {
+    padding: 4px 8px; /* 4px vertical, 8px horizontal per 4/8 modular scale */
+    border-radius: 4px;
+    background: var(--color-primary);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.2s cubic-bezier(0.16,1,0.3,1);
+  }
+  .btn:focus-visible { outline: 2px solid var(--zinc-400); }
+  .btn:active { transform: scale(0.97); }
+</style>

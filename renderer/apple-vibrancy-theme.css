@@ -1,0 +1,145 @@
+/* VERSA CLASS — Apple-style vibrancy. Colors come from theme tokens so Day and Midnight both stay native. */
+
+:root {
+  --apple-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --apple-glass: rgba(250, 251, 252, 0.78);
+  --apple-glass-border: rgba(0, 0, 0, 0.06);
+  --apple-canvas: #F3F5F7;
+  --apple-heading: var(--text-bright);
+  --apple-quiet: var(--muted);
+  --apple-tab-idle: #4B5563;
+  --apple-tab-active-bg: #ffffff;
+  --apple-tab-active: #111827;
+  --apple-dialog: rgba(255, 255, 255, 0.94);
+  --apple-pill: rgba(0, 0, 0, 0.045);
+  --apple-nav: rgba(118, 118, 128, 0.12);
+}
+
+html[data-theme="dark"] {
+  --apple-glass: rgba(14, 15, 20, 0.72);
+  --apple-glass-border: rgba(255, 255, 255, 0.08);
+  --apple-canvas: transparent;
+  --apple-heading: #F5F5F7;
+  --apple-quiet: #8E8E93;
+  --apple-tab-idle: #A1A1A6;
+  --apple-tab-active-bg: #2C2C34;
+  --apple-tab-active: #F5F5F7;
+  --apple-dialog: rgba(22, 23, 30, 0.92);
+  --apple-pill: rgba(255, 255, 255, 0.06);
+  --apple-nav: rgba(118, 118, 128, 0.32);
+}
+
+body, input, select, textarea, button {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.015em !important;
+}
+
+h1, h2, h3, h4, h5, h6, .eyebrow, strong {
+  letter-spacing: -0.03em !important;
+  font-weight: 600 !important;
+  color: var(--apple-heading) !important;
+}
+
+.sidebar, .topbar {
+  background: var(--apple-glass) !important;
+  backdrop-filter: blur(40px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(180%) !important;
+  border-right: 0.5px solid var(--apple-glass-border) !important;
+}
+
+.topbar {
+  border-bottom: 0.5px solid var(--apple-glass-border) !important;
+  box-shadow: none !important;
+}
+
+.main-content {
+  background: var(--apple-canvas) !important;
+}
+
+.profile-pill {
+  min-height: 42px !important;
+  height: auto !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 6px 14px 6px 6px !important;
+  border-radius: 40px !important;
+  background: var(--apple-pill) !important;
+  border: 0.5px solid var(--apple-glass-border) !important;
+}
+.profile-pill-avatar {
+  border-radius: 50% !important;
+  width: 32px !important;
+  height: 32px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.profile-pill-copy {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  gap: 2px !important;
+}
+.profile-pill-copy strong {
+  display: block !important;
+  font-size: 13px !important;
+  line-height: 1 !important;
+  margin: 0 !important;
+}
+.profile-pill-copy small {
+  display: block !important;
+  font-size: 11px !important;
+  line-height: 1 !important;
+  margin: 0 !important;
+  color: var(--apple-quiet) !important;
+}
+.profile-pill > svg {
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+.project-workspace-nav {
+  background: var(--apple-nav) !important;
+  border: 0.5px solid var(--apple-glass-border) !important;
+  border-radius: 9px !important;
+  padding: 2px !important;
+  display: inline-flex !important;
+  gap: 0 !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+}
+.workspace-tab {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 7px !important;
+  padding: 6px 16px !important;
+  font-weight: 500 !important;
+  color: var(--apple-tab-idle) !important;
+}
+.workspace-tab.is-active {
+  background: var(--apple-tab-active-bg) !important;
+  color: var(--apple-tab-active) !important;
+  font-weight: 600 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+dialog[open] {
+  animation: slide-up 0.5s var(--apple-spring) forwards !important;
+  border-radius: 20px !important;
+  border: 0.5px solid var(--apple-glass-border) !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.2) !important;
+  background: var(--apple-dialog) !important;
+  backdrop-filter: blur(40px) saturate(160%) !important;
+}
+@keyframes slide-up {
+  from { transform: translateY(40px) scale(0.98); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.integration-icon {
+  border-radius: 22% !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  background: transparent !important;
+}

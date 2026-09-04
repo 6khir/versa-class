@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Versa AI">
+  <defs>
+    <radialGradient id="brand-bg" cx="50%" cy="43%" r="72%">
+      <stop offset="0" stop-color="#a855f7"/>
+      <stop offset=".48" stop-color="#6d28d9"/>
+      <stop offset="1" stop-color="#120a24"/>
+    </radialGradient>
+    <filter id="logo-shadow" x="-20%" y="-30%" width="140%" height="180%">
+      <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#07060f" flood-opacity=".48"/>
+    </filter>
+  </defs>
+  <rect x="50" y="50" width="412" height="412" rx="92" fill="url(#brand-bg)"/>
+  <path d="M50 153h412M50 256h412M50 359h412M153 50v412M256 50v412M359 50v412" stroke="#d8b4fe" stroke-opacity=".08"/>
+  <image href="brand/versa-monogram.png" x="77" y="189" width="358" height="134" preserveAspectRatio="xMidYMid meet" filter="url(#logo-shadow)"/>
+</svg>

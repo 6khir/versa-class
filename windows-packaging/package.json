@@ -1,0 +1,10 @@
+{
+  "name": "versa-class-windows-packaging",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Isolated Windows packaging, license-gate, and obfuscation pipeline for VERSA CLASS",
+  "scripts": {
+    "test": "node --test tests/license-gate.test.cjs tests/inject-license-gate.test.cjs tests/obfuscate.test.cjs",
+    "build": "node build.cjs"
+  }
+}

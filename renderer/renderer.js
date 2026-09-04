@@ -42,7 +42,7 @@ let authManagerOpenedManually = false;
 let authTarget = 'gemini';
 let activeWorkspaceView = 'overview';
 let lastRenderedWorkspaceView = null;
-const WORKSPACE_PANES = ['overview', 'characters', 'interior', 'editable', 'listing', 'thumbnails', 'preview', 'export'];
+const WORKSPACE_PANES = ['overview', 'characters', 'interior', 'editable', 'thumbnails', 'preview', 'export', 'listing'];
 let activeSettingsTab = 'profile';
 let imagePreviewItems = [];
 let imagePreviewIndex = 0;
@@ -73,7 +73,7 @@ const elements = Object.fromEntries([
   'bundle-upload-sidebar-btn', 'bundle-upload-view', 'bundle-projects-list', 'bundle-empty-state',
   'bundle-ready-badge', 'start-bundle-btn', 'stop-bundle-btn',
   'project-meta', 'project-title', 'project-format-toggle', 'project-theme', 'output-folder-button', 'retry-all-button',
-  'pause-button', 'live-pause-button', 'run-button', 'stat-total', 'stat-complete', 'stat-remaining', 'stat-percent',
+  'pause-button', 'live-pause-button', 'studio-stage-pause', 'studio-banner-pause', 'run-button', 'stat-total', 'stat-complete', 'stat-remaining', 'stat-percent',
   'queue-caption', 'current-job-label', 'current-job-status', 'progress-fill', 'progress-percent-label', 'heartbeat-text', 'live-dock',
   'jobs-table', 'detail-title', 'detail-status-wrap', 'detail-error', 'detail-prompt',
   'detail-story-text-wrap', 'detail-story-text',
@@ -196,6 +196,22 @@ function statusChip(status) {
   return `<span class="status-chip status-${escapeHtml(status)}">${escapeHtml(statusLabel(status))}</span>`;
 }
 
+function humanPageLabel(job) {
+  const n = Number(job?.pageNumber) || 0;
+  const title = String(job?.title || '').trim()
+    .replace(/^page\s*\d+\s*:\s*/i, '')
+    .replace(/^prompt\s*\d+\s*:\s*/i, '')
+    .replace(/^@image\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const looksTechnical = !title
+    || /_\w+\.(png|jpe?g|webp)$/i.test(title)
+    || /\d{3,}\s*[x×]\s*\d{3,}/i.test(title)
+    || title.length > 56;
+  if (looksTechnical) return `Page ${n}`;
+  return `Page ${n} · ${title}`;
+}
+
 const JOB_FILL_PERCENT = {
   pending: 8,
   retry_wait: 10,
@@ -233,7 +249,7 @@ const STAGE_STATE_LABELS = {
   done: 'Done',
   live: 'Running',
   progress: 'In progress',
-  waiting: 'Idle',
+  waiting: 'Ready',
   blocked: 'Waiting',
   skipped: 'Not in this book',
   error: 'Error'
@@ -315,12 +331,20 @@ function runningOnWindows() {
   return state?.app?.platform === 'win32';
 }
 
+function storedAppearance() {
+  try {
+    const stored = localStorage.getItem('versa-theme');
+    if (stored === 'dark' || stored === 'light') return stored;
+  } catch {}
+  return '';
+}
+
 function appearancePreference() {
-  return state?.app?.appearance?.preference || state?.settings?.appearance || 'light';
+  return storedAppearance() || state?.app?.appearance?.preference || state?.settings?.appearance || 'dark';
 }
 
 function appearanceResolved() {
-  return state?.app?.appearance?.resolved || document.documentElement.dataset.theme || 'light';
+  return storedAppearance() || state?.app?.appearance?.resolved || document.documentElement.dataset.theme || 'dark';
 }
 
 function applyAppearanceUi() {
@@ -720,11 +744,11 @@ function browserBusyReason() {
   }
   const live = state?.liveOperation;
   if (live?.kind === 'canva') return 'Canva is using the browser. You can still open listing, interior, export, and settings.';
-  if (live?.kind === 'listing') return 'Listing is using the browser. You can still open other tabs.';
+  if (live?.kind === 'listing') return 'SEO is using the browser. You can still open other tabs.';
   if (live?.kind === 'thumbnails') return 'Mockups are using the browser. You can still open other tabs.';
   if (live?.kind === 'preview') return 'Preview is using the browser. You can still open other tabs.';
   if (state?.workBusy?.characters) return 'Character references are generating. You can still open other tabs.';
-  if (state?.workBusy?.tptListing) return 'TPT upload is using the browser. You can still open other tabs.';
+  if (state?.workBusy?.tptListing) return 'SEO work is running in the background. You can still open other tabs.';
   if (state?.automation?.active && !state?.automation?.paused) {
     return 'Full automation is running. Pause it to start a stage by itself. You can still open other tabs.';
   }
@@ -735,13 +759,11 @@ function stageStartBlockReason(step, project) {
   const stats = project?.stats || {};
   const listing = project?.tptListing || {};
   const thumbnailCount = (listing.thumbnailPaths || []).filter(Boolean).length;
-  const characters = project?.highlights && typeof project.highlights === 'object' && Array.isArray(project.highlights.characters)
-    ? project.highlights.characters
-    : [];
+  const hasPages = Number(stats.complete) > 0 || Number(stats.total) > 0;
+  const hasPdf = Boolean(listing.productPdfPath || project?.productPdfPath);
+  const hasListingContent = Boolean(listing.title || listing.rawResponse || listing.description);
   if (step === 'characters') {
-    if (project?.projectType !== 'storybook') return 'Characters are only for storybooks.';
-    if (!characters.length) return 'This book has no character cards.';
-    return browserBusyReason();
+    return 'Characters is not part of this studio.';
   }
   if (step === 'interior') {
     if (!stats.total) return 'Create pages first.';
@@ -750,16 +772,18 @@ function stageStartBlockReason(step, project) {
   }
   if (step === 'editable') {
     if (canvaLocked()) return canvaLockMessage();
-    if (project?.productFormat !== 'editable') return 'Mark the book Editable first.';
-    if (!stats.total || stats.complete !== stats.total) return 'Export print PDF first — finish every interior page.';
+    if (project?.productFormat !== 'editable') return 'Canva Magic Layer is only for editable books.';
+    if (!hasPages && !hasPdf) return 'Add pages or a print PDF first.';
     return browserBusyReason();
   }
   if (step === 'listing') {
-    if (!stats.total || stats.complete !== stats.total) return 'Finish interior pages first.';
+    if (!hasPages && !hasPdf) return 'Add pages or a PDF before SEO.';
     return browserBusyReason();
   }
   if (step === 'thumbnails') {
-    if (!listing.productPdfPath) return 'Create the listing first.';
+    if (!hasPages && !hasPdf && !hasListingContent) {
+      return 'Add pages, a PDF, or listing content before mockups.';
+    }
     return browserBusyReason();
   }
   if (step === 'preview') {
@@ -767,7 +791,7 @@ function stageStartBlockReason(step, project) {
     return browserBusyReason();
   }
   if (step === 'export') {
-    if (!stats.total || stats.complete !== stats.total) return 'Finish interior pages first.';
+    if (!hasPages && !hasPdf) return 'Add pages or a PDF before export.';
     return '';
   }
   return '';
@@ -1480,14 +1504,14 @@ function activeEngine() {
 
 function engineLabel(engine = activeEngine()) {
   if (engine === 'gemini') return 'Gemini';
-  if (engine === 'meta') return 'Meta AI';
+  if (engine === 'meta') return 'Meta';
   return 'ChatGPT';
 }
 
 function unusedEngineSummary(engine = activeEngine()) {
   if (engine === 'meta') return 'Gemini still writes prompts. ChatGPT stays signed in and unused for images.';
-  if (engine === 'gemini') return 'ChatGPT and Meta AI stay signed in and unused for images.';
-  return 'Gemini still writes prompts. Meta AI stays signed in and unused for images.';
+  if (engine === 'gemini') return 'ChatGPT and Meta stay signed in and unused for images.';
+  return 'Gemini still writes prompts. Meta stays signed in and unused for images.';
 }
 
 function renderBrowser() {
@@ -1495,30 +1519,26 @@ function renderBrowser() {
   const queueRunning = Boolean(state?.queue?.running);
   const loginRequired = Boolean(state?.app?.loginRequired);
   const meta = activeEngine() === 'meta';
-  const metaReady = Boolean(state?.integrations?.meta?.connected);
   elements.browserPill.classList.toggle('is-online', connected);
   elements.browserPill.classList.toggle('is-offline', !connected);
+  if (elements.focusBrowserButton) {
+    elements.focusBrowserButton.hidden = true;
+    elements.focusBrowserButton.disabled = true;
+  }
+  if (elements.launchBrowserButton) {
+    elements.launchBrowserButton.hidden = true;
+  }
   if (meta) {
     elements.browserLabel.textContent = loginRequired
-      ? 'Meta AI: sign in on meta.ai'
-      : (connected ? `${state?.browser?.browserLabel || 'Chrome'} · Meta AI` : 'Meta AI ready');
-    elements.focusBrowserButton.hidden = !connected;
-    elements.launchBrowserButton.textContent = metaReady ? 'Manage Meta AI login' : 'Sign in to Meta AI';
-    elements.launchBrowserButton.disabled = Boolean(state?.queue?.running);
+      ? 'Meta: sign in from Settings'
+      : (connected ? 'Meta running in background' : 'Meta ready');
     return;
   }
   elements.browserLabel.textContent = connected
-    ? (queueRunning || state.browser.headless
-      ? 'Generation browser running in the background'
-      : (state.browser.loginMode && loginRequired
-      ? `${state.browser.browserLabel ?? 'Chrome'} opened — verify when your account appears`
-      : (state.browser.loginMode
-        ? 'Gemini connected — Chrome open for session management'
-        : `${state.browser.browserLabel ?? 'Chrome'} connected`)))
-    : (state?.app?.loginRequired ? 'Gemini login required' : 'Gemini ready');
-  elements.focusBrowserButton.hidden = true;
-  elements.launchBrowserButton.textContent = 'Manage Gemini login';
-  elements.launchBrowserButton.disabled = Boolean(state?.queue?.running);
+    ? (queueRunning || state.browser.headless || !state.browser.loginMode
+      ? 'Engine running in background'
+      : (loginRequired ? 'Sign in from Settings when ready' : 'Engine connected'))
+    : (loginRequired ? 'Sign in from Settings' : 'Engine ready');
 }
 
 function renderUpdate() {
@@ -1572,7 +1592,7 @@ function renderUpdate() {
       elements.settingsUpdateStatusBadge.textContent = 'Dev Mode';
     } else {
       elements.settingsUpdateStatusBadge.classList.add('chip-neutral');
-      elements.settingsUpdateStatusBadge.textContent = 'Idle';
+      elements.settingsUpdateStatusBadge.textContent = 'Ready';
     }
   }
 
@@ -1662,7 +1682,7 @@ function configureAuthDialog(target = 'gemini') {
   if (elements.authTitle) {
     elements.authTitle.textContent = chatgpt
       ? 'Connect ChatGPT'
-      : (meta ? 'Connect Meta AI' : 'Connect Google Gemini');
+      : (meta ? 'Connect Meta' : 'Connect Google Gemini');
   }
   if (elements.authCopy) {
     elements.authCopy.textContent = chatgpt
@@ -1674,12 +1694,12 @@ function configureAuthDialog(target = 'gemini') {
   if (elements.authOpenButton) {
     elements.authOpenButton.textContent = chatgpt
       ? 'Sign in to ChatGPT'
-      : (meta ? 'Sign in to Meta AI' : 'Sign in to Gemini');
+      : (meta ? 'Sign in to Meta' : 'Sign in to Gemini');
   }
   if (elements.authVerifyButton) {
     elements.authVerifyButton.textContent = chatgpt
       ? 'Verify ChatGPT'
-      : (meta ? 'Verify Meta AI' : 'Verify Gemini');
+      : (meta ? 'Verify Meta' : 'Verify Gemini');
   }
 }
 
@@ -1869,7 +1889,7 @@ function renderSettingsConnections() {
     if (elements.settingsMetaProfile) {
       const metaIdentity = [metaDetected.name, metaDetected.email].filter(Boolean).join(' · ');
       elements.settingsMetaProfile.textContent = metaConnected
-        ? (metaIdentity || 'The Meta AI session is valid. It generates images only while Meta AI is turned on.')
+        ? (metaIdentity || 'The Meta session is valid. It generates images only while Meta is turned on.')
         : 'Sign in on meta.ai, then verify the local session.';
     }
     if (elements.settingsMetaVerified) {
@@ -1899,7 +1919,7 @@ function renderSettingsConnections() {
       elements.settingsCanvaProfile.textContent = canvaLocked()
         ? canvaLockMessage()
         : canvaConnected
-          ? (canvaIdentity || 'Canva Pro is verified. After interior pages finish, the print PDF is imported once and Magic Layer is applied page by page.')
+          ? (canvaIdentity || 'Canva login is optional now. Editable products build PowerPoint + SVG files instead of Magic Layers.')
           : 'Sign in to Canva Pro in Google Chrome Canary, then verify. This is separate from Gemini and ChatGPT.';
     }
     if (elements.settingsCanvaVerified) {
@@ -2154,6 +2174,7 @@ function renderProjectList() {
     const generating = isGeneratingThisProject(project);
     return `
       <button class="project-item status-${projectStatusTone(project.status)} ${active ? 'is-active' : ''} ${generating ? 'is-generating' : ''}" data-action="select-project" data-project-id="${escapeHtml(project.id)}" type="button" style="--i:${index}">
+        <span class="project-cover" aria-hidden="true" data-letter="${escapeHtml((displayProjectName(project.name) || 'B').trim().charAt(0).toUpperCase())}"></span>
         <span class="project-item-main">
           <strong>${escapeHtml(displayProjectName(project.name))}</strong>
           <span class="project-badges"><span class="project-type-badge">${escapeHtml(projectTypeLabel(project))}</span>${project.productFormat === 'editable' ? '<span class="project-format-badge">Editable</span>' : ''}${generating ? '<span class="project-live-badge">Live</span>' : ''}</span>
@@ -2164,6 +2185,23 @@ function renderProjectList() {
       </button>
     `;
   }).join('');
+  const liveSearch = document.getElementById('ui-global-search')?.value;
+  if (window.versaUi?.filterProjects) {
+    const applied = window.versaUi.filterProjects(liveSearch || '', { revealLibrary: false });
+    // #region agent log
+    if (String(liveSearch || '').trim()) {
+      const rePayload = {sessionId:'1c3662',runId:'search-debug',hypothesisId:'D',location:'renderer.js:renderProjectList',message:'reapplied search after render',data:{liveSearch:String(liveSearch).slice(0,80),applied},timestamp:Date.now()};
+      fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify(rePayload)}).catch(()=>{});
+      window.tptDesktop?.debugAgentLog?.(rePayload);
+    }
+    // #endregion
+  } else if (String(liveSearch || '').trim()) {
+    // #region agent log
+    const missingApi = {sessionId:'1c3662',runId:'search-debug',hypothesisId:'D',location:'renderer.js:renderProjectList',message:'versaUi.filterProjects missing during render',data:{liveSearch:String(liveSearch).slice(0,80)},timestamp:Date.now()};
+    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify(missingApi)}).catch(()=>{});
+    window.tptDesktop?.debugAgentLog?.(missingApi);
+    // #endregion
+  }
 }
 
 function filterJobs(jobs) {
@@ -2221,35 +2259,44 @@ function renderJobs(project) {
               <em>${fill}%</em>
             </div>
           `}
-          <span class="page-visual-status">${statusChip(job.status)}</span>
         </div>
         <div class="page-card-body">
+          <div class="page-card-heading">
+            <strong class="page-card-title">${escapeHtml(humanPageLabel(job))}</strong>
+            <span class="page-card-status">${statusChip(job.status)}</span>
+          </div>
           ${isStoryPage ? `
             ${storyText ? `
             <section class="story-page-text-section">
-              <span class="page-content-label">Story Text</span>
+              <span class="page-content-label">Story text</span>
               <p>${escapeHtml(storyText)}</p>
             </section>
             ` : ''}
             <details class="story-image-prompt-details">
               <summary data-action="toggle-page-prompt">
-                <span>Image Prompt</span>
+                <span>Image prompt</span>
                 <span class="prompt-accordion-icon" aria-hidden="true">⌄</span>
               </summary>
               <div class="story-image-prompt-body">${escapeHtml(job.imagePrompt || job.prompt)}</div>
             </details>
-          ` : `<p class="page-card-prompt">${escapeHtml(job.imagePrompt || job.prompt)}</p>`}
+          ` : `
+            <details class="page-card-prompt-wrap">
+              <summary>Prompt</summary>
+              <p class="page-card-prompt">${escapeHtml(job.imagePrompt || job.prompt)}</p>
+            </details>
+          `}
           <div class="page-card-meta">
-            <span>${escapeHtml(job.fileName)}</span>
             <span>${job.conversationUrl ? 'Conversation saved' : `Attempt ${job.attempts}/5`}</span>
           </div>
         </div>
         <div class="page-card-actions">
-          <button class="row-button" data-action="zoom-job" data-job-id="${escapeHtml(job.id)}" title="Open full-size preview" type="button" ${job.outputPath ? '' : 'disabled'}>⛶</button>
-          <button class="row-button" data-action="open-job" data-job-id="${escapeHtml(job.id)}" title="Open saved Gemini conversation" type="button" ${busyBrowser || !job.conversationUrl ? 'disabled' : ''}>↗</button>
-          <button class="row-button" data-action="edit-job" data-job-id="${escapeHtml(job.id)}" title="Edit image in this conversation" type="button" ${queueLocksThisProject || !job.outputPath || job.editInstruction ? 'disabled' : ''}>✎</button>
-          <button class="row-button" data-action="${job.status === 'complete' ? 'regenerate-job' : 'retry-job'}" data-job-id="${escapeHtml(job.id)}" title="${job.status === 'complete' ? 'Regenerate in saved conversation' : 'Retry page in saved conversation'}" type="button" ${queueLocksThisProject || job.editInstruction || (job.status === 'complete' && !job.conversationUrl) ? 'disabled' : ''}>↻</button>
-          <button class="row-button" data-action="delete-job-image" data-job-id="${escapeHtml(job.id)}" title="Delete this page image" type="button" ${queueLocksThisProject || !job.outputPath ? 'disabled' : ''}>✕</button>
+          <div class="page-card-tools">
+            <button class="row-button" data-action="zoom-job" data-job-id="${escapeHtml(job.id)}" title="Open full-size preview" type="button" ${job.outputPath ? '' : 'disabled'}>⛶</button>
+            <button class="row-button" data-action="open-job" data-job-id="${escapeHtml(job.id)}" title="Open saved conversation" type="button" ${busyBrowser || !job.conversationUrl ? 'disabled' : ''}>↗</button>
+            <button class="row-button" data-action="edit-job" data-job-id="${escapeHtml(job.id)}" title="Edit image in this conversation" type="button" ${queueLocksThisProject || !job.outputPath || job.editInstruction ? 'disabled' : ''}>✎</button>
+            <button class="row-button is-danger" data-action="delete-job-image" data-job-id="${escapeHtml(job.id)}" title="Delete this page image" type="button" ${queueLocksThisProject || !job.outputPath ? 'disabled' : ''}>✕</button>
+          </div>
+          <button class="row-button is-regen" data-action="${job.status === 'complete' ? 'regenerate-job' : 'retry-job'}" data-job-id="${escapeHtml(job.id)}" title="${job.status === 'complete' ? 'Regenerate this page' : 'Retry this page'}" type="button" ${queueLocksThisProject || job.editInstruction || (job.status === 'complete' && !job.conversationUrl) ? 'disabled' : ''}>${job.status === 'complete' ? 'Regenerate' : 'Retry'}</button>
         </div>
       </article>
     `;
@@ -2267,9 +2314,11 @@ function renderJobs(project) {
 function renderDetail(project) {
   const job = selectedJob();
   const disabled = !job;
-  elements.detailTitle.textContent = job ? `Page ${job.pageNumber}: ${job.title}` : 'Select a page';
+  // Keep raw prompt data only inside the collapsed disclosure — never in the title.
+  elements.detailTitle.textContent = job ? humanPageLabel(job) : 'Select a page';
   elements.detailStatusWrap.innerHTML = job ? statusChip(job.status) : '';
-  elements.detailPrompt.textContent = job?.prompt ?? '—';
+  const promptText = job?.imagePrompt || job?.prompt || '';
+  elements.detailPrompt.textContent = promptText || '—';
   elements.detailError.hidden = !job?.lastError;
   elements.detailError.textContent = job?.lastError
     ? `${job.lastErrorCode ? `[${job.lastErrorCode}] ` : ''}${translateLegacyText(job.lastError)}`
@@ -2278,7 +2327,7 @@ function renderDetail(project) {
     elements.detailStoryTextWrap.hidden = !job?.storyText;
     elements.detailStoryText.textContent = job?.storyText || '—';
   }
-  elements.copyPromptButton.disabled = disabled;
+  elements.copyPromptButton.disabled = disabled || !promptText;
   const queueLocksThisProject = isGeneratingThisProject(project);
   const busyBrowser = browserBusy();
   elements.importImageButton.disabled = disabled || queueLocksThisProject;
@@ -2292,17 +2341,58 @@ function renderDetail(project) {
     || queueLocksThisProject
     || Boolean(job?.editInstruction)
     || (regeneration && !job?.conversationUrl);
-  elements.retryJobButton.textContent = regeneration ? 'Regenerate in this conversation' : 'Retry this page';
+  elements.retryJobButton.textContent = regeneration ? 'Regenerate' : 'Retry page';
+  const promptDisclosure = document.getElementById('detail-prompt-disclosure');
+  if (promptDisclosure) {
+    promptDisclosure.open = false;
+    promptDisclosure.hidden = !job;
+  }
+}
+
+/** Per-book activity only, with identical spam collapsed to the newest notice. */
+function scopedActivityEvents(project) {
+  const projectId = project?.id ? String(project.id) : null;
+  const raw = Array.isArray(state?.events) ? state.events : [];
+  const dayAgo = Date.now() - (24 * 60 * 60 * 1000);
+  const scoped = raw.filter((event) => {
+    if (projectId && String(event?.projectId || '') !== projectId) return false;
+    const stamp = Date.parse(event?.createdAt || '');
+    if (Number.isFinite(stamp) && stamp < dayAgo) return false;
+    return true;
+  });
+  const seen = new Set();
+  const deduped = [];
+  for (const event of scoped) {
+    const message = String(event?.message || '').trim();
+    if (!message) continue;
+    const key = `${event?.level || 'info'}::${message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(event);
+  }
+  return deduped;
 }
 
 function renderEvents(project) {
-  const events = state.events ?? [];
-  elements.eventLog.innerHTML = events.map((event) => `
-    <div class="log-row level-${escapeHtml(event.level || 'info')}">
-      <span class="log-time">${escapeHtml(formatTime(event.createdAt))}</span>
-      <span class="log-message">${escapeHtml(translateLegacyText(event.message))}</span>
-    </div>
-  `).join('') || '<div class="muted">No activity yet. This log fills with color as work happens.</div>';
+  const events = scopedActivityEvents(project);
+  const titleFor = (level) => {
+    if (level === 'error') return 'Alert';
+    if (level === 'warn') return 'Notice';
+    if (level === 'success') return 'Done';
+    return 'Update';
+  };
+  elements.eventLog.innerHTML = events.map((event) => {
+    const level = event.level || 'info';
+    return `
+    <article class="note-card log-row level-${escapeHtml(level)}">
+      <span class="note-card__dot" aria-hidden="true"></span>
+      <div class="note-card__copy">
+        <strong class="note-card__kicker">${titleFor(level)}</strong>
+        <p class="note-card__text">${escapeHtml(translateLegacyText(event.message))}</p>
+      </div>
+      <time class="note-card__time">${escapeHtml(formatTime(event.createdAt))}</time>
+    </article>`;
+  }).join('') || '<div class="note-empty">Quiet</div>';
 }
 
 function getMissingPublicationFields(listing) {
@@ -2360,7 +2450,6 @@ function formatFileSize(bytes) {
 
 const CANVA_DASH_STEPS = [
   { id: 'pdf', label: 'Load PDF' },
-  { id: 'compress', label: 'Compress' },
   { id: 'import', label: 'Import file' },
   { id: 'upload', label: 'Upload 100%' },
   { id: 'thumbnails', label: 'Design ready' },
@@ -2385,7 +2474,7 @@ function renderCanvaProgress(project) {
   const dashboard = canvaDashboardFromState(project, canvaOp);
   const done = Boolean(project?.canvaTemplateLink);
   const percent = canvaOp ? canvaOp.percent : done ? 100 : 0;
-  const activeStep = canvaOp?.stepIndex || (done ? 7 : 0);
+  const activeStep = canvaOp?.stepIndex || (done ? 6 : 0);
   const stepStatus = dashboard?.steps || {};
   document.querySelectorAll('[data-canva-step]').forEach((item) => {
     const step = Number(item.dataset.canvaStep);
@@ -2440,7 +2529,7 @@ function renderCanvaProgress(project) {
       : canvaOp
         ? (CANVA_DASH_STEPS.find((item) => item.id === dashboard?.step)?.label || canvaOp.label || 'Live')
         : done
-          ? 'Template saved'
+          ? 'Template ready'
           : dashboard?.status === 'fail'
             ? 'Stopped — see the error'
             : 'Waiting';
@@ -2450,7 +2539,7 @@ function renderCanvaProgress(project) {
       ? canvaLockMessage()
       : canvaOp?.message
         || dashboard?.steps?.[dashboard.step]?.message
-        || (done ? 'The template link is saved. You can open it any time.' : 'Idle until you build the Canva layer. Then you can watch the PDF load, compress, upload to 100%, and save the template link here.');
+        || (done ? 'Canva editable layer is ready. Open the template link anytime.' : 'Ready when you build. The print PDF is imported once, then Magic Layer runs page by page.');
   }
   if (attemptEl) {
     const showAttempt = autoAttempt > 1 || (canvaOp && autoAttempt >= 1 && state?.automation?.currentStep === 'editable');
@@ -2468,17 +2557,16 @@ function renderCanvaProgress(project) {
     errorEl.textContent = showError ? errorText : '';
   }
 
-  const compressCopy = document.getElementById('canva-dash-compress-copy');
-  if (compressCopy) {
+  const pdfCopy = document.getElementById('canva-dash-pdf-copy');
+  if (pdfCopy) {
     const compression = dashboard?.compression;
     if (compression && (compression.originalBytes || compression.reason || compression.path)) {
-      if (compression.skipped) {
-        compressCopy.textContent = `Skipped${compression.reason ? ` — ${compression.reason}` : ''}. ${formatFileSize(compression.originalBytes)}${compression.path ? ` · ${compression.path}` : ''}`;
-      } else {
-        compressCopy.textContent = `${formatFileSize(compression.originalBytes)} → ${formatFileSize(compression.outputBytes)}${compression.path ? ` · ${compression.path}` : ''}`;
-      }
+      const name = String(compression.path || '').split(/[\\/]/).pop() || 'book.pdf';
+      pdfCopy.textContent = compression.skipped
+        ? `${name} · ${formatFileSize(compression.originalBytes)}${compression.reason ? ` — ${compression.reason}` : ''}`
+        : `${name} · ${formatFileSize(compression.originalBytes)} → ${formatFileSize(compression.outputBytes)}`;
     } else {
-      compressCopy.textContent = canvaOp ? 'Measuring the print PDF…' : 'Waits until the print PDF is selected.';
+      pdfCopy.textContent = canvaOp ? 'Loading the Interior print PDF…' : 'Uses book.pdf prepared in Interior.';
     }
   }
   const upload = dashboard?.upload;
@@ -2498,7 +2586,7 @@ function renderCanvaProgress(project) {
   if (uploadCopy) {
     uploadCopy.textContent = upload?.fileName
       ? `File: ${upload.fileName}`
-      : (dashboard?.step === 'upload' ? (canvaOp?.message || 'Waiting for the 100% bar…') : 'The 100% bar appears after Create a design → Import file.');
+            : (dashboard?.step === 'upload' ? (canvaOp?.message || 'Waiting for the 100% bar…') : 'The 100% bar appears after Import file.');
   }
   const logEl = document.getElementById('canva-dash-log');
   if (logEl) {
@@ -2514,10 +2602,10 @@ function renderCanvaProgress(project) {
     elements.canvaProgressMessage.textContent = canvaLocked()
       ? canvaLockMessage()
       : canvaOp?.message
-        || (done ? 'Saved.' : 'Idle. Empty page slots fill in as Magic Layer is applied.');
+        || (done ? 'Saved. Open the verified Canva template link anytime.' : 'Ready. Empty page slots fill in as editable vectors are built.');
   }
   if (elements.canvaProgressLabel) {
-    elements.canvaProgressLabel.textContent = canvaLocked() ? 'Coming soon' : canvaOp ? 'Live' : done ? 'Ready' : 'Canva';
+    elements.canvaProgressLabel.textContent = canvaLocked() ? 'Coming soon' : canvaOp ? 'Live' : done ? 'Ready' : 'Canva editable';
   }
   if (elements.canvaProgressElapsed) {
     elements.canvaProgressElapsed.textContent = canvaOp?.startedAt
@@ -2555,12 +2643,12 @@ function renderCanvaPageBoard(project, canvaOp) {
       meta.textContent = 'Finish interior pages first. Then every page gets an empty slot here, like Interior and Mockups.';
     } else if (canvaOp) {
       meta.textContent = layered
-        ? `${layered} of ${jobs.length} filled. The picture is confirmation that Magic Layer applied.`
+        ? `${layered} of ${jobs.length} done. Each filled card means Magic Layer applied.`
         : 'Empty slots fill in as Magic Layer runs. Waiting pages stay blank until their turn.';
     } else if (layered) {
       meta.textContent = missed
         ? `${layered} filled with Magic Layer applied. ${missed} not separated.`
-        : 'Filled pictures mean Magic Layer applied. Empty slots still need it.';
+        : `${layered} of ${jobs.length} pages ready. Template link is the buyer editable.`;
     } else {
       meta.textContent = 'Same idea as Interior and Mockups: slots stay empty until Magic Layer fills them.';
     }
@@ -2581,7 +2669,7 @@ function renderCanvaPageBoard(project, canvaOp) {
         ? Math.max(32, Math.min(88, Number(canvaOp?.percent) || 55))
         : 8;
     const label = row.layered
-      ? 'Magic Layer applied ✓'
+      ? `Page ${job.pageNumber} done — Magic Layer applied`
       : row.error
         ? 'Not separated'
         : filling
@@ -2592,6 +2680,12 @@ function renderCanvaPageBoard(project, canvaOp) {
     const visual = row.layered && job.outputPath
       ? `<img src="tpt-image://job/${encodeURIComponent(job.id)}?v=${encodeURIComponent(job.updatedAt ?? project?.updatedAt ?? '')}" alt="Page ${job.pageNumber}">
          <span class="canva-page-badge">Magic Layer applied ✓</span>`
+      : row.layered
+        ? `<div class="canva-page-placeholder is-done">
+           <strong>${String(job.pageNumber).padStart(2, '0')}</strong>
+           <span>Magic Layer applied</span>
+           <em>100%</em>
+         </div>`
       : `<div class="page-fill-layer" aria-hidden="true"></div>
          <div class="page-fill-sheen" aria-hidden="true"></div>
          <div class="canva-page-placeholder">
@@ -2638,112 +2732,141 @@ function tptThumbnailSlotHtml(project, listing, index, liveOp) {
   </figure>`;
 }
 
+function isSeoSkipStub(value) {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text) return false;
+  return text === 'skipped'
+    || text === 'skipped description'
+    || text === 'skipped tags'
+    || text === 'n/a'
+    || text === 'na'
+    || text === 'none';
+}
+
+function sanitizeSeoListingForUi(listing = {}) {
+  const titleRaw = String(listing.title || '').trim();
+  const title = isSeoSkipStub(titleRaw) ? '' : titleRaw;
+  const descriptionRaw = String(listing.description || '').trim();
+  const description = isSeoSkipStub(descriptionRaw) ? '' : descriptionRaw;
+  const tags = Array.isArray(listing.tags)
+    ? listing.tags.map((entry) => String(entry || '').trim()).filter((entry) => entry && !isSeoSkipStub(entry))
+    : String(listing.tags || '')
+      .split(/,|\n/)
+      .map((entry) => entry.trim())
+      .filter((entry) => entry && !isSeoSkipStub(entry));
+  return { title, description, tags };
+}
+
+function formatSeoBundleForUi(listing = {}) {
+  const cleaned = sanitizeSeoListingForUi(listing);
+  const title = cleaned.title;
+  const description = cleaned.description;
+  const tags = cleaned.tags.join(', ');
+  if (title || description || tags) {
+    const text = `TITLE\n${title}\n\nDESCRIPTION\n${description}\n\nTAGS\n${tags}`.trim();
+    // #region agent log
+    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify({sessionId:'1c3662',runId:'seo-ui',hypothesisId:'A',location:'renderer.js:formatSeoBundleForUi',message:'seo bundle formatted for UI',data:{titleLen:title.length,descriptionLen:description.length,tagLen:tags.length,rawDescriptionWasStub:isSeoSkipStub(listing.description),rawTagsWereStub:Array.isArray(listing.tags)?listing.tags.some(isSeoSkipStub):isSeoSkipStub(listing.tags),bundleHasSkipped:/skipped/i.test(text)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    return text;
+  }
+  const raw = String(listing.seoText || '').replace(/\r\n/g, '\n').trim();
+  if (!raw) return '';
+  const parsed = sanitizeSeoListingForUi(parseSeoBundleForUi(raw));
+  if (!parsed.title && !parsed.description && !parsed.tags.length) return '';
+  const text = `TITLE\n${parsed.title}\n\nDESCRIPTION\n${parsed.description}\n\nTAGS\n${parsed.tags.join(', ')}`.trim();
+  // #region agent log
+  fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify({sessionId:'1c3662',runId:'seo-ui',hypothesisId:'A',location:'renderer.js:formatSeoBundleForUi:seoText',message:'seo bundle from seoText fallback',data:{titleLen:parsed.title.length,descriptionLen:parsed.description.length,tagCount:parsed.tags.length,bundleHasSkipped:/skipped/i.test(text)},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  return text;
+}
+
+function parseSeoBundleForUi(rawText = '') {
+  const raw = String(rawText || '').replace(/\r\n/g, '\n').trim();
+  if (!raw) return { title: '', description: '', tags: '' };
+
+  const looksLabeled = /^(TITLE|DESCRIPTION|TAGS)\s*$/im.test(raw.split('\n', 1)[0] || '')
+    || /\n(?:TITLE|DESCRIPTION|TAGS)\s*\n/i.test(raw);
+  if (looksLabeled) {
+    const result = { title: '', description: '', tags: '' };
+    let current = null;
+    for (const line of raw.split('\n')) {
+      const header = line.trim().toUpperCase();
+      if (header === 'TITLE' || header === 'DESCRIPTION' || header === 'TAGS') {
+        current = header.toLowerCase();
+        continue;
+      }
+      if (!current) continue;
+      result[current] = result[current] ? `${result[current]}\n${line}` : line;
+    }
+    return {
+      title: result.title.trim(),
+      description: result.description.trim(),
+      tags: result.tags.trim()
+    };
+  }
+
+  const blocks = raw.split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean);
+  if (blocks.length === 1) return { title: blocks[0], description: '', tags: '' };
+  if (blocks.length === 2) return { title: blocks[0], description: blocks[1], tags: '' };
+  return {
+    title: blocks[0],
+    description: blocks.slice(1, -1).join('\n\n').trim(),
+    tags: blocks[blocks.length - 1].replace(/^tags?:\s*/i, '').trim()
+  };
+}
+
 function tptListingHtml(project, view = activeWorkspaceView) {
   const listing = project.tptListing || {};
   const liveOp = activeLiveOperation(project);
   const listingLive = liveOp?.kind === 'listing';
-  const fields = ['title', 'description', 'highlights', 'tags', 'grades', 'subjects', 'formats', 'customCategories', 'pageCount', 'teachingDuration', 'answerKey', 'taxCode'];
-  const value = (field) => {
-    const raw = listing[field];
-    if (Array.isArray(raw) && raw.length) return raw.join(' • ');
-    if (raw) return raw;
-    return listingLive ? 'Filling…' : '—';
-  };
   const thumbnails = Array.from({ length: 4 }, (_, index) => tptThumbnailSlotHtml(project, listing, index, liveOp)).join('');
   const showListing = view === 'listing';
-  const thumbnailMode = ['auto', 'manual', 'later'].includes(listing.thumbnailMode) ? listing.thumbnailMode : 'manual';
-  const publicationSettingsReady = tptListingPublicationReady(listing);
-  const missingFields = getMissingPublicationFields(listing);
   const hasListingDraft = Boolean(project.tptListing);
-  const hasListing = hasListingDraft && Boolean(listing.title || listing.rawResponse);
+  const cleanedListing = sanitizeSeoListingForUi(listing);
+  const hasRealSeo = Boolean(cleanedListing.title && cleanedListing.description && cleanedListing.tags.length);
+  const hasListing = hasListingDraft && (hasRealSeo || Boolean(listing.rawResponse && listing.rawResponse !== '{}'));
+  const seoBundle = formatSeoBundleForUi(listing);
   const listingMessage = listingLive
-    ? (liveOp.message || 'Filling…')
-    : listing.title
+    ? (liveOp.message || 'Drafting best-seller SEO…')
+    : hasRealSeo
       ? 'Ready'
-      : 'Generate listing.';
-  const missingWarning = hasListingDraft && !publicationSettingsReady && missingFields.length
-    ? `Need: ${missingFields.join(', ')}.`
-    : '';
-  const standards = listing.standards || {};
-  const publicationStatus = listing.publicationStatus === 'active' ? 'active' : 'draft';
-  const formPrepared = ['listing_form_ready', 'draft_form_ready'].includes(listing.status);
-  const listingSubmitted = ['draft_submitted', 'listing_published'].includes(listing.status) && listing.uploadVerified;
-  const taxCodeOptions = [
-    'Other Digital Goods - No Physical Media',
-    'Digital books sold to an end user with rights for permanent use',
-    'Digital Images - Streaming / Electronic Download',
-    'Digital audio works sold to an end user with rights for permanent use',
-    'Videos - Streaming / Electronic Download'
-  ];
-  const currentTaxCode = listing.taxCode || '';
-  const hasCustomTaxCode = Boolean(currentTaxCode && !taxCodeOptions.includes(currentTaxCode));
-  const contractStamp = listing.formContract?.inspectedAt
-    ? `Inspected ${new Date(listing.formContract.inspectedAt).toLocaleString()}.`
-    : '';
-  const publicationEditor = `<section class="tpt-publication-settings" data-tpt-publication-settings>
-    <div class="tpt-publication-intro">
-      <p class="eyebrow">TPT</p>
-      <h4>Listing record</h4>
-      ${contractStamp ? `<p class="tpt-contract-stamp">${escapeHtml(contractStamp)}</p>` : ''}
-    </div>
-    <div class="tpt-publication-fields">
-      <label class="tpt-setting-wide"><span>Title <em>required</em></span><input data-tpt-setting="title" value="${escapeHtml(listing.title || '')}"></label>
-      <label class="tpt-setting-wide"><span>Description <em>required</em></span><textarea data-tpt-setting="description">${escapeHtml(listing.description || '')}</textarea></label>
-      <label><span>Tags <em>up to 6</em></span><input data-tpt-setting="tags" value="${escapeHtml((listing.tags || []).join(', '))}"></label>
-      <label><span>Grades <em>up to 4</em></span><input data-tpt-setting="grades" value="${escapeHtml((listing.grades || []).join(', '))}"></label>
-      <label><span>Subjects <em>up to 3</em></span><input data-tpt-setting="subjects" value="${escapeHtml((listing.subjects || []).join(', '))}"></label>
-      <label><span>Formats <em>optional, up to 3</em></span><input data-tpt-setting="formats" value="${escapeHtml((listing.formats || []).join(', '))}"></label>
-      <label class="tpt-setting-double"><span>Custom Categories <em>optional</em></span><input data-tpt-setting="custom-categories" value="${escapeHtml((listing.customCategories || []).join(', '))}"></label>
-      <label><span>Product type</span><select data-tpt-setting="pricing-mode"><option value="paid" ${listing.isFreeResource ? '' : 'selected'}>Paid resource</option><option value="free" ${listing.isFreeResource ? 'selected' : ''}>Free resource</option></select></label>
-      <label><span>Price <em>required if paid</em></span><input data-tpt-setting="suggested-price" type="number" min="0" step="0.01" value="${escapeHtml(listing.suggestedPrice || '')}" placeholder="e.g. 3.00"></label>
-      <label><span>Multiple Licenses <em>required</em></span><input data-tpt-setting="multiple-license-price" type="number" min="0" step="0.01" value="${escapeHtml(listing.multipleLicensePrice || '')}" placeholder="e.g. 2.40"></label>
-      <label><span>Bundle Discount Price <em>optional</em></span><input data-tpt-setting="bundle-discount-price" type="number" min="0" step="0.01" value="${escapeHtml(listing.bundleDiscountPrice || '')}"></label>
-      <label class="tpt-setting-double"><span>Tax Code <em>required</em></span><select data-tpt-setting="tax-code"><option value="" ${!currentTaxCode ? 'selected' : ''}>Select TPT tax code…</option>${taxCodeOptions.map((opt) => `<option value="${escapeHtml(opt)}" ${currentTaxCode === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('')}${hasCustomTaxCode ? `<option value="${escapeHtml(currentTaxCode)}" selected>${escapeHtml(currentTaxCode)}</option>` : ''}</select></label>
-      <label><span>Teaching Duration <em>optional</em></span><input data-tpt-setting="teaching-duration" value="${escapeHtml(listing.teachingDuration || '')}" placeholder="Exact TPT option"></label>
-      <label><span>Pages or Slides <em>optional</em></span><input data-tpt-setting="page-count" type="number" min="0" step="1" value="${escapeHtml(listing.pageCount || '')}"></label>
-      <label><span>Answer Key <em>optional</em></span><input data-tpt-setting="answer-key" value="${escapeHtml(listing.answerKey || '')}" placeholder="Exact TPT option"></label>
-      <fieldset class="tpt-standard-fields tpt-setting-wide"><legend>Education Standards <em>optional, seller-approved codes only</em></legend>
-        <label><span>CCSS</span><textarea data-tpt-setting="ccss">${escapeHtml((standards.ccss || []).join(', '))}</textarea></label>
-        <label><span>NGSS</span><textarea data-tpt-setting="ngss">${escapeHtml((standards.ngss || []).join(', '))}</textarea></label>
-        <label><span>TEKS</span><textarea data-tpt-setting="teks">${escapeHtml((standards.teks || []).join(', '))}</textarea></label>
-        <label><span>VA SOL</span><textarea data-tpt-setting="va-sol">${escapeHtml((standards.vaSol || []).join(', '))}</textarea></label>
-      </fieldset>
-      <label><span>Copyright <em>required</em></span><select data-tpt-setting="copyright"><option value="" ${listing.copyrightDeclaration ? '' : 'selected'}>Select truthful declaration…</option><option value="original" ${listing.copyrightDeclaration === 'original' ? 'selected' : ''}>Original work</option><option value="licensed" ${listing.copyrightDeclaration === 'licensed' ? 'selected' : ''}>Licensed / fair use</option></select></label>
-      <label><span>Product Status</span><select data-tpt-setting="publication-status"><option value="draft" ${publicationStatus === 'draft' ? 'selected' : ''}>Inactive Draft (recommended)</option><option value="active" ${publicationStatus === 'active' ? 'selected' : ''}>Active / Public</option></select></label>
-      <label><span>Thumbnail mode</span><select data-tpt-setting="thumbnail-mode"><option value="manual" ${thumbnailMode === 'manual' ? 'selected' : ''}>Manual: Main Cover + optional images</option><option value="auto" ${thumbnailMode === 'auto' ? 'selected' : ''}>Auto generate from product PDF</option><option value="later" ${thumbnailMode === 'later' ? 'selected' : ''}>Upload later</option></select></label>
-      <div class="tpt-optional-assets tpt-setting-wide">
-        <article><span>Product Preview <em>optional · 30 MB max</em></span><strong>${escapeHtml(localFileName(listing.previewPdfPath))}</strong><div><button class="row-button" data-action="choose-tpt-asset" data-tpt-asset="preview" type="button">Choose PDF</button>${listing.previewPdfPath ? '<button class="row-button" data-action="clear-tpt-asset" data-tpt-asset="preview" type="button">Clear</button>' : ''}</div></article>
-        <article><span>Video Preview <em>optional · 1 GB max</em></span><strong>${escapeHtml(localFileName(listing.videoPreviewPath))}</strong><div><button class="row-button" data-action="choose-tpt-asset" data-tpt-asset="videoPreview" type="button">Choose video</button>${listing.videoPreviewPath ? '<button class="row-button" data-action="clear-tpt-asset" data-tpt-asset="videoPreview" type="button">Clear</button>' : ''}</div></article>
-      </div>
-      <button class="button button-ghost tpt-save-record" data-action="save-tpt-publication-settings" type="button">Save complete listing record</button>
-    </div>
-  </section>`;
-  const listingPercent = listingLive ? Math.round(liveOp.percent || 0) : (listing.title ? 100 : 0);
-  return `<div class="section-header tpt-section-heading"><div><p class="eyebrow">TPT</p><h3>${showListing ? 'Listing' : 'Mockups'}</h3></div>
+      : 'Generate SEO from the finished book PDF.';
+  const listingPercent = listingLive ? Math.round(liveOp.percent || 0) : (hasRealSeo ? 100 : 0);
+  return `<div class="section-header tpt-section-heading"><div><p class="eyebrow">Studio</p><h3>${showListing ? 'SEO' : 'Mockups'}</h3></div>
       <div class="export-actions">
-        ${showListing ? `<button class="button button-primary" data-action="generate-tpt-listing" type="button"${stageStartBlockReason('listing', project) ? ` disabled title="${escapeHtml(stageStartBlockReason('listing', project))}"` : ''}>${hasListing ? 'Regenerate listing' : 'Generate listing'}</button>
-        <button class="button button-ghost button-danger" data-action="clear-tpt-listing" type="button" ${hasListing ? '' : 'disabled'}>Delete listing</button>` : `<button class="button button-primary" data-action="generate-tpt-thumbnails" type="button"${stageStartBlockReason('thumbnails', project) ? ` disabled title="${escapeHtml(stageStartBlockReason('thumbnails', project))}"` : ''}>Generate mockups</button>
-        <button class="button button-ghost button-danger" data-action="clear-tpt-thumbnails" type="button" ${(listing.thumbnailPaths || []).some(Boolean) ? '' : 'disabled'}>Delete all mockups</button>`}
+        ${showListing ? `<button class="button button-primary" data-action="generate-tpt-listing" type="button"${liveOp?.kind === 'listing' ? ' disabled title="SEO is already running."' : ` title="${escapeHtml(stageStartBlockReason('listing', project) || (hasListing ? 'Regenerate best-seller SEO' : 'Draft best-seller SEO from the finished book PDF'))}"`}>${hasListing ? 'Regenerate SEO' : 'Generate SEO'}</button>
+        <button class="button button-ghost button-danger" data-action="clear-tpt-listing" type="button" ${hasListing ? '' : 'disabled'}>Delete SEO</button>` : (() => {
+          const thumbReason = stageStartBlockReason('thumbnails', project);
+          const thumbBusy = liveOp?.kind === 'thumbnails';
+          const title = thumbBusy ? 'Mockups are already generating.' : (thumbReason || 'Generate four mockups for this book.');
+          return `<button class="button button-gold" data-action="generate-tpt-thumbnails" type="button"${thumbBusy ? ` disabled title="${escapeHtml(title)}"` : ` title="${escapeHtml(title)}"`}>${thumbBusy ? 'Generating…' : 'Generate mockups'}</button>
+        <button class="button button-ghost button-danger" data-action="clear-tpt-thumbnails" type="button" ${(listing.thumbnailPaths || []).some(Boolean) ? '' : 'disabled'} title="${(listing.thumbnailPaths || []).some(Boolean) ? 'Delete all mockups for this book.' : 'No mockups to delete yet.'}">Delete all mockups</button>`;
+        })()}
       </div>
     </div>
     <div class="stage-live-bar ${listingLive || liveOp?.kind === 'thumbnails' ? 'is-live' : ''}">
       <div class="stage-live-meta">
-        <strong>${showListing ? (listingLive ? 'Filling' : listing.title ? 'Ready' : 'Listing') : (liveOp?.kind === 'thumbnails' ? 'Filling' : 'Mockups')}</strong>
+        <strong>${showListing ? (listingLive ? 'Drafting' : hasRealSeo ? 'Ready' : 'SEO') : (liveOp?.kind === 'thumbnails' ? 'Filling' : 'Mockups')}</strong>
         <span>${showListing ? listingPercent : Math.round(((listing.thumbnailPaths || []).filter(Boolean).length / 4) * 100)}%</span>
       </div>
       <div class="progress-track"><span style="width:${showListing ? listingPercent : Math.round(((listing.thumbnailPaths || []).filter(Boolean).length / 4) * 100)}%"></span></div>
       <p>${escapeHtml(showListing ? listingMessage : (liveOp?.kind === 'thumbnails' ? (liveOp.message || 'Filling…') : ''))}</p>
     </div>
     ${showListing ? `
-    <details class="tpt-source-response"><summary>Gemini source</summary><pre class="prompt-box">${escapeHtml(listing.rawResponse || '—')}</pre></details>
-    <div class="tpt-fields">${fields.map((field) => `<article class="tpt-field-${field}${listing[field] && !(Array.isArray(listing[field]) && !listing[field].length) ? ' is-ready' : listingLive ? ' is-filling' : ' is-empty'}"><span>${escapeHtml(field)}</span><p>${escapeHtml(value(field))}</p>${hasListing && ['title', 'description', 'highlights', 'tags', 'grades', 'subjects', 'formats', 'teachingDuration', 'answerKey'].includes(field) ? `<button class="row-button" data-action="regenerate-tpt-field" data-tpt-field="${field}" type="button">Regenerate</button>` : ''}</article>`).join('')}</div>
-    ${publicationEditor}` : ''}
-    ${showListing ? '' : `<div class="tpt-thumbnails"><div class="tpt-thumbnail-status"><h4>${listing.thumbnailProgress?.completed ?? listing.thumbnailPaths?.filter(Boolean).length ?? 0}/4</h4></div><div class="tpt-thumbnail-grid">${thumbnails}</div></div>`}
-    ${showListing ? `<div class="tpt-ready-banner"><div><strong>${listingSubmitted ? 'Verified on TPT' : hasListing ? 'Quality gate' : 'Listing'}</strong><small>${listingSubmitted ? 'Link saved.' : formPrepared ? `Ready to submit ${publicationStatus === 'active' ? 'active' : 'draft'}.` : tptListingReviewApproved(listing) ? 'Marked ready.' : missingWarning ? `${escapeHtml(missingWarning)}` : hasListing ? 'Save, then mark ready.' : 'Generate to fill fields.'}</small></div>
-      ${listingSubmitted && listing.uploadUrl ? '<button class="button button-primary" data-action="open-saved-tpt-listing" type="button">Open saved TPT link</button>' : formPrepared ? `<button class="button button-primary" data-action="submit-tpt-listing" type="button">Submit ${publicationStatus === 'active' ? 'Active listing' : 'Draft'}</button>` : ''}
-      ${hasListing && !tptListingReviewApproved(listing) ? `<button class="button button-gold" data-action="mark-tpt-ready" type="button" ${!publicationSettingsReady || !tptListingThumbnailsReady(listing) ? 'disabled' : ''}>Mark ready</button>` : ''}
-      ${(tptListingReviewApproved(listing) || ['ready_to_upload', 'uploading_listing', 'listing_form_ready', 'submitting_listing', 'draft_submitted', 'listing_published', 'upload_browser_open', 'upload_failed'].includes(listing.status)) ? `<button class="button button-primary" data-action="start-tpt-uploading" type="button" ${browserBusyReason() || ['uploading_listing', 'listing_form_ready', 'submitting_listing', 'draft_submitted', 'listing_published'].includes(listing.status) ? 'disabled' : ''} title="${escapeHtml(browserBusyReason() || '')}">${listing.status === 'uploading_listing' ? (listing.uploadMessage || 'Preparing TPT listing…') : listing.status === 'listing_form_ready' ? `TPT form ready for ${publicationStatus === 'active' ? 'Active submission' : 'Draft submission'}` : listing.status === 'listing_published' ? 'TPT listing published and verified' : listing.status === 'draft_submitted' ? 'TPT draft saved and verified' : listing.status === 'upload_failed' ? 'Resume uploading' : 'Start uploading'}</button>` : ''}
-    </div>` : ''}`;
+    <section class="tpt-seo-bundle ${seoBundle ? 'is-ready' : listingLive ? 'is-filling' : 'is-empty'}" data-tpt-publication-settings>
+      <div class="tpt-seo-bundle__head">
+        <div>
+          <p class="eyebrow">One copy block</p>
+          <h4>Title · description · tags</h4>
+          <p class="muted">Labeled, paste-ready SEO. Edit here, then Save or Copy.</p>
+        </div>
+        <button class="button button-ghost tpt-seo-bundle__copy" data-action="copy-seo-bundle" type="button" ${seoBundle ? '' : 'disabled'}>Copy SEO</button>
+      </div>
+      <textarea class="tpt-seo-bundle__text" data-tpt-setting="seo-bundle" rows="18" placeholder="${listingLive ? 'Drafting best-seller SEO…' : 'TITLE\n…\n\nDESCRIPTION\n…\n\nTAGS\n…'}">${escapeHtml(seoBundle)}</textarea>
+      <button class="button button-ghost tpt-save-record" data-action="save-tpt-publication-settings" type="button">Save</button>
+    </section>
+    <details class="tpt-source-response"><summary>Source chat</summary><pre class="prompt-box">${escapeHtml(listing.rawResponse || '—')}</pre></details>` : ''}
+    ${showListing ? '' : `<div class="tpt-thumbnails"><div class="tpt-thumbnail-status"><h4>${listing.thumbnailProgress?.completed ?? listing.thumbnailPaths?.filter(Boolean).length ?? 0}/4</h4></div><div class="tpt-thumbnail-grid">${thumbnails}</div></div>`}`;
 }
 
 function tptPreviewHtml(project) {
@@ -2937,9 +3060,22 @@ function shiftWorkspacePane(delta) {
 function renderProject() {
   const project = activeProject();
   const hasProject = Boolean(project);
-  elements.emptyState.hidden = hasProject || bundleViewActive;
+  const hasBooks = (state?.projects?.length || 0) > 0;
+  elements.emptyState.hidden = hasProject || bundleViewActive || hasBooks;
   elements.projectWorkspace.hidden = !hasProject || bundleViewActive;
   if (elements.bundleUploadView) elements.bundleUploadView.hidden = !bundleViewActive;
+  document.body.classList.toggle('has-books', hasBooks);
+  document.body.classList.toggle('has-project', hasProject);
+  const liveSearch = String(document.getElementById('ui-global-search')?.value || '').trim();
+  if (liveSearch) document.body.dataset.studioPin = 'library';
+  const pin = document.body.dataset.studioPin;
+  const mode = bundleViewActive
+    ? 'bundle'
+    : (hasProject && pin !== 'library')
+      ? 'studio'
+      : 'library';
+  document.body.dataset.mode = mode;
+  if (typeof window.__versaSetStudioMode === 'function') window.__versaSetStudioMode(mode, false);
   if (!project) {
     selectedJobId = null;
     if (elements.storybookResumePhase2Button) elements.storybookResumePhase2Button.hidden = true;
@@ -3028,7 +3164,7 @@ function renderProject() {
   elements.statComplete.textContent = String(stats.complete);
   if (elements.statRemaining) elements.statRemaining.textContent = String(stats.remaining);
   const pipeline = (typeof computeProductPipeline === 'function' ? computeProductPipeline : window.computeProductPipeline)(project, liveOp, { canvaLocked: canvaLocked() });
-  const characterReferences = project.characterSheets.filter((sheet) => sheet.status === 'complete' && sheet.outputPath).length;
+  const characterReferences = (project.characterSheets || []).filter((sheet) => sheet.status === 'complete' && sheet.outputPath).length;
   const characterNames = characters.map((character) => character.name).filter(Boolean);
   const listing = project.tptListing;
   const thumbnailCount = pipeline.thumbnailCount;
@@ -3055,7 +3191,6 @@ function renderProject() {
           : '';
   }
   setMeterWidth('overview-overall-meter', pipeline.percent);
-  setMeterWidth('overview-characters-meter', characterPct);
   setMeterWidth('overview-interior-meter', pipeline.pagePercent);
   setMeterWidth('overview-editable-meter', canvaPct);
   setMeterWidth('overview-listing-meter', listingPct);
@@ -3074,20 +3209,17 @@ function renderProject() {
     export: liveOp?.kind === 'export'
   };
   const stageBlocked = {
-    characters: false,
     interior: false,
-    editable: pipeline.editable && !pipeline.pagesDone,
-    listing: !pipeline.pagesDone,
-    thumbnails: !listingReady,
-    preview: thumbnailCount === 0,
-    export: !overviewCanExport
+    editable: false,
+    listing: false,
+    thumbnails: false,
+    preview: false,
+    export: false
   };
   const stageSkipped = {
-    characters: characters.length === 0,
     editable: !pipeline.editable
   };
   const stepStatus = {
-    characters: project.stepCharactersStatus,
     interior: project.stepInteriorStatus,
     editable: project.stepEditableStatus,
     listing: project.stepListingStatus,
@@ -3097,7 +3229,6 @@ function renderProject() {
   };
   const stagePercent = {
     overall: pipeline.percent,
-    characters: characterPct,
     interior: pipeline.pagePercent,
     editable: canvaPct,
     listing: listingPct,
@@ -3114,11 +3245,35 @@ function renderProject() {
     setStagePresentation(id, stateName, { filling: live });
     if (id !== 'overall') setTabMark(id, stateName);
   });
-  elements.overviewCharacterCount.textContent = `${characterReferences} / ${characters.length} ready`;
-  elements.overviewCharacterNames.textContent = characterNames.length ? characterNames.join(' • ') : 'None';
-  elements.overviewInteriorDetail.textContent = stats.remaining === 0 && stats.total > 0
-    ? (project.productPdfPath ? 'PDF ready' : 'Pages done')
-    : `${stats.remaining} left`;
+  // Characters stage removed from product UI.
+  document.querySelectorAll(
+    '.overview-stage-card[data-stage="characters"], [data-view-target="characters"], [data-workspace-pane="characters"], [data-workspace-section="characters"]'
+  ).forEach((node) => {
+    node.hidden = true;
+    node.setAttribute('hidden', '');
+  });
+  // Canva stage only for editable books.
+  const showCanvaStage = project.productFormat === 'editable';
+  document.querySelectorAll(
+    '.overview-stage-card[data-stage="editable"], [data-view-target="editable"], [data-workspace-pane="editable"]'
+  ).forEach((node) => {
+    node.hidden = !showCanvaStage;
+    if (showCanvaStage) node.removeAttribute('hidden');
+    else node.setAttribute('hidden', '');
+  });
+  if (!showCanvaStage && activeWorkspaceView === 'editable') {
+    activeWorkspaceView = 'overview';
+    applyWorkspacePanes('overview');
+  }
+  if (activeWorkspaceView === 'characters') {
+    activeWorkspaceView = 'overview';
+    applyWorkspacePanes('overview');
+  }
+  if (elements.overviewInteriorDetail) {
+    elements.overviewInteriorDetail.textContent = stats.remaining === 0 && stats.total > 0
+      ? (project.productPdfPath ? 'PDF ready' : 'Pages done')
+      : `${stats.remaining} left`;
+  }
   if (elements.overviewEditableStatus) {
     const editable = project.productFormat === 'editable';
     elements.overviewEditableStatus.textContent = canvaLocked()
@@ -3126,7 +3281,7 @@ function renderProject() {
       : !editable
         ? 'Static print'
         : project.canvaTemplateLink
-          ? 'Template ready'
+          ? 'PowerPoint ready'
           : stats.complete === stats.total && stats.total > 0
             ? 'Ready to build'
             : 'Waiting for pages';
@@ -3135,7 +3290,7 @@ function renderProject() {
       : !editable
         ? 'Toggle Editable'
         : project.canvaTemplateLink
-          ? 'Template saved'
+          ? 'Template link saved'
           : 'After pages finish';
   }
   if (elements.canvaEditableStatus) {
@@ -3143,9 +3298,9 @@ function renderProject() {
     elements.canvaEditableStatus.textContent = canvaLocked()
       ? canvaLockMessage()
       : !editable
-        ? 'Mark Editable to build a template.'
+        ? 'Mark Editable to unlock Canva Magic Layer.'
         : project.canvaTemplateLink
-          ? 'Template saved.'
+          ? 'Canva template link saved.'
           : stats.complete === stats.total && stats.total > 0
             ? 'Pages ready. Build Canva layer imports the print PDF, then Magic Layer each page.'
             : 'Finish the pages first.';
@@ -3162,11 +3317,18 @@ function renderProject() {
   if (elements.runCanvaEditableButton) {
     const reason = stageStartBlockReason('editable', project);
     const canvaRunning = liveOp?.kind === 'canva';
-    elements.runCanvaEditableButton.disabled = Boolean(reason) || canvaRunning;
-    elements.runCanvaEditableButton.title = canvaRunning ? 'Canva is already running in the background.' : (reason || 'Starts Canva by itself — you do not need full automation.');
+    elements.runCanvaEditableButton.disabled = canvaRunning || project.productFormat !== 'editable';
+    elements.runCanvaEditableButton.title = canvaRunning
+      ? 'Canva is already running in the background.'
+      : (reason || 'Build the Canva editable layer for this book.');
   }
   document.querySelectorAll('[data-action="run-stage"]').forEach((btn) => {
     const step = btn.dataset.stage;
+    if (step === 'characters') {
+      btn.hidden = true;
+      btn.disabled = true;
+      return;
+    }
     const reason = stageStartBlockReason(step, project);
     const running = (step === 'interior' && isGeneratingThisProject(project))
       || (step === 'editable' && liveOp?.kind === 'canva')
@@ -3174,8 +3336,29 @@ function renderProject() {
       || (step === 'thumbnails' && liveOp?.kind === 'thumbnails')
       || (step === 'preview' && liveOp?.kind === 'preview')
       || (step === 'export' && liveOp?.kind === 'export');
-    btn.disabled = Boolean(reason) || running;
-    btn.title = running ? 'This stage is already running.' : (reason || `Start the ${step} stage by itself.`);
+    const interiorDone = step === 'interior' && stats.total > 0 && stats.remaining === 0;
+    if (interiorDone) {
+      btn.hidden = true;
+      btn.disabled = true;
+    } else {
+      btn.hidden = step === 'editable' && project.productFormat !== 'editable';
+      // Autonomy: keep controls enabled; toast the reason on click if it cannot run.
+      btn.disabled = running;
+      btn.title = running ? 'This stage is already running.' : (reason || `Start the ${step} stage.`);
+      if (step === 'interior') btn.textContent = btn.classList.contains('stage-run-btn') ? 'Start pages' : (btn.id === 'run-interior-button' ? 'Start pages' : btn.textContent);
+    }
+  });
+  document.querySelectorAll('[data-action="regenerate-interior"]').forEach((btn) => {
+    const interiorDone = stats.total > 0 && stats.remaining === 0;
+    const running = isGeneratingThisProject(project);
+    const regenerable = (project.jobs || []).some((job) => job.status === 'complete' && job.conversationUrl);
+    btn.hidden = !interiorDone;
+    btn.disabled = !interiorDone || running;
+    btn.title = running
+      ? 'Pages are already regenerating.'
+      : !regenerable
+        ? 'No saved conversations to regenerate from.'
+        : 'Regenerate every completed page in its saved conversation.';
   });
   document.querySelectorAll('[data-action="start-full-automation"]').forEach((btn) => {
     const running = Boolean(state?.automation?.active && !state?.automation?.paused);
@@ -3185,14 +3368,17 @@ function renderProject() {
     btn.disabled = Boolean(reason);
     btn.title = reason || 'Start the full pipeline for this book.';
   });
-  elements.overviewListingStatus.textContent = listingReady ? (uploadReady ? 'Reviewed & ready' : 'Draft ready') : 'Not created';
+  elements.overviewListingStatus.textContent = listingReady ? (uploadReady ? 'Reviewed & ready' : 'SEO ready') : 'Not created';
   elements.overviewListingDetail.textContent = listingReady
-    ? `${listing.title || 'Untitled listing'} • ${listing.tags?.length ?? 0} tags`
-    : 'Not created';
+    ? `${listing?.title || 'Untitled SEO'} • ${listing?.tags?.length ?? 0} tags`
+    : 'Last stage · PDF SEO';
   elements.overviewThumbnailCount.textContent = `${thumbnailCount} / 4`;
-  elements.overviewThumbnailDetail.textContent = !listingReady
-    ? 'Waiting'
-    : listing.status === 'thumbnails_generating' ? 'Generating…' : thumbnailCount === 4 ? 'Saved' : thumbnailCount > 0 ? `${thumbnailCount} saved` : 'Ready';
+  elements.overviewThumbnailDetail.textContent = listing?.status === 'thumbnails_generating'
+    ? 'Generating…'
+    : thumbnailCount === 4 ? 'Saved' : thumbnailCount > 0 ? `${thumbnailCount} saved` : (pipeline.pagesDone ? 'Ready' : 'After pages');
+  // #region agent log
+  fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify({sessionId:'1c3662',runId:'seo-functional',hypothesisId:'A',location:'renderer.js:overviewThumbnailDetail',message:'overview SEO-safe listing status',data:{listingNull:listing==null,status:listing?.status??null,listingReady:Boolean(listingReady),thumb:thumbnailCount},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   if (elements.overviewPreviewStatus) {
     const previewStatus = listing?.videoPreviewStatus || (listing?.videoPreviewPath ? 'ready' : 'pending');
     elements.overviewPreviewStatus.textContent = listing?.videoPreviewPath
@@ -3245,7 +3431,7 @@ function renderProject() {
       ? liveOp.message || liveOp.label
       : generatingHere && current
         ? `Page ${current.pageNumber}/${stats.total}`
-        : 'Idle';
+        : 'Ready';
   elements.currentJobStatus.className = `status-chip status-${liveOp || generatingHere ? (liveOp ? 'generating' : (current?.status ?? 'generating')) : pipeline.complete ? 'complete' : 'pending'}`;
   elements.currentJobStatus.textContent = generatingElsewhere
     ? 'Background'
@@ -3253,7 +3439,7 @@ function renderProject() {
       ? `${Math.round(liveOp.percent)}%`
       : generatingHere
         ? statusLabel(current?.status ?? 'generating')
-        : pipeline.complete ? 'Ready' : 'Idle';
+        : pipeline.complete ? 'Ready' : 'Ready';
   if (liveOp) elements.heartbeatText.textContent = liveOp.message || liveOp.label;
   else if (generatingHere) elements.heartbeatText.textContent = `${pipeline.pagePercent}%`;
   else elements.heartbeatText.textContent = '';
@@ -3271,24 +3457,35 @@ function renderProject() {
     elements.livePauseButton.hidden = false;
     elements.livePauseButton.textContent = pauseLabel;
   }
+  if (elements.studioStagePause) {
+    elements.studioStagePause.disabled = !pauseEnabled;
+    elements.studioStagePause.hidden = false;
+    elements.studioStagePause.textContent = pauseLabel;
+  }
+  if (elements.studioBannerPause) {
+    elements.studioBannerPause.disabled = !pauseEnabled;
+    elements.studioBannerPause.hidden = false;
+    elements.studioBannerPause.textContent = pauseLabel;
+  }
   elements.retryAllButton.disabled = generatingHere || stats.remaining === 0;
-  elements.outputFolderButton.disabled = generatingHere;
-  const canExport = stats.total > 0 && stats.complete === stats.total;
+  elements.outputFolderButton.disabled = false;
+  elements.outputFolderButton.title = 'Choose or change the output folder anytime.';
+  const canExport = Number(stats.complete) > 0 || Boolean(project.productPdfPath || project.tptListing?.productPdfPath);
   elements.exportAllFilesButton.disabled = !canExport;
   if (elements.generateTptListingButton) {
     const reason = stageStartBlockReason('listing', project);
-    elements.generateTptListingButton.disabled = Boolean(reason);
-    elements.generateTptListingButton.title = reason || 'Start the listing stage.';
+    elements.generateTptListingButton.disabled = liveOp?.kind === 'listing';
+    elements.generateTptListingButton.title = liveOp?.kind === 'listing' ? 'Listing is already running.' : (reason || 'Start the listing stage.');
   }
   if (elements.generateTptThumbnailsButton) {
     const reason = stageStartBlockReason('thumbnails', project);
-    elements.generateTptThumbnailsButton.disabled = Boolean(reason);
-    elements.generateTptThumbnailsButton.title = reason || 'Start mockups.';
+    elements.generateTptThumbnailsButton.disabled = liveOp?.kind === 'thumbnails';
+    elements.generateTptThumbnailsButton.title = liveOp?.kind === 'thumbnails' ? 'Mockups are already generating.' : (reason || 'Start mockups.');
   }
   if (elements.generateTptPreviewVideoButton) {
     const reason = stageStartBlockReason('preview', project);
-    elements.generateTptPreviewVideoButton.disabled = Boolean(reason);
-    elements.generateTptPreviewVideoButton.title = reason || 'Start the preview video.';
+    elements.generateTptPreviewVideoButton.disabled = liveOp?.kind === 'preview';
+    elements.generateTptPreviewVideoButton.title = liveOp?.kind === 'preview' ? 'Preview is already generating.' : (reason || 'Start the preview video.');
   }
   if (elements.openTptUploadButton) {
     elements.openTptUploadButton.disabled = !project.tptListing?.productPdfPath;
@@ -3309,12 +3506,12 @@ function renderProject() {
     elements.startTptUploadingButton.hidden = true;
   }
   elements.exportPdfButton.disabled = !canExport;
-  elements.exportPdfButton.title = canExport ? '' : 'Finish interior pages first.';
+  elements.exportPdfButton.title = canExport ? '' : 'Add pages or a PDF first.';
   elements.exportZipButton.disabled = !canExport;
-  elements.exportZipButton.title = canExport ? '' : 'Finish interior pages first.';
+  elements.exportZipButton.title = canExport ? '' : 'Add pages or a PDF first.';
   elements.exportPptxButton.disabled = !canExport;
-  elements.exportPptxButton.title = canExport ? '' : 'Finish interior pages first.';
-  elements.exportCaption.textContent = canExport ? 'Ready' : `${stats.remaining} left`;
+  elements.exportPptxButton.title = canExport ? '' : 'Add pages or a PDF first.';
+  elements.exportCaption.textContent = canExport ? 'Ready' : 'Add pages first';
   if (elements.tptListingCaption) {
     elements.tptListingCaption.textContent = project.tptListing?.title
       ? `${project.tptListing.uploadMessage || `Draft ready: ${project.tptListing.title} • ${project.tptListing.thumbnailProgress?.completed ?? project.tptListing.thumbnailPaths?.filter(Boolean).length ?? 0}/4 thumbnails${project.tptListing.status === 'thumbnails_failed' ? ' • retry missing thumbnails' : ''}.`}`
@@ -3657,10 +3854,10 @@ async function handleAction(action, target) {
     const originalText = target.textContent;
     target.disabled = true;
     target.textContent = 'Verifying…';
-    if (elements.settingsMetaStatus) elements.settingsMetaStatus.textContent = 'Checking Meta AI in the background';
+    if (elements.settingsMetaStatus) elements.settingsMetaStatus.textContent = 'Checking Meta in the background';
     try {
       const result = await invoke(() => verifyLoginSession({ target: 'meta' }));
-      if (result?.authenticated) showToast('Meta AI session verified. Turn it On to generate images.', 'success');
+      if (result?.authenticated) showToast('Meta session verified. Turn it On to generate images.', 'success');
       return result;
     } finally {
       target.disabled = false;
@@ -3732,7 +3929,7 @@ async function handleAction(action, target) {
     return;
   }
   if (action === 'settings-logout-meta') {
-    const confirmed = confirm('Log out of Meta AI only? ChatGPT and Gemini stay signed in.');
+    const confirmed = confirm('Log out of Meta only? ChatGPT and Gemini stay signed in.');
     if (!confirmed) return;
     const btn = elements.settingsMetaLogout;
     const originalText = btn?.textContent;
@@ -3741,9 +3938,9 @@ async function handleAction(action, target) {
       btn.textContent = 'Logging out…';
     }
     try {
-      if (typeof api.logoutMeta !== 'function') throw new Error('Restart the app to load Meta AI logout.');
+      if (typeof api.logoutMeta !== 'function') throw new Error('Restart the app to load Meta logout.');
       await invoke(() => api.logoutMeta());
-      showToast('Logged out of Meta AI. ChatGPT and Gemini were not signed out.', 'success');
+      showToast('Logged out of Meta. ChatGPT and Gemini were not signed out.', 'success');
       await populateSettingsForm();
     } finally {
       if (btn) {
@@ -3825,21 +4022,26 @@ async function handleAction(action, target) {
       showToast(canvaLockMessage(), 'warning');
       return;
     }
+    const reason = stageStartBlockReason('editable', project);
+    if (reason) {
+      showToast(reason, 'warning');
+      return;
+    }
     return invoke(() => {
-      if (typeof api.runCanvaEditable !== 'function') throw new Error('Restart the app to load the Canva editable layer.');
+      if (typeof api.runCanvaEditable !== 'function') throw new Error('Restart the app to load Canva editable.');
       return api.runCanvaEditable(project.id);
-    }, { successMessage: 'Canva editable layer finished.' });
+    }, { successMessage: 'Canva Magic Layer finished. Template link saved.' });
   }
   if (action === 'open-canva-template') {
     if (!project?.canvaTemplateLink) {
-      showToast('No Canva template link yet. Build the editable layer first.', 'warning');
+      showToast('No template link yet. Build Canva layer first.', 'warning');
       return;
     }
     return invoke(() => api.openExternal(project.canvaTemplateLink), { refresh: false });
   }
   if (action === 'clear-canva-template') {
-    if (!window.confirm('Remove the saved Canva template link so you can rebuild page by page?')) return;
-    return invoke(() => api.clearCanvaTemplate(project.id), { successMessage: 'Canva template removed.' });
+    if (!window.confirm('Clear the Canva template link so you can rebuild Magic Layers?')) return;
+    return invoke(() => api.clearCanvaTemplate(project.id), { successMessage: 'Canva template cleared.' });
   }
   if (action === 'clear-tpt-listing') {
     if (!window.confirm('Delete this listing, its mockups, and preview video? You can generate them again.')) return;
@@ -3892,7 +4094,7 @@ async function handleAction(action, target) {
     }
     return invoke(() => api.setProjectFormat(project.id, next), {
       successMessage: next === 'editable'
-        ? (canvaLocked() ? 'Marked editable. Canva Magic Layer is coming soon on Windows, so this step stays skipped.' : 'Marked editable (Canva layer).')
+        ? (canvaLocked() ? 'Marked editable. Build Editable will create PowerPoint + SVG pages.' : 'Marked editable (PowerPoint + SVG).')
         : 'Marked static (print only).'
     });
   }
@@ -4004,6 +4206,7 @@ async function handleAction(action, target) {
     activeWorkspaceView = 'overview';
     lastRenderedWorkspaceView = null;
     bundleViewActive = false; // exit bundle view when switching to a project
+    document.body.dataset.studioPin = '';
     return invoke(() => api.selectProject(target.dataset.projectId));
   }
   if (action === 'jump-generating-project') {
@@ -4059,7 +4262,7 @@ async function handleAction(action, target) {
   if (action === 'copy-prompt') {
     const job = selectedJob();
     if (!job) return;
-    await navigator.clipboard.writeText(job.prompt);
+    await navigator.clipboard.writeText(job.imagePrompt || job.prompt || '');
     return showToast('Prompt copied.', 'success');
   }
   if (action === 'start') {
@@ -4073,9 +4276,42 @@ async function handleAction(action, target) {
   }
   if (action === 'pause') return invoke(() => api.pauseQueue(), { successMessage: 'Stopped. Start again when you are ready.' });
   if (action === 'retry-all') return invoke(() => api.retryAll(project.id), { successMessage: 'Incomplete pages reset and ready.' });
+  if (action === 'regenerate-interior') {
+    if (!project?.jobs?.length) return;
+    const targets = project.jobs.filter((job) => job.status === 'complete' && job.conversationUrl);
+    if (!targets.length) {
+      showToast('No saved conversations to regenerate from.', 'warning');
+      return;
+    }
+    if (!window.confirm(`Regenerate ${targets.length} page${targets.length === 1 ? '' : 's'} in their saved conversations?`)) return;
+    let queued = 0;
+    for (const job of targets) {
+      try {
+        await api.requestPageRegeneration(job.id);
+        queued += 1;
+      } catch {
+        /* continue queuing remaining pages */
+      }
+    }
+    if (queued) {
+      try {
+        await api.startQueue(project.id);
+      } catch {
+        /* queue may already be running */
+      }
+    }
+    await refreshState();
+    showToast(queued ? `Regenerating ${queued} page${queued === 1 ? '' : 's'}.` : 'Could not queue regenerate.', queued ? 'success' : 'warning');
+    return renderProject();
+  }
   if (action === 'choose-output') return invoke(() => api.chooseOutputDirectory(project.id));
   if (action === 'launch-browser') return openAuthManager(activeEngine() === 'meta' ? 'meta' : 'gemini');
-  if (action === 'focus-browser') return invoke(() => api.bringBrowserToFront(), { refresh: false });
+  if (action === 'focus-browser') {
+    // Keep the managed browser parked. Login stays in Settings.
+    return invoke(() => (typeof api.bringBrowserToFront === 'function'
+      ? Promise.resolve({ background: true })
+      : Promise.resolve({ background: true })), { refresh: false });
+  }
   if (action === 'export-pdf') {
     const exportMode = elements.exportModeSelect?.value || 'STANDARD_SEQUENTIAL';
     const label = exportMode === 'BOOKLET_SADDLE_STITCH' ? 'Booklet Spreads PDF created.' : 'PDF created.';
@@ -4104,45 +4340,70 @@ async function handleAction(action, target) {
     return path;
   }
   if (action === 'generate-tpt-listing') {
-    return invoke(() => api.generateTptListing(project.id), { successMessage: 'TPT listing draft created.' });
+    const reason = stageStartBlockReason('listing', project);
+    if (reason) {
+      showToast(reason, 'warning');
+      return;
+    }
+    return invoke(() => api.generateTptListing(project.id), { successMessage: 'Best-seller SEO saved (title, description, tags).' });
   }
   if (action === 'generate-tpt-thumbnails') {
-    return invoke(() => api.generateTptThumbnails(project.id), { successMessage: 'Four TPT thumbnails generated and saved.' });
+    const reason = stageStartBlockReason('thumbnails', project);
+    if (reason) {
+      showToast(reason, 'warning');
+      return;
+    }
+    return invoke(() => api.generateTptThumbnails(project.id), { successMessage: 'Four mockups generated and saved.' });
   }
   if (action === 'generate-tpt-preview-video') {
+    const reason = stageStartBlockReason('preview', project);
+    if (reason) {
+      showToast(reason, 'warning');
+      return;
+    }
     const force = Boolean(project.tptListing?.videoPreviewPath);
     return invoke(() => api.generateTptPreviewVideo(project.id, { force }), {
-      successMessage: 'Veo 3 preview video saved for teachers.'
+      successMessage: 'Preview video saved for teachers.'
     });
   }
   if (action === 'regenerate-tpt-field') return invoke(() => api.regenerateTptField(project.id, target.dataset.tptField), { successMessage: 'Listing field regenerated.' });
+  if (action === 'copy-seo-bundle') {
+    const root = document.querySelector('[data-workspace-pane="listing"]') || target.closest('.tpt-seo-bundle');
+    const text = root?.querySelector('[data-tpt-setting="seo-bundle"]')?.value?.trim() || '';
+    // #region agent log
+    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify({sessionId:'1c3662',runId:'seo-ui',hypothesisId:'E',location:'renderer.js:copy-seo-bundle',message:'copy SEO clicked',data:{textLen:text.length,hasSkipped:/skipped/i.test(text),head:text.slice(0,120)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    if (!text) {
+      showToast('Generate SEO first.', 'warning');
+      return;
+    }
+    if (/skipped/i.test(text)) {
+      showToast('SEO still has skip stubs. Regenerate SEO first.', 'warning');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('SEO copied.', 'success');
+    } catch {
+      showToast('Could not copy SEO.', 'error');
+    }
+    return;
+  }
   if (action === 'save-tpt-publication-settings') {
-    const settings = target.closest('[data-tpt-publication-settings]');
-    if (!settings) return;
+    const root = document.querySelector('[data-workspace-pane="listing"]') || target.closest('[data-tpt-publication-settings]');
+    if (!root) return;
+    const seoRaw = root.querySelector('[data-tpt-setting="seo-bundle"]')?.value;
+    const parsedSeo = seoRaw != null ? parseSeoBundleForUi(seoRaw) : null;
+    if (!parsedSeo || (!parsedSeo.title && !parsedSeo.description && !parsedSeo.tags && !String(seoRaw || '').trim())) {
+      showToast('Generate or paste SEO first.', 'warning');
+      return;
+    }
     return invoke(() => api.updateTptPublication(project.id, {
-      isFreeResource: settings.querySelector('[data-tpt-setting="pricing-mode"]')?.value === 'free',
-      title: settings.querySelector('[data-tpt-setting="title"]')?.value,
-      description: settings.querySelector('[data-tpt-setting="description"]')?.value,
-      tags: settings.querySelector('[data-tpt-setting="tags"]')?.value,
-      grades: settings.querySelector('[data-tpt-setting="grades"]')?.value,
-      subjects: settings.querySelector('[data-tpt-setting="subjects"]')?.value,
-      formats: settings.querySelector('[data-tpt-setting="formats"]')?.value,
-      customCategories: settings.querySelector('[data-tpt-setting="custom-categories"]')?.value,
-      suggestedPrice: settings.querySelector('[data-tpt-setting="suggested-price"]')?.value,
-      multipleLicensePrice: settings.querySelector('[data-tpt-setting="multiple-license-price"]')?.value,
-      bundleDiscountPrice: settings.querySelector('[data-tpt-setting="bundle-discount-price"]')?.value,
-      taxCode: settings.querySelector('[data-tpt-setting="tax-code"]')?.value,
-      teachingDuration: settings.querySelector('[data-tpt-setting="teaching-duration"]')?.value,
-      pageCount: settings.querySelector('[data-tpt-setting="page-count"]')?.value,
-      answerKey: settings.querySelector('[data-tpt-setting="answer-key"]')?.value,
-      ccss: settings.querySelector('[data-tpt-setting="ccss"]')?.value,
-      ngss: settings.querySelector('[data-tpt-setting="ngss"]')?.value,
-      teks: settings.querySelector('[data-tpt-setting="teks"]')?.value,
-      vaSol: settings.querySelector('[data-tpt-setting="va-sol"]')?.value,
-      copyrightDeclaration: settings.querySelector('[data-tpt-setting="copyright"]')?.value,
-      publicationStatus: settings.querySelector('[data-tpt-setting="publication-status"]')?.value,
-      thumbnailMode: settings.querySelector('[data-tpt-setting="thumbnail-mode"]')?.value
-    }), { successMessage: 'TPT publishing settings saved.' });
+      title: parsedSeo.title,
+      description: parsedSeo.description,
+      tags: parsedSeo.tags,
+      seoText: String(seoRaw || '').trim()
+    }), { successMessage: 'SEO saved.' });
   }
   if (action === 'choose-tpt-asset') {
     return invoke(() => api.chooseTptAsset(project.id, target.dataset.tptAsset), { successMessage: 'Optional TPT asset saved locally.' });
@@ -4211,6 +4472,12 @@ elements.runButton.addEventListener('click', () => handleAction('start', element
 elements.pauseButton.addEventListener('click', () => handleAction('pause', elements.pauseButton).catch(() => {}));
 if (elements.livePauseButton) {
   elements.livePauseButton.addEventListener('click', () => handleAction('pause', elements.livePauseButton).catch(() => {}));
+}
+if (elements.studioStagePause) {
+  elements.studioStagePause.addEventListener('click', () => handleAction('pause', elements.studioStagePause).catch(() => {}));
+}
+if (elements.studioBannerPause) {
+  elements.studioBannerPause.addEventListener('click', () => handleAction('pause', elements.studioBannerPause).catch(() => {}));
 }
 
 (() => {
@@ -4769,13 +5036,13 @@ elements.authOpenButton.addEventListener('click', async () => {
   const meta = authTarget === 'meta';
   elements.authStatusText.textContent = chatgpt
     ? 'Opening ChatGPT in Google Chrome Canary…'
-    : (meta ? 'Opening Meta AI in Google Chrome Canary…' : 'Opening Gemini in Google Chrome Canary…');
+    : (meta ? 'Opening Meta in Google Chrome Canary…' : 'Opening Gemini in Google Chrome Canary…');
   try {
     const result = await invoke(() => openLoginSession({ target: authTarget }), { refresh: false });
     elements.authStatusText.textContent = chatgpt
       ? `${result?.browserLabel || 'Google Chrome Canary'} is ready for ChatGPT sign-in. Finish login, then click Verify ChatGPT. The window hides after that.`
       : (meta
-        ? `${result?.browserLabel || 'Google Chrome Canary'} is ready for Meta AI sign-in. Finish login, then click Verify Meta AI.`
+        ? `${result?.browserLabel || 'Google Chrome Canary'} is ready for Meta sign-in. Finish login, then click Verify Meta.`
         : `${result?.browserLabel || 'Google Chrome Canary'} is ready for Gemini sign-in. Finish login, then click Verify Gemini. The window hides after that.`);
   } catch (error) {
     elements.authStatusText.textContent = `Could not open the browser: ${errorMessage(error)}`;
@@ -4787,13 +5054,13 @@ elements.authVerifyButton.addEventListener('click', async () => {
   const meta = authTarget === 'meta';
   elements.authStatusText.textContent = chatgpt
     ? 'Checking your ChatGPT login in the background…'
-    : (meta ? 'Checking your Meta AI login in the background…' : 'Checking your Gemini login in the background…');
+    : (meta ? 'Checking your Meta login in the background…' : 'Checking your Gemini login in the background…');
   elements.authVerifyButton.disabled = true;
   try {
     const result = await invoke(() => verifyLoginSession({ target: authTarget }));
     elements.authStatusText.textContent = result?.authenticated
-      ? (chatgpt ? 'ChatGPT connected for mockups.' : (meta ? 'Meta AI connected for page images.' : 'Gemini connected for listing and page text.'))
-      : (chatgpt ? 'ChatGPT is not valid yet. Stay signed in, then verify again.' : (meta ? 'Meta AI is not valid yet. Stay signed in, then verify again.' : 'Gemini is not valid yet. Stay signed in, then verify again.'));
+      ? (chatgpt ? 'ChatGPT connected for mockups.' : (meta ? 'Meta connected for page images.' : 'Gemini connected for listing and page text.'))
+      : (chatgpt ? 'ChatGPT is not valid yet. Stay signed in, then verify again.' : (meta ? 'Meta is not valid yet. Stay signed in, then verify again.' : 'Gemini is not valid yet. Stay signed in, then verify again.'));
     if (result?.authenticated) {
       authManagerOpenedManually = false;
       if (elements.authDialog.open) elements.authDialog.close();

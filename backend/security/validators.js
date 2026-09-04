@@ -38,6 +38,18 @@ class Validators {
     if (error) throw new Error(`Validation failed: ${error.message}`);
     return value;
   }
+
+  static validateBody(validatorFn) {
+    return (req, res, next) => {
+      try {
+        req.validatedBody = validatorFn(req.body);
+        next();
+      } catch (err) {
+        res.status(400).json({ error: err.message });
+      }
+    };
+  }
 }
 
+Validators.schemas = schemas;
 module.exports = Validators;

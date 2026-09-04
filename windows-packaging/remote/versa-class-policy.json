@@ -1,0 +1,11 @@
+{
+  "appId": "com.versa.class",
+  "enabled": true,
+  "latestVersion": "0.1.0",
+  "minVersion": "0.1.0",
+  "forceUpdate": false,
+  "downloadUrl": "https://podnetwork.store/downloads/tpt-book-automation/",
+  "message": "",
+  "blockedVersions": [],
+  "revokedDeviceIds": []
+}
