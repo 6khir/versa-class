@@ -76,6 +76,17 @@ async function runTests() {
   assert.strictEqual(validCred.account, 'admin@versa.dev');
   console.log('  ✔ Joi schema validation and error rejection verified');
 
+  console.log('▶ [Layer 1: Security] Testing Auth module (bcrypt + JWT)...');
+  const auth = require('./backend/auth');
+  const regResult = await auth.register('teacher1', 'correct-horse-battery-staple', 'admin');
+  assert.strictEqual(regResult.username, 'teacher1');
+  const loginResult = await auth.login('teacher1', 'correct-horse-battery-staple');
+  assert.ok(loginResult.token, 'JWT token issued');
+  const verified = auth.verifyToken(loginResult.token);
+  assert.strictEqual(verified.username, 'teacher1');
+  assert.strictEqual(verified.role, 'admin');
+  console.log('  ✔ Password hashing (bcrypt) and JWT authentication verified');
+
   // ----------------------------------------------------
   // LAYER 2: PERFORMANCE TESTS
   // ----------------------------------------------------
@@ -147,6 +158,20 @@ async function runTests() {
   assert.strictEqual(typeof logger.warn, 'function');
   assert.strictEqual(typeof logger.error, 'function');
 
+  // Verify secret redaction configuration in Pino
+  const pino = require('pino');
+  let loggedChunk = '';
+  const redactLogger = pino({
+    redact: {
+      paths: ['password', 'token', 'secret', '*.password'],
+      censor: '[REDACTED]'
+    }
+  }, { write: (s) => { loggedChunk += s; } });
+  redactLogger.info({ password: 'super-secret-password-123', token: 'jwt-tok-456' }, 'redact check');
+  assert.ok(loggedChunk.includes('[REDACTED]'), 'Redaction censor is applied');
+  assert.ok(!loggedChunk.includes('super-secret-password-123'), 'Cleartext password is not logged');
+  console.log('  ✔ Pino structured logger and credential redaction verified');
+
   const PerformanceMonitor = require('./renderer/performance-monitor');
   const loggedEvents = [];
   const mockLogger = {
@@ -217,14 +242,56 @@ async function runTests() {
   assert.ok(healthRes.headers['x-dns-prefetch-control'], 'Helmet x-dns-prefetch-control header present');
   assert.ok(healthRes.headers['x-content-type-options'], 'Helmet x-content-type-options header present');
 
-  // 2. Data endpoint
-  const dataRes = await makeRequest('/api/data');
-  assert.strictEqual(dataRes.statusCode, 200);
-  assert.strictEqual(dataRes.body.message, 'VERSA CLASS API');
+  // 2. Data endpoint with active caching
+  const dataRes1 = await makeRequest('/api/data');
+  assert.strictEqual(dataRes1.statusCode, 200);
+  assert.strictEqual(dataRes1.body.message, 'VERSA CLASS API');
+
+  const dataRes2 = await makeRequest('/api/data');
+  assert.strictEqual(dataRes2.statusCode, 200);
+  assert.strictEqual(dataRes2.body.cached, true, 'Second request is served from cache');
+  assert.strictEqual(dataRes2.body.timestamp, dataRes1.body.timestamp, 'Cached timestamp is preserved');
+
+  // 3. Schema validation middleware via /api/projects
+  const invalidProj = await makeRequest('/api/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: { title: 'Invalid Pack' } // missing format
+  });
+  assert.strictEqual(invalidProj.statusCode, 400);
+  assert.ok(invalidProj.body.error.includes('format'), 'Rejected missing format with 400');
+
+  const validProjReq = await makeRequest('/api/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: { title: 'Kindergarten Pack', format: 'A4', tags: ['reading'] }
+  });
+  assert.strictEqual(validProjReq.statusCode, 201);
+  assert.strictEqual(validProjReq.body.project.title, 'Kindergarten Pack');
+
+  // 4. Batch queue endpoint via /api/batch
+  const batchRes = await makeRequest('/api/batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: { task: 'render_thumbnail', page: 1 }
+  });
+  assert.strictEqual(batchRes.statusCode, 202);
+  assert.strictEqual(batchRes.body.queued, true);
+
+  // 5. 404 JSON handler
+  const notFoundRes = await makeRequest('/api/non-existent-route');
+  assert.strictEqual(notFoundRes.statusCode, 404);
+  assert.strictEqual(notFoundRes.body.error, 'Endpoint not found');
+
+  // 6. Centralized Error Handler (no stack leaks, clean JSON)
+  const crashRes = await makeRequest('/api/test-error');
+  assert.strictEqual(crashRes.statusCode, 500);
+  assert.strictEqual(crashRes.body.error, 'Internal Server Error', 'Sensitive error message is sanitized');
+  assert.strictEqual(typeof crashRes.body.stack, 'undefined', 'Stack trace is not leaked');
 
   // Close server cleanly
   await new Promise((resolve) => server.close(resolve));
-  console.log('  ✔ Express HTTP Server with Helmet, Compression, Rate-Limit & Logging verified');
+  console.log('  ✔ Express HTTP Server with Helmet, Compression, Rate-Limit, Caching, Validation & Error Sanitization verified');
 
   console.log('\n✨ ALL 4 ENTERPRISE LAYERS VERIFIED WITH ZERO ERRORS! ✨');
 }

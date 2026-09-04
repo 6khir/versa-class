@@ -1,7 +1,15 @@
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'versa_secret_key_local_only_2025';
+let jwtSecret = process.env.JWT_SECRET;
+if (!jwtSecret) {
+  jwtSecret = crypto.randomBytes(32).toString('hex');
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('⚠️ WARNING: JWT_SECRET environment variable is not set! Using ephemeral key.');
+  }
+}
+const JWT_SECRET = jwtSecret;
 const USERS = new Map();
 
 async function register(username, password, role = 'user') {
