@@ -1295,7 +1295,7 @@
               <section class="chrome-profiles-panel">
                 <p class="eyebrow">BROWSER PROFILES</p>
                 <h4>Chrome profiles for Gemini and ChatGPT</h4>
-                <p class="field-hint">The selected Chrome profile must be signed into Google Gemini (listing and page text) and ChatGPT (mockups).</p>
+                <p class="field-hint">The selected Chrome profile must be signed into Gemini and ChatGPT.</p>
                 <div class="profile-select-container">
                   <label for="settings-chatgpt-profile-select">Active profile to sync</label>
                   <select id="settings-chatgpt-profile-select">
@@ -1308,15 +1308,15 @@
                     <input type="checkbox" id="settings-enable-profile-swapping" checked>
                     <strong>Auto-swap Chrome profiles on Gemini rate limits</strong>
                   </label>
-                  <p class="field-hint" style="font-size: 11px; opacity: 0.8; margin-bottom: 8px;">Select accounts to cycle. ChatGPT mockups use the same profile, so keep ChatGPT signed in on every selected account:</p>
+                  <p class="field-hint" style="font-size: 11px; opacity: 0.8; margin-bottom: 8px;">Select accounts to cycle. Keep ChatGPT signed in on every selected account:</p>
                   <div id="settings-profile-rotation-list" class="profile-rotation-list" style="display: flex; flex-direction: column; gap: 6px;"></div>
                 </div>
               </section>
 
               <section class="chrome-profiles-panel engine-picker">
-                <p class="eyebrow">ACTIVE IMAGE ENGINE</p>
-                <h4>One engine at a time for page images</h4>
-                <p class="field-hint">Gemini still writes analysis, blueprints, and prompts. Turn on ChatGPT, Gemini, or Meta only for interior page images.</p>
+                <p class="eyebrow">ACTIVE ENGINE</p>
+                <h4>ChatGPT, Gemini, or Meta AI</h4>
+                <p class="field-hint">One engine at a time.</p>
                 <div class="engine-toggle-row">
                   <button class="engine-toggle is-on" id="engine-chatgpt-toggle" data-action="set-ai-engine" data-engine="chatgpt" type="button">
                     <span class="engine-toggle-brand brand-chatgpt" aria-hidden="true"><img class="brand-mark" src="../assets/brand/chatgpt.png" alt=""></span>
@@ -1330,7 +1330,7 @@
                   </button>
                   <button class="engine-toggle" id="engine-meta-toggle" data-action="set-ai-engine" data-engine="meta" type="button">
                     <span class="engine-toggle-brand brand-meta" aria-hidden="true"><img class="brand-mark" src="../assets/brand/meta.png" alt=""></span>
-                    <span class="engine-toggle-name">Meta</span>
+                    <span class="engine-toggle-name">Meta AI</span>
                     <span class="engine-toggle-state" id="engine-meta-state">Off</span>
                   </button>
                 </div>
@@ -1342,8 +1342,8 @@
                   <div class="integration-copy">
                     <span class="settings-status-dot"></span>
                     <small id="settings-mockups-status">Checking ChatGPT session</small>
-                    <h4>ChatGPT account (mockups)</h4>
-                    <p id="settings-mockups-profile">Mockups use the Winner Mockups Custom GPT. Sign in and verify ChatGPT separately from Gemini.</p>
+                    <h4>ChatGPT</h4>
+                    <p id="settings-mockups-profile">Sign in and verify ChatGPT.</p>
                     <p id="settings-mockups-verified" class="integration-meta"></p>
                   </div>
                   <div class="integration-actions">
@@ -1358,8 +1358,8 @@
                   <div class="integration-copy">
                     <span class="settings-status-dot"></span>
                     <small id="settings-chatgpt-status">Not connected</small>
-                    <h4>Google Gemini (text &amp; listing)</h4>
-                    <p id="settings-chatgpt-profile">Sign in or create an account, then verify the local session.</p>
+                    <h4>Gemini</h4>
+                    <p id="settings-chatgpt-profile">Sign in and verify Gemini.</p>
                     <p id="settings-chatgpt-verified" class="integration-meta"></p>
                   </div>
                   <div class="integration-actions">
@@ -1373,8 +1373,8 @@
                   <div class="integration-copy">
                     <span class="settings-status-dot"></span>
                     <small id="settings-meta-status">Not connected</small>
-                    <h4>Meta AI (page images)</h4>
-                    <p id="settings-meta-profile">Sign in on meta.ai, then verify the local session. Used only while Meta is turned on for images.</p>
+                    <h4>Meta AI</h4>
+                    <p id="settings-meta-profile">Sign in on meta.ai, then verify.</p>
                     <p id="settings-meta-verified" class="integration-meta"></p>
                   </div>
                   <div class="integration-actions">
@@ -1407,7 +1407,7 @@
                     <span class="settings-status-dot"></span>
                     <small id="settings-gpt-status">Waiting for Gemini</small>
                     <h4>VERSA CLASS Gems &amp; Custom GPTs</h4>
-                    <p id="settings-gpt-profile">Gemini gems write analysis, listings, and Veo. ChatGPT custom GPTs stay available for mockups when ChatGPT is verified.</p>
+                    <p id="settings-gpt-profile">Gems and Custom GPTs use the verified Gemini and ChatGPT sessions.</p>
                   </div>
                   <div class="integration-actions">
                     <button class="button button-ghost" data-action="settings-open-custom-gpt" type="button">Open Content Pages Gem</button>
@@ -1626,7 +1626,7 @@
       <div class="auth-dialog-content">
         <div id="auth-brand-logo" class="auth-brand-logo brand-gemini" aria-hidden="true"><img class="brand-mark" src="../assets/brand/gemini.png" alt="Gemini"></div>
         <p class="eyebrow" id="auth-eyebrow">FIRST-RUN LOGIN</p>
-        <h2 id="auth-title">Connect Google Gemini</h2>
+        <h2 id="auth-title">Connect Gemini</h2>
         <p id="auth-copy">Sign in once. Canary stays in the background after that — VERSA CLASS keeps the login until you sign out.</p>
         <div class="auth-actions">
           <button id="auth-open-button" class="button button-gold" type="button">Sign in to Gemini</button>
