@@ -1,7 +1,8 @@
 const { EventEmitter } = require('node:events');
 const { existsSync, appendFileSync } = require('node:fs');
 const { isPersistedConversationUrl } = require('./browser-controller.cjs');
-const { getJobStartUrl, normalizeEngine, withEngineImagePrefix, engineDisplayName, isBrowserEngine, isMetaLocalUrl, conversationMatchesEngine } = require('./ai-engine.cjs');
+const { getJobStartUrl, normalizeEngine, withEngineImagePrefix, engineDisplayName, isBrowserEngine, isMetaLocalUrl, conversationMatchesEngine, jobRouteKind, resolveStageEngine, getProvider } = require('./ai-engine.cjs');
+const { isQuotaError } = require('./account-pool.cjs');
 const { resolvePageSetup } = require('./file-manager.cjs');
 const { looksLikePageImagePrompt } = require('./prompt-builder.cjs');
 
@@ -237,6 +238,27 @@ class QueueEngine extends EventEmitter {
     return this.status();
   }
 
+  #stageSettings() {
+    return {
+      aiEngine: this.store.getSetting('aiEngine', 'chatgpt'),
+      pagesEngine: this.store.getSetting('aiEngine', 'chatgpt'),
+      stageProviders: this.store.getSetting('stageProviders', null)
+    };
+  }
+
+  #stageForJob(job = {}) {
+    const route = jobRouteKind({ kind: job.kind || 'page', purpose: job.purpose || 'image' });
+    if (route === 'mockups') return 'mockups';
+    if (route === 'preview') return 'preview';
+    return 'pages';
+  }
+
+  #engineForJob(job = null) {
+    const stage = job ? this.#stageForJob(job) : 'pages';
+    const requested = resolveStageEngine(stage, this.#stageSettings());
+    return getProvider(requested).runtimeEngineFor(stage);
+  }
+
   #dropPreparedWork(message = null) {
     this.preloadedJobId = null;
     this.preloadedEngine = null;
@@ -249,8 +271,8 @@ class QueueEngine extends EventEmitter {
     }
   }
 
-  async #bindImageEngine({ force = false } = {}) {
-    const engine = normalizeEngine(this.store.getSetting('aiEngine', 'chatgpt'));
+  async #bindImageEngine({ force = false, job = null } = {}) {
+    const engine = this.#engineForJob(job);
     if (typeof this.browser.setEngine === 'function') this.browser.setEngine(engine);
     const changed = force || this.engineNeedsBind || this.boundEngine !== engine;
     if (!changed) return engine;
@@ -344,7 +366,7 @@ class QueueEngine extends EventEmitter {
         this.activeJobId = job.id;
         this.#changed();
         try {
-          await this.#bindImageEngine();
+          await this.#bindImageEngine({ job });
           batchOutcome = await this.#processJob(project, job, nextJob);
         } catch (error) {
           if (error.code === 'AUTH_REQUIRED' || error.code === 'META_API_UNAVAILABLE') {
@@ -399,7 +421,7 @@ class QueueEngine extends EventEmitter {
 
   async #processJob(project, initialJob, nextJob = null) {
     let job = this.store.getJob(initialJob.id);
-    const engine = await this.#bindImageEngine();
+    const engine = await this.#bindImageEngine({ job: initialJob });
     const preloadPromise = this.preloadPromises.get(job.id);
     if (preloadPromise) {
       if (this.preloadedEngine === engine) await preloadPromise.catch(() => {});
@@ -408,7 +430,7 @@ class QueueEngine extends EventEmitter {
     if (job.conversationUrl && isMetaLocalUrl(job.conversationUrl)) {
       job = this.store.updateJob(job.id, { conversationUrl: null, baselineJson: null });
     }
-    const imageEngine = normalizeEngine(this.store.getSetting('aiEngine', 'chatgpt'));
+    const imageEngine = this.#engineForJob(job);
     if (job.conversationUrl && !conversationMatchesEngine(job.conversationUrl, imageEngine)) {
       this.#log({
         projectId: project.id,
@@ -457,8 +479,7 @@ class QueueEngine extends EventEmitter {
 
     try {
       if (attempt > 1) await sleep(this.retryReloadDelayMs);
-      const engine = normalizeEngine(this.store.getSetting('aiEngine', 'chatgpt'));
-      if (typeof this.browser.setEngine === 'function') this.browser.setEngine(engine);
+      const engine = await this.#bindImageEngine({ job });
 
       // #region agent log
       try {
@@ -988,13 +1009,13 @@ class QueueEngine extends EventEmitter {
       return 'pause';
     }
     if (code === 'REQUEST_THROTTLED') return this.#registerRequestThrottle(project, job, error);
-    if (code === 'RATE_LIMIT') {
+    if (code === 'RATE_LIMIT' || code === 'QUOTA_EXCEEDED' || isQuotaError(error)) {
       if (typeof this.browser.canSwapProfile === 'function' && this.browser.canSwapProfile()) {
         this.#log({
           projectId: project.id,
           jobId: job.id,
           level: 'warn',
-          message: `Account usage limit reached on current profile. Swapping to next Google Chrome profile to resume queue...`
+          message: `Account usage limit reached on the current profile. Swapping to the next saved account and resuming page ${job.pageNumber}...`
         });
         try {
           const swapResult = await this.browser.switchToNextProfile();
@@ -1003,7 +1024,7 @@ class QueueEngine extends EventEmitter {
               projectId: project.id,
               jobId: job.id,
               level: 'info',
-              message: `Swapped to profile "${swapResult.profileName}". Resuming page ${job.pageNumber}...`
+              message: `Swapped to profile "${swapResult.profileName}". Resuming page ${job.pageNumber} on the same prompt.`
             });
             this.store.updateJob(job.id, {
               status: 'retry_wait',

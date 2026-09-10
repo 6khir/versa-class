@@ -180,7 +180,10 @@ test('RATE_LIMIT_PATTERNS detects all Gemini rate limit variations', () => {
     "Please try again in 3 hours.",
     "Try again in 45 minutes.",
     "Limit resets at 3:00 PM.",
-    "You've reached your usage limit."
+    "You've reached your usage limit.",
+    "Quota exceeded",
+    "You've reached your quota. Try again tomorrow.",
+    "You've reached the free plan limit."
   ];
 
   for (const text of samples) {

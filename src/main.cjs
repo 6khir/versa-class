@@ -85,6 +85,9 @@ const {
   normalizeEngine,
   engineDisplayName,
   getJobStartUrl,
+  getProvider,
+  resolveStageEngine,
+  defaultStageProviders,
   loginConfirmedKey,
   accountProfileKey,
   isBrowserEngine,
@@ -173,7 +176,7 @@ let automation = null;
 let liveOperation = null;
 let canvaLiveDashboard = null;
 const printPdfInflight = new Map();
-const LOGIN_SESSION_SCHEMA_VERSION = 4;
+const LOGIN_SESSION_SCHEMA_VERSION = 5;
 const APP_NAME = 'VERSA CLASS';
 const LEGACY_APP_NAME = 'POD Network Book Studio';
 const LEGACY_USER_DATA_NAMES = ['TPT VERSA', 'tpt-book-builder-desktop', 'Versa AI', LEGACY_APP_NAME];
@@ -187,6 +190,46 @@ function getActiveEngine() {
   return normalizeEngine(store?.getSetting('aiEngine', 'chatgpt'));
 }
 
+function getStageSettings() {
+  return {
+    aiEngine: getActiveEngine(),
+    pagesEngine: getActiveEngine(),
+    stageProviders: store?.getSetting('stageProviders', null)
+  };
+}
+
+function getStageEngine(stage) {
+  return resolveStageEngine(stage, getStageSettings());
+}
+
+function bindStageEngine(stage) {
+  const requested = getStageEngine(stage);
+  const runtime = getProvider(requested).runtimeEngineFor(stage);
+  if (browser && typeof browser.setEngine === 'function') browser.setEngine(runtime);
+  syncBrowserVerifiedAccounts();
+  return runtime;
+}
+
+function requireStageEngine(stage, actionLabel) {
+  const runtime = bindStageEngine(stage);
+  if (isEngineConfirmed(runtime)) return runtime;
+  throw Object.assign(
+    new Error(`Connect ${engineDisplayName(runtime)} before ${actionLabel}. Other engines stay signed in and unused for this stage.`),
+    { code: runtime === 'gemini' ? 'GEMINI_REQUIRED' : 'AUTH_REQUIRED' }
+  );
+}
+
+function persistBrowserAccounts() {
+  if (!store || !browser || typeof browser.getProfileRotation !== 'function') return;
+  const rotation = browser.getProfileRotation();
+  store.setSetting('currentProfileIndex', rotation.currentIndex);
+  store.setSetting('enableProfileSwapping', Boolean(rotation.enabled));
+  store.setSetting('profileRotationList', rotation.profiles || []);
+  if (rotation.accountPool) store.setSetting('accountPool', rotation.accountPool);
+  const dir = rotation.activeProfile?.userDataDir || browser.profileDir;
+  if (dir) store.setSetting('activeAccountUserDataDir', dir);
+}
+
 function isEngineConfirmed(engine = getActiveEngine()) {
   if (normalizeEngine(engine) === 'meta') {
     return Boolean(store?.getSetting('metaLoginConfirmed', false));
@@ -195,8 +238,7 @@ function isEngineConfirmed(engine = getActiveEngine()) {
 }
 
 function requireActiveEngine(actionLabel) {
-  const engine = getActiveEngine();
-  applyActiveEngineToBrowser();
+  const engine = bindStageEngine('pages');
   if (isEngineConfirmed(engine)) return engine;
   throw Object.assign(
     new Error(`Connect ${engineDisplayName(engine)} before ${actionLabel}. The other engine stays signed in but is not used.`),
@@ -274,17 +316,11 @@ function requireGeminiForPreview(actionLabel) {
 }
 
 function requireGeminiForPlanning(actionLabel) {
-  syncBrowserVerifiedAccounts();
-  if (isEngineConfirmed('gemini')) return 'gemini';
-  throw Object.assign(
-    new Error(`Connect Gemini before ${actionLabel}. Gemini always writes analysis, blueprints, and prompts. ChatGPT and Meta stay signed in and unused for this stage.`),
-    { code: 'GEMINI_REQUIRED' }
-  );
+  return requireStageEngine('text', actionLabel);
 }
 
 function requireListingEngine(actionLabel) {
-  if (getActiveEngine() === 'meta') return requireGeminiForPlanning(actionLabel);
-  return requireActiveEngine(actionLabel);
+  return requireStageEngine('listing', actionLabel);
 }
 
 async function lockBrowserDesk(reason = 'desk-lock') {
@@ -335,8 +371,7 @@ function appendDebug1c3662(payload) {
 }
 
 async function assertListingChatSessionReady(actionLabel = 'listing generation') {
-  const engine = getActiveEngine() === 'meta' ? 'gemini' : getActiveEngine();
-  requireListingEngine(actionLabel);
+  const engine = requireListingEngine(actionLabel);
   const looksSignedOutUrl = (rawUrl) => /accounts\.google\.com|ServiceLogin|signin\/|\/auth\/|login\.chatgpt|auth\.openai/i.test(String(rawUrl || ''));
   const looksLikeEngineHome = (rawUrl) => {
     const url = String(rawUrl || '');
@@ -1231,7 +1266,14 @@ async function runCanvaEditableForProject(projectId, onProgress = () => {}, opti
 async function openStudioById(studioId = 'planning') {
   const studio = findStudio(studioId) || findStudio('planning');
   assertIdle();
-  if (studio.engine === 'gemini') requireGeminiForPlanning(`opening ${studio.name}`);
+  if (studio.engine === 'gemini') {
+    if (!isEngineConfirmed('gemini')) {
+      throw Object.assign(
+        new Error(`Connect Gemini before opening ${studio.name}. ChatGPT and Meta stay signed in and unused for this studio.`),
+        { code: 'GEMINI_REQUIRED' }
+      );
+    }
+  }
   else if (!isEngineConfirmed('chatgpt')) {
     throw Object.assign(
       new Error(`Connect ChatGPT before opening ${studio.name}. Gemini gems stay available after you verify Gemini.`),
@@ -1778,6 +1820,9 @@ async function buildState() {
   const dashboard = store.getDashboardState();
   const whenCompleteAction = store.getSetting('whenCompleteAction', 'nothing');
   const aiEngine = getActiveEngine();
+  const textEngine = getProvider(getStageEngine('text')).runtimeEngineFor('text');
+  const mockupsEngine = getStageEngine('mockups');
+  const listingEngine = getStageEngine('listing');
   const chatgptConfirmed = Boolean(store.getSetting('chatgptLoginConfirmed', false));
   const geminiConfirmed = Boolean(store.getSetting('geminiLoginConfirmed', false));
   const metaConfirmed = Boolean(store.getSetting('metaLoginConfirmed', false));
@@ -1821,23 +1866,27 @@ async function buildState() {
       },
       customGpt: {
         name: CONTENT_GEM_NAME,
-        url: getJobStartUrl({ kind: 'analysis' }, 'gemini'),
-        connected: geminiConfirmed,
-        usesChatGptSession: false,
-        usesGeminiSession: true,
-        usesMetaSession: false
+        url: getJobStartUrl({ kind: 'analysis' }, getStageEngine('text')),
+        connected: isEngineConfirmed(textEngine),
+        usesChatGptSession: textEngine === 'chatgpt',
+        usesGeminiSession: textEngine === 'gemini',
+        usesMetaSession: textEngine === 'meta'
       },
       mockups: {
-        name: aiEngine === 'chatgpt' ? 'TPT Winner Mockups Custom GPT' : MOCKUPS_GEM_NAME,
-        url: getJobStartUrl({ kind: 'thumbnail' }, aiEngine === 'chatgpt' ? 'chatgpt' : 'gemini')
+        name: mockupsEngine === 'chatgpt' ? 'TPT Winner Mockups Custom GPT' : MOCKUPS_GEM_NAME,
+        url: getJobStartUrl({ kind: 'thumbnail' }, mockupsEngine)
       },
       seo: {
-        name: 'SEO / Listing Gem',
-        url: getJobStartUrl({ kind: 'listing' }, 'gemini')
+        name: 'SEO / Listing',
+        url: getJobStartUrl({ kind: 'listing' }, listingEngine)
       },
       preview: {
         name: PREVIEW_GEM_NAME,
         url: getJobStartUrl({ kind: 'preview' }, 'gemini')
+      },
+      stageProviders: {
+        ...defaultStageProviders(aiEngine),
+        ...(store.getSetting('stageProviders', {}) || {})
       },
       studios: {
         gems: listGeminiStudios().map((studio) => ({ ...studio, connected: geminiConfirmed })),
@@ -2563,16 +2612,14 @@ function registerIpc() {
   ipcMain.handle('profiles:set-rotation', async (_event, { profiles = [], currentIndex = 0, enabled = true } = {}) => {
     browser.enableProfileSwapping = Boolean(enabled);
     browser.setProfileRotation(profiles, currentIndex);
-    store.setSetting('profileRotationList', profiles);
-    store.setSetting('currentProfileIndex', currentIndex);
-    store.setSetting('enableProfileSwapping', Boolean(enabled));
+    persistBrowserAccounts();
     await broadcastState();
     return browser.getProfileRotation();
   });
 
   ipcMain.handle('profiles:switch-next', async () => {
     const result = await browser.switchToNextProfile();
-    store.setSetting('currentProfileIndex', browser.currentProfileIndex);
+    persistBrowserAccounts();
     await broadcastState();
     return result;
   });
@@ -3836,7 +3883,7 @@ function registerIpc() {
 
   ipcMain.handle('project:generate-tpt-thumbnails', async (_event, projectId) => {
     assertBrowserFree('mockups');
-    requireActiveEngine('generating listing thumbnails');
+    requireStageEngine('mockups', 'generating listing thumbnails');
     const project = await ensureListingShellForAssets(projectId);
     const listing = project?.tptListing;
     if (!project || !listing?.productPdfPath) {
@@ -4526,8 +4573,14 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
   createSplashWindow();
   bootLog('splash created');
   if (store.getSetting('loginSessionSchemaVersion', 0) !== LOGIN_SESSION_SCHEMA_VERSION) {
+    const previousSchema = Number(store.getSetting('loginSessionSchemaVersion', 0) || 0);
     store.setSetting('loginSessionSchemaVersion', LOGIN_SESSION_SCHEMA_VERSION);
-    store.setSetting('enableProfileSwapping', false);
+    if (previousSchema <= 4) {
+      const rotation = store.getSetting('profileRotationList', []) || store.getSetting('accountPool', null)?.accounts || [];
+      if (Array.isArray(rotation) && rotation.length > 1) {
+        store.setSetting('enableProfileSwapping', true);
+      }
+    }
   }
   if (process.env.TPT_TEST_USER_DATA && !process.env.TPT_TEST_REQUIRE_LOGIN) {
     store.setSetting('chatgptLoginConfirmed', true);
@@ -4640,16 +4693,28 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
     } catch {}
   });
 
+  const savedPool = store.getSetting('accountPool', null);
   const savedRotation = store.getSetting('profileRotationList', []);
   const savedIndex = store.getSetting('currentProfileIndex', 0);
-  const savedSwappingEnabled = store.getSetting('enableProfileSwapping', false);
+  let savedSwappingEnabled = store.getSetting('enableProfileSwapping', null);
+  const rotationCount = savedPool?.accounts?.length || (Array.isArray(savedRotation) ? savedRotation.length : 0);
+  if (savedSwappingEnabled == null && rotationCount > 1) {
+    savedSwappingEnabled = true;
+    store.setSetting('enableProfileSwapping', true);
+  }
   browser.enableProfileSwapping = Boolean(savedSwappingEnabled);
-  if (Array.isArray(savedRotation) && savedRotation.length) {
+  if (savedPool?.accounts?.length) {
+    browser.setAccountPool({ ...savedPool, enabled: Boolean(savedSwappingEnabled) });
+  } else if (Array.isArray(savedRotation) && savedRotation.length) {
     browser.setProfileRotation(savedRotation, savedIndex);
   }
+  const savedAccountDir = store.getSetting('activeAccountUserDataDir', null);
+  if (savedAccountDir && existsSync(savedAccountDir)) {
+    browser.profileDir = savedAccountDir;
+  }
   restoreSavedServiceLogins();
-  browser.on('profile-swapped', (data) => {
-    store.setSetting('currentProfileIndex', data.currentIndex);
+  browser.on('profile-swapped', () => {
+    persistBrowserAccounts();
     broadcastState();
   });
 
@@ -5006,7 +5071,7 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
       },
       // thumbnails: generate 4 marketing thumbnails
       thumbnails: async (projectId, onProgress) => {
-        requireActiveEngine('thumbnail generation');
+        requireStageEngine('mockups', 'thumbnail generation');
         const project = await ensureListingShellForAssets(projectId);
         const listing = project?.tptListing;
         if (!project || !listing?.productPdfPath) {
