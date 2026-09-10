@@ -1704,7 +1704,7 @@ function configureAuthDialog(target = 'gemini') {
   if (elements.authOpenButton) {
     elements.authOpenButton.textContent = chatgpt
       ? 'Sign in to ChatGPT'
-      : (meta ? 'Sign in to Meta' : (geminiConnected ? 'Sign in with saved profile' : 'Sign in to Gemini'));
+      : (meta ? 'Sign in to Meta AI' : (geminiConnected ? 'Sign in with saved profile' : 'Sign in to Gemini'));
   }
   if (elements.authVerifyButton) {
     elements.authVerifyButton.textContent = chatgpt
