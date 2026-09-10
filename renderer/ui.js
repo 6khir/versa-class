@@ -384,6 +384,11 @@
     enterDoor();
   });
 
+  document.getElementById('studio-intro-prompt')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    enterDoor();
+  });
+
   document.getElementById('studio-split-start')?.addEventListener('click', () => {
     document.getElementById('run-button')?.click();
   });

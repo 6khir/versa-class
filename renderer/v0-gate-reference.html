@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>VERSA CLASS — AI Book Engine</title>
+<style>
+  /* ============================================================
+     VERSA CLASS — Cinematic Glassmorphism Workspace
+     Vanilla HTML/CSS/JS — drop straight into Electron
+     ============================================================ */
+
+  :root {
+    /* --- Brand palette extracted from the logo --- */
+    --white:        #ffffff;
+    --sky:          #4ea9f0;   /* vibrant sky blue (shirt / glow) */
+    --sky-bright:   #7cc4ff;   /* lifted highlight */
+    --royal:        #1b46c2;   /* deep royal blue (logo text) */
+    --royal-deep:   #12276e;
+
+    /* --- OLED dark surface system --- */
+    --bg-0:         #050609;   /* true OLED black */
+    --bg-1:         #0a0c11;   /* deep charcoal */
+    --bg-2:         #0f1319;
+
+    /* --- Glass tokens --- */
+    --glass-fill:   rgba(20, 26, 36, 0.55);
+    --glass-fill-2: rgba(14, 18, 26, 0.42);
+    --glass-brd:    rgba(126, 178, 240, 0.14);
+    --glass-brd-hi: rgba(126, 178, 240, 0.32);
+
+    /* --- Text --- */
+    --tx-hi:        #eef4ff;
+    --tx-mid:       #9fb0c8;
+    --tx-lo:        #5a6a83;
+
+    /* --- Geometry / spacing scale (8pt) --- */
+    --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+    --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 64px;
+    --r-sm: 10px; --r-md: 16px; --r-lg: 24px; --r-xl: 32px; --r-pill: 999px;
+
+    --glow-sky: 0 0 0 1px rgba(78,169,240,0.35), 0 0 24px rgba(78,169,240,0.35), 0 0 64px rgba(78,169,240,0.18);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg-0);
+    color: var(--tx-hi);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    letter-spacing: -0.01em;
+  }
+
+  /* ---------- Ambient cinematic backdrop ---------- */
+  .stage {
+    position: relative;
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .stage::before,
+  .stage::after {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(120px);
+    z-index: -1;
+    opacity: 0.5;
+    animation: drift 22s ease-in-out infinite alternate;
+  }
+  .stage::before {
+    width: 640px; height: 640px;
+    left: 18%; top: -22%;
+    background: radial-gradient(circle at 50% 50%, var(--sky) 0%, transparent 70%);
+  }
+  .stage::after {
+    width: 560px; height: 560px;
+    right: 6%; bottom: -26%;
+    background: radial-gradient(circle at 50% 50%, var(--royal) 0%, transparent 70%);
+    animation-delay: -6s;
+    opacity: 0.4;
+  }
+  @keyframes drift {
+    0%   { transform: translate3d(0,0,0) scale(1); }
+    100% { transform: translate3d(40px,30px,0) scale(1.12); }
+  }
+  /* faint grid to add depth without borders */
+  .stage-grid {
+    position: absolute; inset: 0; z-index: -1;
+    background-image:
+      linear-gradient(rgba(126,178,240,0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(126,178,240,0.035) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(circle at 50% 40%, black 0%, transparent 78%);
+  }
+
+  /* ===================== SIDEBAR ===================== */
+  .sidebar {
+    position: relative;
+    z-index: 5;
+    flex: 0 0 288px;
+    margin: var(--s-4);
+    margin-right: 0;
+    padding: var(--s-5) var(--s-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-5);
+    border-radius: var(--r-lg);
+    background: var(--glass-fill);
+    backdrop-filter: blur(28px) saturate(160%);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
+    border: 1px solid var(--glass-brd);
+    box-shadow: 0 24px 64px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.04);
+    transition: flex-basis .38s cubic-bezier(.4,0,.2,1), padding .38s cubic-bezier(.4,0,.2,1);
+  }
+  .stage.collapsed .sidebar { flex-basis: 82px; padding-left: var(--s-3); padding-right: var(--s-3); }
+  .stage.collapsed .sidebar .label,
+  .stage.collapsed .sidebar .brand-text,
+  .stage.collapsed .sidebar .lib-head,
+  .stage.collapsed .sidebar .book-meta { opacity: 0; pointer-events: none; }
+  .stage.collapsed .sidebar .nav-item,
+  .stage.collapsed .sidebar .book { justify-content: center; }
+
+  .brand {
+    display: flex; align-items: center; gap: var(--s-3);
+    padding: 0 var(--s-1);
+  }
+  .brand-logo {
+    width: 44px; height: 44px; flex: 0 0 44px;
+    border-radius: 50%;
+    object-fit: cover;
+    box-shadow: 0 0 0 1px rgba(126,178,240,0.3), 0 0 22px rgba(78,169,240,0.4);
+  }
+  .brand-text { display: flex; flex-direction: column; line-height: 1.05; transition: opacity .2s; }
+  .brand-text b { font-size: 15px; font-weight: 800; letter-spacing: 0.14em; color: var(--white); }
+  .brand-text span { font-size: 9px; letter-spacing: 0.34em; color: var(--sky); font-weight: 600; }
+
+  .nav { display: flex; flex-direction: column; gap: var(--s-1); }
+  .nav-item {
+    display: flex; align-items: center; gap: var(--s-3);
+    padding: var(--s-3);
+    border-radius: var(--r-sm);
+    color: var(--tx-mid);
+    cursor: pointer;
+    font-size: 13.5px; font-weight: 500;
+    border: 1px solid transparent;
+    transition: all .18s ease;
+    white-space: nowrap;
+  }
+  .nav-item svg { width: 18px; height: 18px; flex: 0 0 18px; stroke-width: 1.8; }
+  .nav-item:hover { color: var(--tx-hi); background: rgba(126,178,240,0.06); }
+  .nav-item.active {
+    color: var(--white);
+    background: linear-gradient(90deg, rgba(78,169,240,0.18), rgba(78,169,240,0.02));
+    border-color: var(--glass-brd-hi);
+  }
+  .nav-item.active svg { color: var(--sky-bright); filter: drop-shadow(0 0 6px rgba(78,169,240,0.7)); }
+
+  .lib { display: flex; flex-direction: column; gap: var(--s-2); flex: 1; min-height: 0; }
+  .lib-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 var(--s-2);
+    font-size: 10.5px; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--tx-lo); font-weight: 700;
+  }
+  .lib-head .count {
+    background: rgba(126,178,240,0.12); color: var(--sky);
+    border-radius: var(--r-pill); padding: 2px 8px; font-size: 10px; letter-spacing: 0;
+  }
+  .lib-list { display: flex; flex-direction: column; gap: var(--s-1); overflow-y: auto; padding-right: 2px; }
+  .lib-list::-webkit-scrollbar { width: 6px; }
+  .lib-list::-webkit-scrollbar-thumb { background: rgba(126,178,240,0.18); border-radius: 999px; }
+
+  .book {
+    display: flex; align-items: center; gap: var(--s-3);
+    padding: var(--s-2) var(--s-3);
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    transition: background .16s ease;
+  }
+  .book:hover { background: rgba(126,178,240,0.06); }
+  .book .spine {
+    width: 6px; height: 34px; border-radius: 3px; flex: 0 0 6px;
+    background: linear-gradient(180deg, var(--sky-bright), var(--royal));
+  }
+  .book:nth-child(2n) .spine { background: linear-gradient(180deg, var(--sky), var(--royal-deep)); }
+  .book-meta { display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+  .book-meta b { font-size: 13px; font-weight: 600; color: var(--tx-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .book-meta span { font-size: 11px; color: var(--tx-lo); }
+
+  .new-book {
+    display: flex; align-items: center; justify-content: center; gap: var(--s-2);
+    padding: var(--s-3);
+    border-radius: var(--r-sm);
+    border: 1px dashed var(--glass-brd-hi);
+    color: var(--sky-bright); font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: all .18s ease;
+  }
+  .new-book:hover { background: rgba(78,169,240,0.1); border-style: solid; }
+  .new-book svg { width: 16px; height: 16px; }
+
+  /* ===================== MAIN CANVAS ===================== */
+  .canvas {
+    position: relative; z-index: 4;
+    flex: 1;
+    display: flex; flex-direction: column;
+    padding: var(--s-4);
+    min-width: 0;
+  }
+
+  .topbar {
+    display: flex; align-items: center; gap: var(--s-3);
+    padding: 0 var(--s-2) var(--s-4);
+  }
+  .icon-btn {
+    width: 38px; height: 38px; flex: 0 0 38px;
+    display: grid; place-items: center;
+    border-radius: var(--r-sm);
+    background: var(--glass-fill-2);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid var(--glass-brd);
+    color: var(--tx-mid); cursor: pointer;
+    transition: all .18s ease;
+  }
+  .icon-btn:hover { color: var(--white); border-color: var(--glass-brd-hi); }
+  .icon-btn svg { width: 18px; height: 18px; stroke-width: 1.8; }
+  .topbar .crumb { font-size: 13px; color: var(--tx-mid); }
+  .topbar .crumb b { color: var(--tx-hi); font-weight: 600; }
+  .topbar .spacer { flex: 1; }
+  .topbar .status {
+    display: flex; align-items: center; gap: var(--s-2);
+    font-size: 12px; color: var(--tx-mid);
+    padding: var(--s-2) var(--s-3);
+    background: var(--glass-fill-2); border: 1px solid var(--glass-brd);
+    border-radius: var(--r-pill); backdrop-filter: blur(18px);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sky-bright); box-shadow: 0 0 10px var(--sky); animation: pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  /* ---------- The cinematic core ---------- */
+  .core {
+    flex: 1;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: var(--s-7);
+    padding: var(--s-6);
+    min-height: 0;
+  }
+
+  .hero { text-align: center; max-width: 780px; }
+  .hero .eyebrow {
+    display: inline-flex; align-items: center; gap: var(--s-2);
+    font-size: 11px; letter-spacing: 0.28em; text-transform: uppercase;
+    color: var(--sky); font-weight: 700; margin-bottom: var(--s-5);
+    padding: var(--s-2) var(--s-4);
+    border-radius: var(--r-pill);
+    background: rgba(78,169,240,0.08);
+    border: 1px solid var(--glass-brd);
+  }
+  .hero h1 {
+    font-size: clamp(30px, 4.4vw, 58px);
+    font-weight: 800;
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+    background: linear-gradient(180deg, var(--white) 30%, #b9cdea 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-wrap: balance;
+  }
+  .hero h1 .type { color: transparent; }
+  .cursor {
+    display: inline-block; width: 3px; height: 0.95em;
+    transform: translateY(0.12em);
+    margin-left: 4px; border-radius: 2px;
+    background: var(--sky-bright);
+    box-shadow: 0 0 12px var(--sky);
+    animation: blink 1.05s steps(1) infinite;
+  }
+  @keyframes blink { 0%,50%{opacity:1} 50.01%,100%{opacity:0} }
+
+  /* ---------- Prompt dock ---------- */
+  .prompt {
+    width: min(680px, 100%);
+    display: flex; align-items: center; gap: var(--s-3);
+    padding: var(--s-3) var(--s-3) var(--s-3) var(--s-5);
+    border-radius: var(--r-pill);
+    background: var(--glass-fill);
+    backdrop-filter: blur(30px) saturate(160%);
+    -webkit-backdrop-filter: blur(30px) saturate(160%);
+    border: 1px solid var(--glass-brd-hi);
+    box-shadow: 0 24px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+    transition: box-shadow .25s ease, border-color .25s ease;
+  }
+  .prompt:focus-within { border-color: var(--sky); box-shadow: var(--glow-sky), 0 24px 60px rgba(0,0,0,0.5); }
+  .prompt svg { width: 20px; height: 20px; color: var(--tx-lo); flex: 0 0 20px; }
+  .prompt input {
+    flex: 1; background: transparent; border: none; outline: none;
+    color: var(--tx-hi); font-size: 15px; font-family: inherit;
+  }
+  .prompt input::placeholder { color: var(--tx-lo); }
+  .gen-btn {
+    display: flex; align-items: center; gap: var(--s-2);
+    padding: var(--s-3) var(--s-5);
+    border: none; cursor: pointer;
+    border-radius: var(--r-pill);
+    background: linear-gradient(135deg, var(--sky-bright), var(--royal));
+    color: var(--white); font-size: 14px; font-weight: 700; font-family: inherit;
+    box-shadow: 0 8px 24px rgba(78,169,240,0.4);
+    transition: transform .16s ease, box-shadow .16s ease;
+  }
+  .gen-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 32px rgba(78,169,240,0.55); }
+  .gen-btn svg { width: 16px; height: 16px; color: var(--white); }
+
+  /* ===================== LIVING PIPELINE RAIL ===================== */
+  .pipeline {
+    width: min(940px, 100%);
+    display: none;
+    align-items: stretch;
+    gap: 0;
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  .stage.active .pipeline { display: flex; animation: rise .6s cubic-bezier(.2,.7,.2,1) forwards; }
+  .stage.active .hero h1 { font-size: clamp(24px, 3vw, 38px); }
+  @keyframes rise { to { opacity: 1; transform: translateY(0); } }
+
+  .node {
+    flex: 1;
+    position: relative;
+    display: flex; flex-direction: column; gap: var(--s-3);
+    padding: var(--s-5);
+    border-radius: var(--r-lg);
+    background: var(--glass-fill-2);
+    backdrop-filter: blur(24px) saturate(150%);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
+    border: 1px solid var(--glass-brd);
+    box-shadow: 0 18px 44px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.03);
+    cursor: pointer;
+    transition: transform .22s ease, border-color .22s ease, box-shadow .22s ease;
+  }
+  .node:hover { transform: translateY(-6px); border-color: var(--glass-brd-hi); }
+
+  /* connector line between nodes */
+  .link {
+    flex: 0 0 46px;
+    align-self: center;
+    height: 2px;
+    position: relative;
+    background: linear-gradient(90deg, rgba(126,178,240,0.15), rgba(126,178,240,0.15));
+  }
+  .link::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, var(--sky-bright), transparent);
+    background-size: 200% 100%;
+    animation: flow 2.4s linear infinite;
+  }
+  @keyframes flow { 0%{ background-position: 200% 0 } 100%{ background-position: -200% 0 } }
+
+  .node .n-top { display: flex; align-items: center; justify-content: space-between; }
+  .node .n-ico {
+    width: 40px; height: 40px; border-radius: var(--r-sm);
+    display: grid; place-items: center;
+    background: rgba(126,178,240,0.08);
+    border: 1px solid var(--glass-brd);
+    color: var(--tx-mid);
+  }
+  .node .n-ico svg { width: 20px; height: 20px; stroke-width: 1.8; }
+  .node .n-idx { font-size: 11px; font-weight: 700; color: var(--tx-lo); letter-spacing: 0.1em; }
+  .node h3 { font-size: 15px; font-weight: 700; color: var(--tx-hi); }
+  .node p { font-size: 12px; color: var(--tx-mid); line-height: 1.5; }
+
+  .n-bar { height: 4px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden; margin-top: auto; }
+  .n-bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--sky-bright), var(--royal)); }
+
+  /* node states */
+  .node.done .n-ico { background: rgba(78,169,240,0.16); color: var(--sky-bright); border-color: var(--glass-brd-hi); }
+  .node.active {
+    border-color: var(--sky);
+    box-shadow: var(--glow-sky), 0 18px 44px rgba(0,0,0,0.5);
+  }
+  .node.active .n-ico {
+    background: linear-gradient(135deg, var(--sky-bright), var(--royal));
+    color: var(--white);
+    box-shadow: 0 0 20px rgba(78,169,240,0.6);
+  }
+  .node.active::before {
+    content: "WORKING";
+    position: absolute; top: var(--s-4); right: var(--s-4);
+    font-size: 9px; letter-spacing: 0.16em; font-weight: 700;
+    color: var(--sky-bright);
+  }
+  .node.pending { opacity: 0.55; }
+  .node.pending .n-bar i { width: 0 !important; }
+
+  /* ===================== STATE TOGGLE (demo) ===================== */
+  .demo-toggle {
+    position: fixed; bottom: var(--s-5); left: 50%; transform: translateX(-50%);
+    z-index: 20;
+    display: flex; gap: var(--s-1);
+    padding: var(--s-1);
+    border-radius: var(--r-pill);
+    background: var(--glass-fill);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid var(--glass-brd);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+  }
+  .demo-toggle button {
+    border: none; cursor: pointer; font-family: inherit;
+    padding: var(--s-2) var(--s-4);
+    border-radius: var(--r-pill);
+    background: transparent; color: var(--tx-mid);
+    font-size: 12.5px; font-weight: 600;
+    transition: all .18s ease;
+  }
+  .demo-toggle button.on { background: rgba(78,169,240,0.18); color: var(--white); box-shadow: inset 0 0 0 1px var(--glass-brd-hi); }
+</style>
+</head>
+<body>
+  <div class="stage" id="stage">
+    <div class="stage-grid"></div>
+
+    <!-- ===================== SIDEBAR ===================== -->
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="brand-logo" alt="VERSA CLASS logo"
+             src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/B1E1A5F5-C5D6-4CAE-94BA-3EE6234062E4.PNG-gXLp85Yl9tegku9oOeXoTcxvXVyMTh.png" />
+        <div class="brand-text">
+          <b>VERSA CLASS</b>
+          <span>MAKES SUCCESS</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <div class="nav-item active">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
+          <span class="label">Workspace</span>
+        </div>
+        <div class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2v20M2 12h20"/></svg>
+          <span class="label">Templates</span>
+        </div>
+        <div class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span class="label">History</span>
+        </div>
+      </nav>
+
+      <div class="lib">
+        <div class="lib-head"><span>Library</span><span class="count">6</span></div>
+        <div class="lib-list">
+          <div class="book"><div class="spine"></div><div class="book-meta"><b>Atomic Focus</b><span>124 pages · Draft</span></div></div>
+          <div class="book"><div class="spine"></div><div class="book-meta"><b>The Quiet Founder</b><span>210 pages · Final</span></div></div>
+          <div class="book"><div class="spine"></div><div class="book-meta"><b>Deep Signals</b><span>88 pages · Draft</span></div></div>
+          <div class="book"><div class="spine"></div><div class="book-meta"><b>Midnight Ledger</b><span>156 pages · Review</span></div></div>
+          <div class="book"><div class="spine"></div><div class="book-meta"><b>Paper Horizons</b><span>301 pages · Final</span></div></div>
+          <div class="book"><div class="spine"></div><div class="book-meta"><b>Glasswork</b><span>42 pages · Draft</span></div></div>
+        </div>
+        <div class="new-book">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          <span class="label">New Book</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===================== MAIN CANVAS ===================== -->
+    <main class="canvas">
+      <div class="topbar">
+        <button class="icon-btn" id="collapseBtn" title="Toggle sidebar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h10M4 18h16"/></svg>
+        </button>
+        <div class="crumb">Workspace / <b>Untitled Project</b></div>
+        <div class="spacer"></div>
+        <div class="status"><span class="dot"></span> Engine ready</div>
+        <button class="icon-btn" title="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+
+      <div class="core">
+        <div class="hero">
+          <span class="eyebrow"><span class="dot"></span> AI Book Engine</span>
+          <h1><span class="type" id="typewriter"></span><span class="cursor"></span></h1>
+        </div>
+
+        <!-- IDLE prompt dock -->
+        <div class="prompt">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/></svg>
+          <input type="text" placeholder="Describe the book you want to create…" />
+          <button class="gen-btn" id="genBtn">
+            Generate
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+
+        <!-- ACTIVE living pipeline rail -->
+        <div class="pipeline">
+          <div class="node done">
+            <div class="n-top">
+              <div class="n-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 4h16v16H4zM4 9h16M9 4v16"/></svg></div>
+              <span class="n-idx">01</span>
+            </div>
+            <h3>Pages Lab</h3>
+            <p>Structure, chapters &amp; layout skeleton generated.</p>
+            <div class="n-bar"><i style="width:100%"></i></div>
+          </div>
+
+          <div class="link"></div>
+
+          <div class="node active">
+            <div class="n-top">
+              <div class="n-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 7h16M4 12h16M4 17h10"/></svg></div>
+              <span class="n-idx">02</span>
+            </div>
+            <h3>Text Lab</h3>
+            <p>Composing prose, tone &amp; narrative flow.</p>
+            <div class="n-bar"><i style="width:62%"></i></div>
+          </div>
+
+          <div class="link"></div>
+
+          <div class="node pending">
+            <div class="n-top">
+              <div class="n-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 3h18v18H3z"/><path d="m3 15 5-5 4 4 3-3 6 6"/><circle cx="8" cy="8" r="1.4"/></svg></div>
+              <span class="n-idx">03</span>
+            </div>
+            <h3>Mockups Lab</h3>
+            <p>Cover art, spreads &amp; visual previews.</p>
+            <div class="n-bar"><i style="width:0"></i></div>
+          </div>
+
+          <div class="link"></div>
+
+          <div class="node pending">
+            <div class="n-top">
+              <div class="n-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3v12M8 11l4 4 4-4"/><path d="M4 21h16"/></svg></div>
+              <span class="n-idx">04</span>
+            </div>
+            <h3>Export</h3>
+            <p>Package to PDF, ePub &amp; print-ready files.</p>
+            <div class="n-bar"><i style="width:0"></i></div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- demo state toggle -->
+    <div class="demo-toggle">
+      <button id="btnIdle" class="on">Idle State</button>
+      <button id="btnActive">Pipeline State</button>
+    </div>
+  </div>
+
+<script>
+  /* ---------- Typewriter Engine ---------- */
+  (function () {
+    var el = document.getElementById("typewriter");
+    var phrases = [
+      "Which book is in your mind today?",
+      "Let's turn your idea into a masterpiece.",
+      "What story are we writing next?"
+    ];
+    var p = 0, i = 0, deleting = false;
+
+    function tick() {
+      var full = phrases[p];
+      el.textContent = full.slice(0, i);
+      if (!deleting && i < full.length) { i++; setTimeout(tick, 55); }
+      else if (!deleting && i === full.length) { deleting = true; setTimeout(tick, 2600); }
+      else if (deleting && i > 0) { i--; setTimeout(tick, 26); }
+      else { deleting = false; p = (p + 1) % phrases.length; setTimeout(tick, 400); }
+    }
+    tick();
+  })();
+
+  /* ---------- Sidebar collapse ---------- */
+  var stage = document.getElementById("stage");
+  document.getElementById("collapseBtn").addEventListener("click", function () {
+    stage.classList.toggle("collapsed");
+  });
+
+  /* ---------- State switching ---------- */
+  var btnIdle = document.getElementById("btnIdle");
+  var btnActive = document.getElementById("btnActive");
+  function setActive(on) {
+    stage.classList.toggle("active", on);
+    btnActive.classList.toggle("on", on);
+    btnIdle.classList.toggle("on", !on);
+  }
+  btnIdle.addEventListener("click", function () { setActive(false); });
+  btnActive.addEventListener("click", function () { setActive(true); });
+  document.getElementById("genBtn").addEventListener("click", function () { setActive(true); });
+</script>
+</body>
+</html>

@@ -15,10 +15,13 @@
     <link rel="stylesheet" href="./midnight-theme.css">
     <link rel="stylesheet" href="./studio.css">
     <link rel="stylesheet" href="./pro-suite.css">
+    <link rel="stylesheet" href="./design-system.css">
+    <link rel="stylesheet" href="./refined.css">
   </head>
   <body class="ui-redesign versa-studio pro-suite" data-mode="library" data-layer="intro">
     <a class="ui-skip" href="#ui-primary-canvas">Skip to canvas</a>
-    <section id="studio-intro" class="studio-intro" aria-label="VERSA CLASS">
+    <section id="studio-intro" class="studio-intro stage" aria-label="VERSA CLASS Gate">
+      <div class="stage-grid" aria-hidden="true"></div>
       <div class="studio-intro__veil" aria-hidden="true"></div>
       <p class="studio-intro__wordmark">VERSA CLASS</p>
       <div class="studio-intro__appearance appearance-switch" role="group" aria-label="Appearance">
@@ -31,11 +34,22 @@
           <span>Night</span>
         </button>
       </div>
-      <div class="studio-intro__copy">
-        <p class="studio-intro__kicker">Ready?</p>
-        <h1 class="studio-intro__title">Let’s make a book</h1>
-        <p class="studio-intro__lede">Pages, editable PowerPoint, mockups, SEO.</p>
-        <button class="studio-intro__enter" id="studio-intro-enter" type="button">Let’s go</button>
+      <div class="studio-intro__core studio-intro__copy">
+        <div class="hero">
+          <p class="studio-intro__eyebrow"><span class="dot" aria-hidden="true"></span> AI Book Engine</p>
+          <p class="studio-intro__kicker">Ready?</p>
+          <h1 class="studio-intro__title"><span id="studio-intro-typewriter">Which book is in your mind today?</span><span class="studio-intro__cursor" aria-hidden="true"></span></h1>
+          <p class="studio-intro__lede">Pages, editable PowerPoint, mockups, SEO.</p>
+        </div>
+        <form class="prompt" id="studio-intro-prompt" action="#" autocomplete="off">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/></svg>
+          <label class="ui-visually-hidden" for="studio-intro-route">Describe the book or type editable / static</label>
+          <input id="studio-intro-route" name="gateRoute" type="text" placeholder="Describe the book you want to create… (try editable or static)" autocomplete="off" />
+          <button class="studio-intro__enter gen-btn" id="studio-intro-enter" type="submit">
+            Generate
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </form>
       </div>
     </section>
     <div class="ui-shell" id="ui-shell">
@@ -1729,6 +1743,7 @@
     <script src="./renderer.js"></script>
     <script src="./guide.js"></script>
     <script src="./ui.js"></script>
+    <script src="./gate-ui.js"></script>
     <script src="./performance-monitor.js"></script>
   
 

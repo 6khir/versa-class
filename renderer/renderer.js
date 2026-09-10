@@ -3161,6 +3161,8 @@ function renderProject() {
     elements.projectFormatToggle.textContent = editable ? 'Editable' : 'Static';
     elements.projectFormatToggle.classList.toggle('is-editable', editable);
     elements.projectFormatToggle.hidden = false;
+    document.body.dataset.productFormat = editable ? 'editable' : 'static';
+    document.body.dataset.engine = editable ? 'editable' : 'static';
   }
   if (elements.projectTheme) {
     elements.projectTheme.textContent = '';

@@ -1,0 +1,436 @@
+/* VERSA CLASS — Spatial architecture (V0 Gate reference)
+   Fixed viewport · Z-axis depth · OLED glass Gate · Studio engine chrome
+   Presentation only: preserve every production id / data-action / IPC hook. */
+
+/* ========== 1. NO-SCROLL DESKTOP LAW ========== */
+html,
+html body.ui-redesign.versa-studio.pro-suite {
+  height: 100%;
+  width: 100%;
+  max-height: 100vh;
+  max-width: 100vw;
+  overflow: hidden !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite {
+  background: var(--vc-bg-0);
+  color: var(--vc-tx-hi);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-shell,
+html body.ui-redesign.versa-studio.pro-suite #ui-shell {
+  position: relative;
+  height: 100vh;
+  width: 100vw;
+  max-height: 100vh;
+  max-width: 100vw;
+  overflow: hidden !important;
+  display: flex;
+  flex-direction: column;
+  isolation: isolate;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-body,
+html body.ui-redesign.versa-studio.pro-suite #ui-body,
+html body.ui-redesign.versa-studio.pro-suite .workspace {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden !important;
+}
+
+/* Ambient stage wash behind shell once past the Gate */
+html body.ui-redesign.versa-studio.pro-suite .ui-shell::before,
+html body.ui-redesign.versa-studio.pro-suite .ui-shell::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  animation: vc-drift 22s ease-in-out infinite alternate;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-shell::before {
+  width: 640px;
+  height: 640px;
+  left: 18%;
+  top: -22%;
+  background: radial-gradient(circle at 50% 50%, var(--vc-sky) 0%, transparent 70%);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-shell::after {
+  width: 560px;
+  height: 560px;
+  right: 6%;
+  bottom: -26%;
+  background: radial-gradient(circle at 50% 50%, var(--vc-royal) 0%, transparent 70%);
+  animation-delay: -6s;
+  opacity: 0.28;
+}
+
+@keyframes vc-drift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(40px, 30px, 0) scale(1.12); }
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-header,
+html body.ui-redesign.versa-studio.pro-suite .ui-body,
+html body.ui-redesign.versa-studio.pro-suite .ui-sidebar,
+html body.ui-redesign.versa-studio.pro-suite .workspace-main,
+html body.ui-redesign.versa-studio.pro-suite #ui-primary-canvas {
+  position: relative;
+  z-index: 1;
+}
+
+/* ========== 2. V0 GATE PAGE ========== */
+html body.ui-redesign.versa-studio.pro-suite .studio-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden !important;
+  isolation: isolate;
+  background: var(--vc-bg-0);
+  color: var(--vc-tx-hi);
+  /* Gate has no sidebar — fullscreen stage only */
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro[hidden] {
+  display: none !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="intro"] .ui-shell {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__veil,
+html body.ui-redesign.versa-studio.pro-suite .studio-intro .stage-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__veil {
+  background: transparent;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__veil::before,
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__veil::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  z-index: -1;
+  opacity: 0.5;
+  animation: vc-drift 22s ease-in-out infinite alternate;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__veil::before {
+  width: 640px;
+  height: 640px;
+  left: 18%;
+  top: -22%;
+  background: radial-gradient(circle at 50% 50%, var(--vc-sky) 0%, transparent 70%);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__veil::after {
+  width: 560px;
+  height: 560px;
+  right: 6%;
+  bottom: -26%;
+  background: radial-gradient(circle at 50% 50%, var(--vc-royal) 0%, transparent 70%);
+  animation-delay: -6s;
+  opacity: 0.4;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro .stage-grid {
+  z-index: -1;
+  background-image:
+    linear-gradient(rgba(126, 178, 240, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(126, 178, 240, 0.035) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(circle at 50% 40%, black 0%, transparent 78%);
+  -webkit-mask-image: radial-gradient(circle at 50% 40%, black 0%, transparent 78%);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__wordmark {
+  position: absolute;
+  z-index: 2;
+  top: var(--vc-s-5);
+  left: var(--vc-s-6);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vc-s-3);
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--vc-white);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__wordmark::before {
+  content: "";
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: url("../assets/brand/versa-monogram.png") center / cover no-repeat;
+  box-shadow: 0 0 0 1px rgba(126, 178, 240, 0.3), 0 0 22px rgba(78, 169, 240, 0.4);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__appearance {
+  position: absolute;
+  z-index: 2;
+  top: var(--vc-s-5);
+  right: var(--vc-s-6);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__core {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--vc-s-7);
+  width: min(780px, 92vw);
+  padding: var(--vc-s-6);
+  text-align: center;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vc-s-2);
+  margin: 0 0 var(--vc-s-5);
+  padding: var(--vc-s-2) var(--vc-s-4);
+  border-radius: var(--vc-r-pill);
+  border: 1px solid var(--vc-glass-brd);
+  background: rgba(78, 169, 240, 0.08);
+  color: var(--vc-sky);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__eyebrow .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--vc-sky-bright);
+  box-shadow: 0 0 10px var(--vc-sky);
+  animation: vc-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes vc-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__kicker,
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__lede {
+  display: none;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__title {
+  margin: 0;
+  font-size: clamp(30px, 4.4vw, 58px);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  background: linear-gradient(180deg, var(--vc-white) 30%, #b9cdea 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-wrap: balance;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__cursor {
+  display: inline-block;
+  width: 3px;
+  height: 0.95em;
+  margin-left: 4px;
+  border-radius: 2px;
+  transform: translateY(0.12em);
+  background: var(--vc-sky-bright);
+  box-shadow: 0 0 12px var(--vc-sky);
+  -webkit-text-fill-color: initial;
+  color: var(--vc-sky-bright);
+  animation: vc-blink 1.05s steps(1) infinite;
+}
+
+@keyframes vc-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+/* Glass prompt dock (Gate routing surface) */
+html body.ui-redesign.versa-studio.pro-suite .studio-intro .prompt {
+  width: min(680px, 100%);
+  display: flex;
+  align-items: center;
+  gap: var(--vc-s-3);
+  padding: var(--vc-s-3) var(--vc-s-3) var(--vc-s-3) var(--vc-s-5);
+  border-radius: var(--vc-r-pill);
+  background: var(--vc-glass-fill);
+  backdrop-filter: blur(30px) saturate(160%);
+  -webkit-backdrop-filter: blur(30px) saturate(160%);
+  border: 1px solid var(--vc-glass-brd-hi);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro .prompt:focus-within {
+  border-color: var(--vc-sky);
+  box-shadow: var(--vc-glow-sky), 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro .prompt > svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  color: var(--vc-tx-lo);
+}
+
+html body.ui-redesign.versa-studio.pro-suite #studio-intro-route {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--vc-tx-hi);
+  font-size: 15px;
+  font-family: inherit;
+}
+
+html body.ui-redesign.versa-studio.pro-suite #studio-intro-route::placeholder {
+  color: var(--vc-tx-lo);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__enter,
+html body.ui-redesign.versa-studio.pro-suite #studio-intro-enter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vc-s-2);
+  margin: 0;
+  padding: var(--vc-s-3) var(--vc-s-5);
+  border: none !important;
+  border-radius: var(--vc-r-pill);
+  background: linear-gradient(135deg, var(--vc-sky-bright), var(--vc-royal)) !important;
+  color: var(--vc-white) !important;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(78, 169, 240, 0.4) !important;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+html body.ui-redesign.versa-studio.pro-suite #studio-intro-enter:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px rgba(78, 169, 240, 0.55) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite #studio-intro-enter svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ========== 3. GLASS SIDEBAR / SHELL (post-Gate) ========== */
+html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite .ui-sidebar,
+html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite #ui-sidebar {
+  background: var(--vc-glass-fill) !important;
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid var(--vc-glass-brd) !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite .ui-header.topbar {
+  background: transparent !important;
+  border-bottom-color: transparent !important;
+}
+
+/* ========== 4. STUDIO ENGINE PIPELINE RAIL ========== */
+html body.ui-redesign.versa-studio.pro-suite .overview-stages,
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
+  min-height: 0;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .overview-stage-card,
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .node {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--vc-s-3);
+  padding: var(--vc-s-5);
+  border-radius: var(--vc-r-lg);
+  background: var(--vc-glass-fill-2);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  border: 1px solid var(--vc-glass-brd);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+  cursor: pointer;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .overview-stage-card:hover {
+  transform: translateY(-6px);
+  border-color: var(--vc-glass-brd-hi);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .overview-stage-card.is-active,
+html body.ui-redesign.versa-studio.pro-suite .overview-stage-card.node.active,
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .node.active {
+  border-color: var(--vc-sky);
+  box-shadow: var(--vc-glow-sky), 0 18px 44px rgba(0, 0, 0, 0.5);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .overview-stage-card.is-done,
+html body.ui-redesign.versa-studio.pro-suite .overview-stage-card.node.done,
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .node.done {
+  border-color: var(--vc-glass-brd-hi);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .overview-stage-card.is-pending,
+html body.ui-redesign.versa-studio.pro-suite .overview-stage-card.node.pending,
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .node.pending {
+  opacity: 0.55;
+}
+
+/* Editable engine: 6-step channel (Pages → Text → Editable → Mockups → Preview → Export)
+   Non-editable: hide Editable Lab node via product format attribute. */
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .overview-stage-card[data-stage="editable"],
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .workspace-tab[data-view-target="editable"],
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .overview-stage-card[data-stage="editable"],
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .workspace-tab[data-view-target="editable"] {
+  display: none !important;
+}
+
+/* Right activity column stays status/logs only — Z-stack, no page scroll */
+html body.ui-redesign.versa-studio.pro-suite .activity-rail,
+html body.ui-redesign.versa-studio.pro-suite #activity-panel,
+html body.ui-redesign.versa-studio.pro-suite .studio-right-rail {
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Inner panes may scroll locally; body/shell never do */
+html body.ui-redesign.versa-studio.pro-suite .workspace-pane,
+html body.ui-redesign.versa-studio.pro-suite #ui-primary-canvas,
+html body.ui-redesign.versa-studio.pro-suite .project-list,
+html body.ui-redesign.versa-studio.pro-suite #project-list {
+  overflow: auto;
+  min-height: 0;
+}
