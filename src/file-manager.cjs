@@ -245,6 +245,11 @@ function collectProductPageImagePaths(jobs = []) {
     .filter((filePath) => filePath && existsSync(filePath) && isRasterImagePath(filePath)))];
 }
 
+function resolvedExportPages(project) {
+  const { buildExportPageArray } = require('./editable-production.cjs');
+  return buildExportPageArray(project);
+}
+
 function editableVectorFolderName(projectOrName = null) {
   return `${bookFileCode(projectOrName)}_Editable_Vector_Files`;
 }
@@ -1054,16 +1059,17 @@ class FileManager {
     const pdfName = isBooklet ? `${slug}-booklet.pdf` : `${slug}.pdf`;
     const outputPath = join(project.outputDir, pdfName);
 
+    const exportPages = resolvedExportPages(project);
     if (isBooklet) {
-      const imposition = calculateSaddleStitchSpreads(project.jobs.length);
+      const imposition = calculateSaddleStitchSpreads(exportPages.length);
       const spreadPoints = [setup.points[0] * 2, setup.points[1]];
 
       for (const spread of imposition.spreads) {
-        const leftJob = project.jobs[spread.leftPage - 1];
-        const rightJob = project.jobs[spread.rightPage - 1];
+        const leftPage = exportPages[spread.leftPage - 1];
+        const rightPage = exportPages[spread.rightPage - 1];
 
-        const leftPng = leftJob && existsSync(leftJob.outputPath) ? await require('fs/promises').readFile(leftJob.outputPath) : null;
-        const rightPng = rightJob && existsSync(rightJob.outputPath) ? await require('fs/promises').readFile(rightJob.outputPath) : null;
+        const leftPng = leftPage?.path && existsSync(leftPage.path) ? await require('fs/promises').readFile(leftPage.path) : null;
+        const rightPng = rightPage?.path && existsSync(rightPage.path) ? await require('fs/promises').readFile(rightPage.path) : null;
 
         const spreadPng = await createSpreadPng({
           leftPng,
@@ -1081,8 +1087,8 @@ class FileManager {
         );
       }
     } else {
-      for (const job of project.jobs) {
-        await addCompressedPdfPage(pdf, job.outputPath, setup.points, setup.width, setup.height);
+      for (const page of exportPages) {
+        await addCompressedPdfPage(pdf, page.path, setup.points, setup.width, setup.height);
       }
     }
 
@@ -1095,11 +1101,12 @@ class FileManager {
       throw Object.assign(new Error('PPTX export is locked until every page is complete.'), { code: 'BOOK_INCOMPLETE' });
     }
     const jobs = Array.isArray(project.jobs) ? project.jobs : [];
-    if (!jobs.length || !jobs.every((job) => job?.outputPath && existsSync(job.outputPath))) {
+    if (!jobs.length) {
       throw Object.assign(new Error('PPTX export needs every page file on disk (PNG or SVG).'), {
         code: 'PAGE_IMAGE_MISSING'
       });
     }
+    const exportPages = resolvedExportPages(project);
     const mode = typeof options === 'string'
       ? options
       : (options && options.exportMode) ? options.exportMode : 'STANDARD_SEQUENTIAL';
@@ -1127,16 +1134,18 @@ class FileManager {
     const outputPath = require('node:path').join(project.outputDir, pptxName);
 
     if (isBooklet) {
-      const imposition = calculateSaddleStitchSpreads(jobs.length);
+      const imposition = calculateSaddleStitchSpreads(exportPages.length);
       for (const spread of imposition.spreads) {
-        const leftJob = jobs[spread.leftPage - 1];
-        const rightJob = jobs[spread.rightPage - 1];
+        const leftPage = exportPages[spread.leftPage - 1];
+        const rightPage = exportPages[spread.rightPage - 1];
+        const leftJob = leftPage?.job;
+        const rightJob = rightPage?.job;
 
-        const leftPng = leftJob?.outputPath && existsSync(leftJob.outputPath)
-          ? await pageImageAsPngBuffer(leftJob.outputPath)
+        const leftPng = leftPage?.path && existsSync(leftPage.path)
+          ? await pageImageAsPngBuffer(leftPage.path)
           : null;
-        const rightPng = rightJob?.outputPath && existsSync(rightJob.outputPath)
-          ? await pageImageAsPngBuffer(rightJob.outputPath)
+        const rightPng = rightPage?.path && existsSync(rightPage.path)
+          ? await pageImageAsPngBuffer(rightPage.path)
           : null;
 
         const spreadPng = await createSpreadPng({
@@ -1164,9 +1173,10 @@ class FileManager {
         if (notes.length > 0) slide.addNotes(notes.join('\n\n'));
       }
     } else {
-      for (const job of jobs) {
+      for (const page of exportPages) {
+        const job = page.job;
         const slide = pres.addSlide();
-        const pagePath = String(job.outputPath || '');
+        const pagePath = String(page.path || '');
         // JPEG embeds keep visual quality while shrinking PPTX vs raw PNG masters.
         const jpegBuffer = await pageImageAsExportJpeg(pagePath);
         slide.addImage({
@@ -1192,15 +1202,12 @@ class FileManager {
       throw Object.assign(new Error('DOCX export is locked until every page is complete.'), { code: 'BOOK_INCOMPLETE' });
     }
     const jobs = Array.isArray(project.jobs) ? project.jobs : [];
-    if (!jobs.length || !jobs.every((job) => job?.outputPath && existsSync(job.outputPath))) {
+    if (!jobs.length) {
       throw Object.assign(new Error('DOCX export needs every page file on disk (PNG or SVG).'), {
         code: 'PAGE_IMAGE_MISSING'
       });
     }
-    const pages = jobs
-      .slice()
-      .sort((left, right) => (Number(left?.pageNumber) || 0) - (Number(right?.pageNumber) || 0))
-      .map((job) => job.outputPath);
+    const pages = resolvedExportPages(project).map((page) => page.path);
     const slug = bookFileCode(project);
     const outputPath = join(project.outputDir, `${slug}.docx`);
     // writeImagesDocx embeds compressed JPEG page images (SVG→raster in memory if needed).

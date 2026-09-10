@@ -7,9 +7,9 @@ const { join, basename } = require('node:path');
 const PptxGenJS = require('pptxgenjs');
 const {
   normalizeTextOverlays,
-  overlayToPptxBox,
-  blankPathForJob
+  overlayToPptxBox
 } = require('./text-overlay-layout.cjs');
+const { buildExportPageArray } = require('./editable-production.cjs');
 
 function fm() {
   return require('./file-manager.cjs');
@@ -58,9 +58,11 @@ async function assembleEditablePptx(project, { fileName = null } = {}) {
   pres.defineLayout({ name: 'CUSTOM', width: widthInches, height: heightInches });
   pres.layout = 'CUSTOM';
 
+  const exportPages = buildExportPageArray(project);
   let slideCount = 0;
-  for (const job of jobs) {
-    const blankPath = blankPathForJob(job, project.outputDir);
+  for (const page of exportPages) {
+    const job = page.job;
+    const blankPath = page.path;
     if (!blankPath || !existsSync(blankPath)) {
       throw Object.assign(new Error(`Missing blank master for page ${job.pageNumber}: expected ${blankPath || 'page_N_blank.png'}`), {
         code: 'EDITABLE_BG_MISSING',

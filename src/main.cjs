@@ -1281,15 +1281,20 @@ async function generatePreviewVideoForProject(projectId, { onProgress = null, fo
   const previousEngine = getActiveEngine();
   try {
     browser.setEngine('gemini');
-    const generated = await browser.generateTptPreviewVideoWithGpt({
+    const { generateStitchedPreviewVideo } = require('./preview-video-engine.cjs');
+    const generated = await generateStitchedPreviewVideo({
+      browser,
       project,
       listing: { ...listing, videoPreviewPath: force ? null : listing.videoPreviewPath },
-      pdfPath: listing.productPdfPath
+      pdfPath: listing.productPdfPath,
+      tempDir: join(app.getPath('temp'), `versa-preview-${projectId}`),
+      onProgress
     });
     const outputPath = await fileManager.saveGeneratedPreviewVideo({
       buffer: generated.buffer,
       contentType: generated.contentType,
-      outputDir: project.outputDir
+      outputDir: project.outputDir,
+      fileName: 'preview_final.mp4'
     });
     const current = store.getProject(projectId)?.tptListing ?? listing;
     store.updateProject(projectId, {

@@ -2230,16 +2230,37 @@ function buildTptThumbnailRetryPrompt({ index = 0 } = {}) {
 }
 
 
-function buildTptPreviewVideoPrompt({ title = '', description = '', attachmentCount = 0 } = {}) {
+const PREVIEW_CLIP_BRIEFS = [
+  'Segment 1 of 3: exactly 8 seconds. Open on the listing mockups and the front cover. Show the product identity only.',
+  'Segment 2 of 3: exactly 8 seconds. Move through the attached interior pages and the activity flow. Keep on-screen text short.',
+  'Segment 3 of 3: exactly 8 seconds. Close on classroom use and the back page. End cleanly.'
+];
+
+function buildTptPreviewVideoPrompt({
+  title = '',
+  description = '',
+  attachmentCount = 0,
+  clipIndex = 0,
+  clipCount = 1,
+  clipSeconds = 8
+} = {}) {
   const productTitle = cleanText(title) || 'Untitled TPT resource';
   const productDescription = cleanText(description).slice(0, 700);
+  const clips = Math.max(1, Number(clipCount) || 1);
+  const index = Math.min(PREVIEW_CLIP_BRIEFS.length - 1, Math.max(0, Number(clipIndex) || 0));
+  const seconds = Math.max(1, Number(clipSeconds) || 8);
+  const stitched = clips > 1;
+  const lengthLine = stitched
+    ? `Length exactly ${seconds} seconds. Landscape 16:9 MP4. No watermark. Do not invent worksheets that were not attached.`
+    : 'Length about 15 to 30 seconds. Landscape 16:9 MP4. No watermark. Do not invent worksheets that were not attached.';
   return [
     'Generate a Teachers Pay Teachers product preview video now with Veo 3.',
     `Product title: ${productTitle}.`,
     productDescription ? `What the product is: ${productDescription}` : '',
     `I attached ${Number(attachmentCount) || 0} image file(s): listing mockups/thumbnails and representative pages from the printable.`,
     'This video is for teachers. Show how to use these papers: move through the mockups and pages, highlight the activity flow, and keep on-screen text short and readable.',
-    'Length about 15 to 30 seconds. Landscape 16:9 MP4. No watermark. Do not invent worksheets that were not attached.',
+    stitched ? PREVIEW_CLIP_BRIEFS[index] : '',
+    lengthLine,
     'Use the attached mockups and pages as the visual source. Generate the preview video now. No questions. No storyboard-only reply.'
   ].filter(Boolean).join('\n');
 }
@@ -2319,4 +2340,5 @@ module.exports = {
   ,buildTptThumbnailImagePrompt
   ,buildTptThumbnailRetryPrompt
   ,buildTptPreviewVideoPrompt
+  ,PREVIEW_CLIP_BRIEFS
 };
