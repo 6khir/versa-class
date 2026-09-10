@@ -1,0 +1,248 @@
+/* VERSA CLASS — OLED glass design tokens (from V0 Gate reference)
+   Presentation only. Do not remap IPC or production IDs here. */
+
+/* Match v0-gate-reference.html: Inter + system stack */
+@font-face {
+  font-family: Inter;
+  src: url("../assets/fonts/Inter-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Inter;
+  src: url("../assets/fonts/Inter-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Inter;
+  src: url("../assets/fonts/Inter-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Inter;
+  src: url("../assets/fonts/Inter-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Inter;
+  src: url("../assets/fonts/Inter-ExtraBold.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --vc-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --vc-white: #ffffff;
+  --vc-sky: #4ea9f0;
+  --vc-sky-bright: #7cc4ff;
+  --vc-royal: #1b46c2;
+  --vc-royal-deep: #12276e;
+
+  --vc-bg-0: #050609;
+  --vc-bg-1: #0a0c11;
+  --vc-bg-2: #0f1319;
+  --vc-bg-mid: #090d16;
+
+  --vc-glass-fill: rgba(20, 26, 36, 0.55);
+  --vc-glass-fill-2: rgba(14, 18, 26, 0.42);
+  --vc-glass-brd: rgba(126, 178, 240, 0.14);
+  --vc-glass-brd-hi: rgba(126, 178, 240, 0.32);
+
+  --vc-tx-hi: #eef4ff;
+  --vc-tx-mid: #9fb0c8;
+  --vc-tx-lo: #5a6a83;
+
+  --vc-s-1: 4px;
+  --vc-s-2: 8px;
+  --vc-s-3: 12px;
+  --vc-s-4: 16px;
+  --vc-s-5: 24px;
+  --vc-s-6: 32px;
+  --vc-s-7: 48px;
+  --vc-s-8: 64px;
+
+  --vc-r-sm: 10px;
+  --vc-r-md: 16px;
+  --vc-r-lg: 24px;
+  --vc-r-xl: 32px;
+  --vc-r-pill: 999px;
+
+  --vc-glow-sky:
+    0 0 0 1px rgba(78, 169, 240, 0.35),
+    0 0 24px rgba(78, 169, 240, 0.35),
+    0 0 64px rgba(78, 169, 240, 0.18);
+
+  --vc-title-from: #ffffff;
+  --vc-title-to: #b9cdea;
+  --vc-elev: 0 24px 60px rgba(0, 0, 0, 0.5);
+  --vc-card: rgba(14, 18, 26, 0.55);
+  --vc-card-hi: rgba(20, 28, 42, 0.72);
+  --vc-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --vc-bar: linear-gradient(180deg, rgba(12, 16, 24, 0.72), rgba(8, 10, 16, 0.28));
+  --vc-nav: linear-gradient(165deg, rgba(20, 28, 42, 0.72), rgba(8, 11, 18, 0.5));
+  --vc-ring-core: rgba(8, 10, 16, 0.95);
+
+  --vc-on-accent: #ffffff;
+  --vc-orb: #4ea9f0;
+  --vc-cta-from: #4ea9f0;
+  --vc-cta-to: #1b46c2;
+  --vc-cta-glow: 0 10px 28px rgba(78, 169, 240, 0.38);
+  --vc-fill-quiet: rgba(255, 255, 255, 0.045);
+  --vc-fill-mid: rgba(126, 178, 240, 0.08);
+  --vc-fill-hot: rgba(78, 169, 240, 0.16);
+  --vc-shadow-rail: 0 28px 80px rgba(0, 0, 0, 0.45);
+  --vc-shadow-card: 0 18px 44px rgba(0, 0, 0, 0.35);
+  --vc-shadow-soft: 0 16px 36px rgba(0, 0, 0, 0.28);
+
+  --vc-notify-dock: rgba(28, 28, 30, 0.72);
+  --vc-notify-stack: rgba(22, 22, 24, 0.45);
+  --vc-notify-card: rgba(44, 44, 46, 0.82);
+  --vc-notify-ink: #f5f5f7;
+  --vc-notify-mute: rgba(235, 235, 245, 0.55);
+  --vc-notify-faint: rgba(235, 235, 245, 0.4);
+  --vc-notify-brd: rgba(255, 255, 255, 0.1);
+
+  --vc-sidebar: rgba(10, 12, 18, 0.55);
+  --vc-board: rgba(8, 10, 16, 0.35);
+  --vc-item: rgba(18, 22, 32, 0.72);
+  --vc-chip: rgba(8, 10, 16, 0.72);
+  --vc-chip-ink: #f5f5f7;
+  --vc-letter: #eef4ff;
+  --vc-cover:
+    radial-gradient(120% 90% at 50% 0%, rgba(78, 169, 240, 0.4), transparent 58%),
+    linear-gradient(165deg, #12276e 0%, #0a1020 52%, #050609 100%);
+  --vc-cover-2:
+    radial-gradient(120% 90% at 70% 0%, rgba(78, 169, 240, 0.28), transparent 55%),
+    linear-gradient(165deg, #12276e 0%, #0a1020 52%, #050609 100%);
+  --vc-cover-3:
+    radial-gradient(120% 90% at 20% 0%, rgba(27, 70, 194, 0.38), transparent 55%),
+    linear-gradient(165deg, #12276e 0%, #0a1020 52%, #050609 100%);
+
+  --vc-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --vc-rise: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+html body.ui-redesign.versa-studio.pro-suite {
+  --studio-sans: var(--vc-font);
+  --studio-work: var(--vc-font);
+  --ui-font: var(--vc-font);
+  font-family: var(--vc-font);
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite {
+  --bg: var(--vc-bg-0);
+  --bg-1: var(--vc-bg-1);
+  --bg-2: var(--vc-bg-2);
+  --ink: var(--vc-tx-hi);
+  --dim: var(--vc-tx-mid);
+  --muted: var(--vc-tx-lo);
+  --accent: var(--vc-sky-bright);
+  --line: var(--vc-glass-brd);
+  --line-2: var(--vc-glass-brd-hi);
+  --s1: var(--vc-glass-fill);
+  --s2: var(--vc-glass-fill-2);
+}
+
+/* Day — same spatial system as night: cool paper, sky/royal grade, no mint, no raw white */
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite {
+  --vc-bg-0: #f0f3f8;
+  --vc-bg-1: #e4eaf3;
+  --vc-bg-2: #d5deeb;
+  --vc-bg-mid: #e8eef6;
+  --vc-glass-fill: rgba(255, 255, 255, 0.7);
+  --vc-glass-fill-2: rgba(255, 255, 255, 0.46);
+  --vc-glass-brd: rgba(18, 40, 90, 0.1);
+  --vc-glass-brd-hi: rgba(27, 70, 194, 0.2);
+  --vc-tx-hi: #0b1528;
+  --vc-tx-mid: #4a5a73;
+  --vc-tx-lo: #7a879b;
+  --vc-sky: #1f6fd4;
+  --vc-sky-bright: #1558b0;
+  --vc-royal: #1b46c2;
+  --vc-royal-deep: #12276e;
+  --vc-title-from: #0b1528;
+  --vc-title-to: #1b46c2;
+  --vc-elev: 0 22px 48px rgba(18, 40, 90, 0.1);
+  --vc-card: rgba(255, 255, 255, 0.78);
+  --vc-card-hi: rgba(255, 255, 255, 0.92);
+  --vc-inset: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  --vc-bar: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(240, 243, 248, 0.58));
+  --vc-nav: linear-gradient(165deg, rgba(255, 255, 255, 0.88), rgba(232, 238, 247, 0.68));
+  --vc-ring-core: #ffffff;
+  --vc-glow-sky:
+    0 0 0 1px rgba(27, 70, 194, 0.16),
+    0 0 20px rgba(78, 169, 240, 0.18),
+    0 0 44px rgba(27, 70, 194, 0.08);
+  --vc-cta-from: #4ea9f0;
+  --vc-cta-to: #1b46c2;
+  --vc-cta-glow: 0 12px 28px rgba(27, 70, 194, 0.22);
+  --vc-fill-quiet: rgba(18, 40, 90, 0.06);
+  --vc-fill-mid: rgba(27, 70, 194, 0.07);
+  --vc-fill-hot: rgba(27, 70, 194, 0.12);
+  --vc-shadow-rail: 0 24px 48px rgba(18, 40, 90, 0.1);
+  --vc-shadow-card: 0 16px 32px rgba(18, 40, 90, 0.1);
+  --vc-shadow-soft: 0 14px 28px rgba(18, 40, 90, 0.08);
+  --vc-notify-dock: rgba(255, 255, 255, 0.74);
+  --vc-notify-stack: rgba(255, 255, 255, 0.5);
+  --vc-notify-card: rgba(255, 255, 255, 0.88);
+  --vc-notify-ink: #0b1528;
+  --vc-notify-mute: rgba(11, 21, 40, 0.48);
+  --vc-notify-faint: rgba(11, 21, 40, 0.38);
+  --vc-notify-brd: rgba(18, 40, 90, 0.1);
+  --vc-sidebar: rgba(255, 255, 255, 0.62);
+  --vc-board: rgba(255, 255, 255, 0.42);
+  --vc-item: rgba(255, 255, 255, 0.86);
+  --vc-chip: rgba(255, 255, 255, 0.82);
+  --vc-chip-ink: #0b1528;
+  --vc-letter: #12276e;
+  --vc-cover:
+    radial-gradient(120% 90% at 50% 0%, rgba(78, 169, 240, 0.28), transparent 58%),
+    linear-gradient(165deg, #d7e4f6 0%, #eef3fa 48%, #f7f9fd 100%);
+  --vc-cover-2:
+    radial-gradient(120% 90% at 70% 0%, rgba(27, 70, 194, 0.16), transparent 55%),
+    linear-gradient(165deg, #dce8f7 0%, #eef3fa 100%);
+  --vc-cover-3:
+    radial-gradient(120% 90% at 20% 0%, rgba(78, 169, 240, 0.22), transparent 55%),
+    linear-gradient(165deg, #d3e6f8 0%, #eef3fa 100%);
+  --bg: var(--vc-bg-0);
+  --bg-1: var(--vc-bg-1);
+  --bg-2: var(--vc-bg-2);
+  --ink: var(--vc-tx-hi);
+  --dim: var(--vc-tx-mid);
+  --muted: var(--vc-tx-lo);
+  --accent: var(--vc-sky-bright);
+  --navy: var(--vc-royal);
+  --line: var(--vc-glass-brd);
+  --line-2: var(--vc-glass-brd-hi);
+  --s1: var(--vc-glass-fill);
+  --s2: var(--vc-glass-fill-2);
+  --panel: var(--vc-card-hi);
+  --panel-strong: #ffffff;
+  --panel-soft: var(--vc-bg-1);
+  --text: var(--vc-tx-hi);
+  --text-bright: var(--vc-tx-hi);
+  --elevate-1: var(--vc-elev);
+  background:
+    radial-gradient(42rem 26rem at 18% -8%, rgba(78, 169, 240, 0.16), transparent 58%),
+    radial-gradient(36rem 22rem at 92% 108%, rgba(27, 70, 194, 0.08), transparent 55%),
+    var(--vc-bg-0);
+  color: var(--vc-tx-hi);
+}

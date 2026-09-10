@@ -1,5 +1,5 @@
 /* renderer/ui.js
-   UI-only chrome for Library / Atelier.
+   UI-only chrome for Library / Studio.
    Does not implement handleAction or call window.tptDesktop.
 */
 (function initVersaUiChrome() {
@@ -315,11 +315,11 @@
   const STAGE_NAMES = {
     overview: 'Overview',
     characters: 'Characters',
-    interior: 'Interior',
-    editable: 'Canva',
-    listing: 'SEO',
-    thumbnails: 'Thumbnails',
-    preview: 'Preview',
+    interior: 'Pages Lab',
+    editable: 'Editable Lab',
+    listing: 'Text Lab',
+    thumbnails: 'Mockups Lab',
+    preview: 'Preview Lab',
     export: 'Export'
   };
 
@@ -337,9 +337,9 @@
     if (title) title.textContent = stageName;
     const scaleTitle = document.getElementById('studio-scale-title');
     if (scaleTitle) scaleTitle.textContent = stageName;
-    if (kicker) kicker.textContent = book || 'Atelier';
+    if (kicker) kicker.textContent = book || 'Studio';
     const scaleKicker = document.querySelector('.studio-scale-page__kicker');
-    if (scaleKicker) scaleKicker.textContent = book || 'Atelier';
+    if (scaleKicker) scaleKicker.textContent = book || 'Studio';
     if (scaleMeta) scaleMeta.textContent = `Stage ${visibleIndex + 1} of ${total}`;
     const runBtn = document.getElementById('studio-stage-run');
     const bannerRun = document.getElementById('studio-banner-run');
@@ -381,6 +381,11 @@
   });
 
   document.getElementById('studio-intro-enter')?.addEventListener('click', () => {
+    enterDoor();
+  });
+
+  document.getElementById('studio-intro-prompt')?.addEventListener('submit', (event) => {
+    event.preventDefault();
     enterDoor();
   });
 

@@ -261,6 +261,9 @@ function setStagePresentation(stageId, state, extraClass = {}) {
   const states = ['done', 'live', 'progress', 'waiting', 'blocked', 'skipped', 'error'];
   states.forEach((name) => card.classList.toggle(`is-${name}`, name === state));
   card.classList.toggle('is-filling', Boolean(extraClass.filling));
+  card.classList.toggle('done', state === 'done');
+  card.classList.toggle('active', state === 'live' || state === 'progress');
+  card.classList.toggle('pending', state === 'waiting' || state === 'blocked' || state === 'skipped');
   const chip = card.querySelector('.stage-state');
   if (chip) chip.textContent = STAGE_STATE_LABELS[state] || 'Waiting';
 }
@@ -1507,14 +1510,14 @@ function activeEngine() {
 
 function engineLabel(engine = activeEngine()) {
   if (engine === 'gemini') return 'Gemini';
-  if (engine === 'meta') return 'Meta';
+  if (engine === 'meta') return 'Meta AI';
   return 'ChatGPT';
 }
 
 function unusedEngineSummary(engine = activeEngine()) {
-  if (engine === 'meta') return 'Gemini still writes prompts. ChatGPT stays signed in and unused for images.';
-  if (engine === 'gemini') return 'ChatGPT and Meta stay signed in and unused for images.';
-  return 'Gemini still writes prompts. Meta stays signed in and unused for images.';
+  if (engine === 'meta') return 'ChatGPT and Gemini stay signed in.';
+  if (engine === 'gemini') return 'ChatGPT and Meta AI stay signed in.';
+  return 'Gemini and Meta AI stay signed in.';
 }
 
 function renderBrowser() {
@@ -1665,9 +1668,9 @@ function renderAuth() {
 }
 
 const BRAND_MARKS = {
-  chatgpt: { className: 'auth-brand-logo brand-chatgpt', html: '<svg viewBox="0 0 24 24"><path fill="#fff" d="M12.4 3.2c.9-1.5 2.9-2 4.5-1.2 1.6.8 2.3 2.7 1.6 4.4 1.7.4 2.9 2 2.9 3.8 0 1.8-1.2 3.4-2.9 3.8.7 1.7 0 3.6-1.6 4.4-1.6.8-3.6.3-4.5-1.2-.9 1.5-2.9 2-4.5 1.2-1.6-.8-2.3-2.7-1.6-4.4-1.7-.4-2.9-2-2.9-3.8 0-1.8 1.2-3.4 2.9-3.8C5.6 6.7 6.3 4.8 7.9 4c1.6-.8 3.6-.3 4.5 1.2zm.1 2.3c-.3-.5-.9-.7-1.4-.4-.6.3-.8.9-.5 1.4l4.7 8.1c.3.5.9.7 1.4.4.6-.3.8-.9.5-1.4l-4.7-8.1z"/></svg>' },
-  gemini: { className: 'auth-brand-logo brand-gemini', html: '<svg viewBox="0 0 24 24"><defs><linearGradient id="geminiAuthLive" x1="4" y1="2" x2="20" y2="22" gradientUnits="userSpaceOnUse"><stop stop-color="#4285F4"/><stop offset=".45" stop-color="#9B72CB"/><stop offset=".75" stop-color="#D96570"/><stop offset="1" stop-color="#F2BD42"/></linearGradient></defs><path fill="url(#geminiAuthLive)" d="M12 2c.4 4.2 1.8 6.6 6 7-4.2.4-5.6 2.8-6 7-.4-4.2-1.8-6.6-6-7 4.2-.4 5.6-2.8 6-7z"/></svg>' },
-  meta: { className: 'auth-brand-logo brand-meta', html: '<svg viewBox="0 0 24 24"><path fill="#fff" d="M8.6 8.2c1.7 0 3.1 1.9 4.4 3.8 1.3-1.9 2.8-3.8 4.5-3.8 2.3 0 3.5 2.3 3.5 4.6 0 3.7-2.4 6.8-5.5 6.8-1.6 0-2.8-.8-3.9-2.1-1.1 1.3-2.3 2.1-3.9 2.1-3.1 0-5.5-3.1-5.5-6.8 0-2.3 1.2-4.6 3.4-4.6zm0 2.1c-.8 0-1.5 1.1-1.5 2.5 0 2 1.2 3.8 2.6 3.8.8 0 1.6-.5 2.6-1.8-1.4-2-2.4-4.5-3.7-4.5zm6.9 0c-1.3 0-2.3 2.5-3.7 4.5 1 1.3 1.8 1.8 2.6 1.8 1.4 0 2.6-1.8 2.6-3.8 0-1.4-.7-2.5-1.5-2.5z"/></svg>' }
+  chatgpt: { className: 'auth-brand-logo brand-chatgpt', html: '<img class="brand-mark" src="../assets/brand/chatgpt.png" alt="ChatGPT">' },
+  gemini: { className: 'auth-brand-logo brand-gemini', html: '<img class="brand-mark" src="../assets/brand/gemini.png" alt="Gemini">' },
+  meta: { className: 'auth-brand-logo brand-meta', html: '<img class="brand-mark" src="../assets/brand/meta.png" alt="Meta AI">' }
 };
 
 function configureAuthDialog(target = 'gemini') {
@@ -1685,7 +1688,7 @@ function configureAuthDialog(target = 'gemini') {
   if (elements.authTitle) {
     elements.authTitle.textContent = chatgpt
       ? 'Connect ChatGPT'
-      : (meta ? 'Connect Meta' : 'Connect Google Gemini');
+      : (meta ? 'Connect Meta AI' : 'Connect Gemini');
   }
   const geminiConnected = Boolean(state?.integrations?.gemini?.connected);
   const geminiEmail = String(state?.integrations?.gemini?.profile?.email || '').trim();
@@ -1701,12 +1704,12 @@ function configureAuthDialog(target = 'gemini') {
   if (elements.authOpenButton) {
     elements.authOpenButton.textContent = chatgpt
       ? 'Sign in to ChatGPT'
-      : (meta ? 'Sign in to Meta' : (geminiConnected ? 'Sign in with saved profile' : 'Sign in to Gemini'));
+      : (meta ? 'Sign in to Meta AI' : (geminiConnected ? 'Sign in with saved profile' : 'Sign in to Gemini'));
   }
   if (elements.authVerifyButton) {
     elements.authVerifyButton.textContent = chatgpt
       ? 'Verify ChatGPT'
-      : (meta ? 'Verify Meta' : 'Verify Gemini');
+      : (meta ? 'Verify Meta AI' : 'Verify Gemini');
   }
 }
 
@@ -1718,9 +1721,9 @@ function openAuthManager(target = 'gemini') {
   elements.authStatusText.textContent = required
     ? 'Gemini is not verified yet. Sign in to Gemini in Google Chrome Canary.'
     : (target === 'chatgpt'
-      ? 'Sign in to ChatGPT in Google Chrome Canary, then import and verify that session for mockups.'
+      ? 'Sign in to ChatGPT in Google Chrome Canary, then import and verify that session.'
       : (target === 'meta'
-        ? 'Sign in on meta.ai in Google Chrome Canary, then import and verify that session for page images.'
+        ? 'Sign in on meta.ai in Google Chrome Canary, then import and verify that session.'
         : 'Your Gemini profile is verified. Click Sign in to restore that Google account in the live tab.'));
   if (!elements.authDialog.open) elements.authDialog.showModal();
 }
@@ -1742,7 +1745,7 @@ function profileSessionLabel(profile = {}) {
 function sessionChipsHtml(profile = {}) {
   const chatgptOn = Boolean(profile.hasChatGptSession);
   const geminiOn = Boolean(profile.hasGoogleSession);
-  return `<span class="session-chip ${chatgptOn ? 'is-on' : 'is-off'}">ChatGPT</span><span class="session-chip ${geminiOn ? 'is-on' : 'is-off'}">Gemini</span>`;
+  return `<span class="session-chip ${chatgptOn ? 'is-on' : 'is-off'}"><img class="session-chip__mark" src="../assets/brand/chatgpt.png" alt="">ChatGPT</span><span class="session-chip ${geminiOn ? 'is-on' : 'is-off'}"><img class="session-chip__mark" src="../assets/brand/gemini.png" alt="">Gemini</span>`;
 }
 
 function resolveDisplayedProfile(profiles = [], selected = null) {
@@ -1759,7 +1762,7 @@ function renderSelectedProfileSessions(profiles = []) {
   if (elements.settingsSelectedProfileSessions) {
     elements.settingsSelectedProfileSessions.innerHTML = selected
       ? sessionChipsHtml(selected)
-      : '<span class="session-chip is-off">ChatGPT</span><span class="session-chip is-off">Gemini</span>';
+      : '<span class="session-chip is-off"><img class="session-chip__mark" src="../assets/brand/chatgpt.png" alt="">ChatGPT</span><span class="session-chip is-off"><img class="session-chip__mark" src="../assets/brand/gemini.png" alt="">Gemini</span>';
   }
   const chatgptCount = lastSystemProfiles.filter((item) => item.hasChatGptSession).length;
   const mockups = state?.integrations?.chatgptMockups ?? {};
@@ -1777,8 +1780,8 @@ function renderSelectedProfileSessions(profiles = []) {
   }
   if (elements.settingsMockupsProfile) {
     elements.settingsMockupsProfile.textContent = chatgptVerified
-      ? 'ChatGPT is verified. Mockups will use the TPT Winner Mockups Custom GPT.'
-      : 'Use Sign in / manage, then Verify ChatGPT. This is separate from Gemini.';
+      ? 'ChatGPT is verified.'
+      : 'Use Sign in / manage, then Verify ChatGPT.';
   }
   if (elements.settingsMockupsVerified) {
     const mockupProfile = mockups.profile ?? {};
@@ -1806,15 +1809,21 @@ function renderStudioList() {
     elements.settingsStudioList.innerHTML = '<p class="muted">Gems load after the app finishes starting.</p>';
     return;
   }
-  elements.settingsStudioList.innerHTML = rows.map((studio) => `
+  elements.settingsStudioList.innerHTML = rows.map((studio) => {
+    const gem = String(studio.group || '').startsWith('Gemini');
+    const mark = gem ? '../assets/brand/gemini.png' : '../assets/brand/chatgpt.png';
+    const markAlt = gem ? 'Gemini' : 'ChatGPT';
+    return `
     <div class="studio-row ${studio.connected ? 'is-ready' : 'is-waiting'}">
+      <img class="brand-mark studio-row__mark" src="${mark}" alt="${markAlt}">
       <div>
         <strong>${escapeHtml(studio.name)}</strong>
         <small>${escapeHtml(studio.group)}${studio.connected ? ' · ready' : ' · verify to open'}</small>
       </div>
       <button class="button button-ghost" data-action="settings-open-studio" data-studio="${escapeHtml(studio.id)}" type="button">Open</button>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function renderSettingsConnections() {
@@ -1836,8 +1845,8 @@ function renderSettingsConnections() {
   elements.settingsGptCard.classList.toggle('is-connected', customGptConnected);
   elements.settingsChatgptStatus.textContent = connected ? 'Verified connection' : 'Connection required';
   elements.settingsGptStatus.textContent = customGptConnected
-    ? 'Gems ready — verify ChatGPT separately for Custom GPTs'
-    : 'Verify Gemini to open Gems';
+    ? 'Gems and Custom GPTs ready'
+    : 'Verify Gemini and ChatGPT to open Gems and GPTs';
   if (elements.settingsChatgptLogout) {
     elements.settingsChatgptLogout.style.display = connected ? 'inline-flex' : 'none';
   }
@@ -1850,16 +1859,16 @@ function renderSettingsConnections() {
   }
   
   elements.settingsChatgptProfile.textContent = connected
-    ? (detectedIdentity || 'The Gemini session is valid. Add your preferred name and email above if Gemini does not expose them.')
-    : 'Sign in to Gemini in the Chrome profile above, then verify. After that, Sign in is one click on the saved Google account.';
+    ? (detectedIdentity || 'Gemini is verified.')
+    : 'Sign in and verify Gemini.';
   const verifiedParts = [
     detected.sourceBrowser && `${detected.sourceBrowser} / ${detected.sourceProfile || 'profile'}`,
     detected.verifiedAt && `verified ${new Date(detected.verifiedAt).toLocaleString()}`
   ].filter(Boolean);
   elements.settingsChatgptVerified.textContent = verifiedParts.join(' · ');
   elements.settingsGptProfile.textContent = customGptConnected
-    ? 'Content, SEO, Mockups, and Veo 3 gems use this Gemini session. ChatGPT custom GPTs stay on the ChatGPT card above.'
-    : 'Verify Gemini in Google Chrome Canary to unlock the four VERSA CLASS gems. They live on your Gemini account, not in this app.';
+    ? 'Gems and Custom GPTs use the verified Gemini and ChatGPT sessions.'
+    : 'Verify Gemini and ChatGPT to unlock Gems and Custom GPTs.';
   renderStudioList();
 
   const engine = activeEngine();
@@ -1887,7 +1896,7 @@ function renderSettingsConnections() {
     elements.settingsMetaCard.classList.toggle('is-unused', engine !== 'meta');
     if (elements.settingsMetaStatus) {
       elements.settingsMetaStatus.textContent = engine !== 'meta'
-        ? (metaConnected ? 'Signed in · unused for images' : 'Off — not used')
+        ? (metaConnected ? 'Signed in' : 'Off')
         : (metaConnected ? 'Active · verified' : 'Active · connection required');
     }
     if (elements.settingsMetaLogout) {
@@ -1896,8 +1905,8 @@ function renderSettingsConnections() {
     if (elements.settingsMetaProfile) {
       const metaIdentity = [metaDetected.name, metaDetected.email].filter(Boolean).join(' · ');
       elements.settingsMetaProfile.textContent = metaConnected
-        ? (metaIdentity || 'The Meta session is valid. It generates images only while Meta is turned on.')
-        : 'Sign in on meta.ai, then verify the local session.';
+        ? (metaIdentity || 'Meta AI is verified.')
+        : 'Sign in on meta.ai, then verify.';
     }
     if (elements.settingsMetaVerified) {
       const metaVerifiedParts = [
@@ -2394,12 +2403,15 @@ function renderEvents(project) {
     <article class="note-card log-row level-${escapeHtml(level)}">
       <span class="note-card__dot" aria-hidden="true"></span>
       <div class="note-card__copy">
-        <strong class="note-card__kicker">${titleFor(level)}</strong>
+        <div class="note-card__meta">
+          <strong class="note-card__app">VERSA CLASS</strong>
+          <strong class="note-card__kicker">${titleFor(level)}</strong>
+        </div>
         <p class="note-card__text">${escapeHtml(translateLegacyText(event.message))}</p>
       </div>
       <time class="note-card__time">${escapeHtml(formatTime(event.createdAt))}</time>
     </article>`;
-  }).join('') || '<div class="note-empty">Quiet</div>';
+  }).join('') || '<div class="note-empty">No notifications yet</div>';
 }
 
 function getMissingPublicationFields(listing) {
@@ -3161,6 +3173,8 @@ function renderProject() {
     elements.projectFormatToggle.textContent = editable ? 'Editable' : 'Static';
     elements.projectFormatToggle.classList.toggle('is-editable', editable);
     elements.projectFormatToggle.hidden = false;
+    document.body.dataset.productFormat = editable ? 'editable' : 'static';
+    document.body.dataset.engine = editable ? 'editable' : 'static';
   }
   if (elements.projectTheme) {
     elements.projectTheme.textContent = '';
@@ -3849,7 +3863,7 @@ async function handleAction(action, target) {
     if (elements.settingsMockupsStatus) elements.settingsMockupsStatus.textContent = 'Checking ChatGPT in the background';
     try {
       const result = await invoke(() => verifyLoginSession({ target: 'chatgpt' }));
-      if (result?.authenticated) showToast('ChatGPT session verified for mockups.', 'success');
+      if (result?.authenticated) showToast('ChatGPT session verified.', 'success');
       await populateSettingsForm();
       return result;
     } finally {
@@ -5073,7 +5087,7 @@ elements.authVerifyButton.addEventListener('click', async () => {
   try {
     const result = await invoke(() => verifyLoginSession({ target: authTarget }));
     elements.authStatusText.textContent = result?.authenticated
-      ? (chatgpt ? 'ChatGPT connected for mockups.' : (meta ? 'Meta connected for page images.' : 'Gemini connected for listing and page text.'))
+      ? (chatgpt ? 'ChatGPT connected.' : (meta ? 'Meta AI connected.' : 'Gemini connected.'))
       : (chatgpt ? 'ChatGPT is not valid yet. Stay signed in, then verify again.' : (meta ? 'Meta is not valid yet. Stay signed in, then verify again.' : 'Gemini is not valid yet. Stay signed in, then verify again.'));
     if (result?.authenticated) {
       authManagerOpenedManually = false;

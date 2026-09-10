@@ -15,10 +15,13 @@
     <link rel="stylesheet" href="./midnight-theme.css">
     <link rel="stylesheet" href="./studio.css">
     <link rel="stylesheet" href="./pro-suite.css">
+    <link rel="stylesheet" href="./design-system.css">
+    <link rel="stylesheet" href="./refined.css">
   </head>
   <body class="ui-redesign versa-studio pro-suite" data-mode="library" data-layer="intro">
     <a class="ui-skip" href="#ui-primary-canvas">Skip to canvas</a>
-    <section id="studio-intro" class="studio-intro" aria-label="VERSA CLASS">
+    <section id="studio-intro" class="studio-intro stage" aria-label="VERSA CLASS Gate">
+      <div class="stage-grid" aria-hidden="true"></div>
       <div class="studio-intro__veil" aria-hidden="true"></div>
       <p class="studio-intro__wordmark">VERSA CLASS</p>
       <div class="studio-intro__appearance appearance-switch" role="group" aria-label="Appearance">
@@ -31,11 +34,22 @@
           <span>Night</span>
         </button>
       </div>
-      <div class="studio-intro__copy">
-        <p class="studio-intro__kicker">Ready?</p>
-        <h1 class="studio-intro__title">Let’s make a book</h1>
-        <p class="studio-intro__lede">Pages, editable PowerPoint, mockups, SEO.</p>
-        <button class="studio-intro__enter" id="studio-intro-enter" type="button">Let’s go</button>
+      <div class="studio-intro__core studio-intro__copy">
+        <div class="hero">
+          <p class="studio-intro__eyebrow"><span class="dot" aria-hidden="true"></span> AI Book Engine</p>
+          <p class="studio-intro__kicker">Ready?</p>
+          <h1 class="studio-intro__title"><span id="studio-intro-typewriter">Which book is in your mind today?</span><span class="studio-intro__cursor" aria-hidden="true"></span></h1>
+          <p class="studio-intro__lede">Pages, editable PowerPoint, mockups, SEO.</p>
+        </div>
+        <form class="prompt" id="studio-intro-prompt" action="#" autocomplete="off">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/></svg>
+          <label class="ui-visually-hidden" for="studio-intro-route">Describe the book or type editable / static</label>
+          <input id="studio-intro-route" name="gateRoute" type="text" placeholder="Describe the book you want to create… (try editable or static)" autocomplete="off" />
+          <button class="studio-intro__enter gen-btn" id="studio-intro-enter" type="submit">
+            Generate
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </form>
       </div>
     </section>
     <div class="ui-shell" id="ui-shell">
@@ -51,7 +65,7 @@
           </div>
           <nav class="studio-modes" aria-label="Product worlds">
             <button id="studio-library-btn" type="button" aria-pressed="true">Library</button>
-            <button id="studio-cockpit-btn" type="button" aria-pressed="false">Atelier</button>
+            <button id="studio-cockpit-btn" type="button" aria-pressed="false">Studio</button>
           </nav>
         </div>
         <div class="ui-header__search">
@@ -227,7 +241,7 @@
           </section>
 
           <section id="empty-state" class="empty-state studio-command-deck">
-            <p class="eyebrow">Atelier</p>
+            <p class="eyebrow">Studio</p>
             <h2>Make a book.</h2>
             <div class="studio-command-deck__actions">
               <button class="button button-primary" data-action="new-project" type="button">New book</button>
@@ -327,17 +341,17 @@
             <div id="project-standard-view">
               <nav class="project-workspace-nav" aria-label="Project journey">
                 <button class="workspace-tab is-active" data-action="select-workspace-view" data-view-target="overview" type="button">Overview</button>
-                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="interior" type="button">Interior <i class="tab-mark" data-tab-mark="interior"></i></button>
-                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="editable" type="button">Editable PPT <i class="tab-mark" data-tab-mark="editable"></i></button>
-                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="thumbnails" type="button">Thumbnails <i class="tab-mark" data-tab-mark="thumbnails"></i></button>
-                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="preview" type="button">Preview <i class="tab-mark" data-tab-mark="preview"></i></button>
+                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="interior" type="button">Pages Lab <i class="tab-mark" data-tab-mark="interior"></i></button>
+                <button class="workspace-tab text-lab-only" data-action="select-workspace-view" data-view-target="listing" type="button">Text Lab <i class="tab-mark" data-tab-mark="listing"></i></button>
+                <button class="workspace-tab editable-only" data-action="select-workspace-view" data-view-target="editable" type="button">Editable Lab <i class="tab-mark" data-tab-mark="editable"></i></button>
+                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="thumbnails" type="button">Mockups Lab <i class="tab-mark" data-tab-mark="thumbnails"></i></button>
+                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="preview" type="button">Preview Lab <i class="tab-mark" data-tab-mark="preview"></i></button>
                 <button class="workspace-tab" data-action="select-workspace-view" data-view-target="export" type="button">Export <i class="tab-mark" data-tab-mark="export"></i></button>
-                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="listing" type="button">SEO <i class="tab-mark" data-tab-mark="listing"></i></button>
               </nav>
 
               <header class="studio-scale-page" id="studio-scale-page">
                 <div class="studio-scale-page__copy">
-                  <p class="studio-scale-page__kicker">Atelier</p>
+                  <p class="studio-scale-page__kicker">Studio</p>
                   <h2 class="studio-scale-page__title" id="studio-scale-title">Overview</h2>
                   <p class="studio-scale-page__meta" id="studio-scale-meta">Stage 1 of 8</p>
                 </div>
@@ -349,7 +363,7 @@
 
               <div class="studio-stage-banner">
                 <div>
-                  <p class="studio-stage-banner__kicker" id="studio-stage-kicker">Atelier</p>
+                  <p class="studio-stage-banner__kicker" id="studio-stage-kicker">Studio</p>
                   <h2 class="studio-stage-banner__title" id="studio-stage-title">Overview</h2>
                 </div>
                 <div class="studio-stage-banner__actions">
@@ -394,11 +408,11 @@
                 </div>
               </section>
 
-              <div class="studio-now-column">
+              <div class="studio-now-column" id="studio-activity-rail">
               <section class="live-dock glass-panel" id="live-dock">
                 <div class="progress-header">
                   <div>
-                    <span class="eyebrow">Now</span>
+                    <span class="eyebrow">Status</span>
                     <strong id="current-job-label">Ready</strong>
                   </div>
                   <div class="live-dock-aside">
@@ -416,13 +430,14 @@
                 <p id="heartbeat-text" class="muted"></p>
               </section>
 
-              <div class="logs-panel glass-panel studio-now-log">
-                  <div class="section-header compact">
+              <div class="logs-panel glass-panel studio-now-log apple-notify-stack">
+                  <div class="section-header compact apple-notify-head">
                     <div>
-                    <p class="eyebrow">Activity</p>
+                    <p class="eyebrow">Notifications</p>
+                    <strong class="apple-notify-title">Activity</strong>
                     </div>
                   </div>
-                  <div id="event-log" class="event-log"></div>
+                  <div id="event-log" class="event-log apple-notify-list"></div>
               </div>
               </div>
 
@@ -430,7 +445,7 @@
               <div class="workspace-track" id="workspace-track">
               <div class="workspace-pane is-active" data-workspace-pane="overview">
               <div class="overview-board" data-workspace-section="overview">
-              <section class="overview-stage-grid" aria-label="Product pipeline">
+              <section class="overview-stage-grid studio-pipeline-rail" aria-label="Product pipeline">
                 <article class="overview-stage-card overview-stage-overall" id="overview-overall-card" data-stage="overall" data-action="select-workspace-view" data-view-target="listing">
                   <div class="product-progress-copy">
                     <span class="overview-stage-label">Product progress</span>
@@ -444,56 +459,110 @@
                   <span class="stage-meter" aria-hidden="true"><i id="overview-overall-meter"></i></span>
                   <button class="stage-run-btn" data-action="start-full-automation" type="button">Start full automation</button>
                 </article>
-                <article class="overview-stage-card" data-stage="interior" data-action="select-workspace-view" data-view-target="interior">
-                  <span class="overview-stage-label">Interior</span>
+
+                <div class="pipeline-rail-track" role="list">
+                <article class="overview-stage-card node" data-stage="interior" data-action="select-workspace-view" data-view-target="interior" role="listitem">
+                  <div class="n-top">
+                    <span class="n-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 4h16v16H4zM4 9h16M9 4v16"/></svg>
+                    </span>
+                    <span class="n-idx">01</span>
+                  </div>
+                  <span class="overview-stage-label">Pages Lab</span>
                   <span class="stage-state" id="overview-interior-state">Ready</span>
                   <strong><span id="stat-complete">0</span> / <span id="stat-total">0</span> pages</strong>
                   <small id="overview-interior-detail">0 remaining</small>
                   <span id="stat-remaining" hidden>0</span>
-                  <span class="stage-meter" aria-hidden="true"><i id="overview-interior-meter"></i></span>
+                  <span class="stage-meter n-bar" aria-hidden="true"><i id="overview-interior-meter"></i></span>
                   <button class="stage-run-btn" data-action="run-stage" data-stage="interior" type="button">Start pages</button>
                   <button class="stage-run-btn" data-action="regenerate-interior" data-stage="interior" type="button" hidden>Regenerate</button>
                 </article>
-                <article class="overview-stage-card" data-stage="editable" data-action="select-workspace-view" data-view-target="editable">
-                  <span class="overview-stage-label">Canva editable</span>
+
+                <div class="pipeline-link link" aria-hidden="true"></div>
+
+                <article class="overview-stage-card node text-lab-only" data-stage="listing" data-action="select-workspace-view" data-view-target="listing" role="listitem">
+                  <div class="n-top">
+                    <span class="n-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+                    </span>
+                    <span class="n-idx">02</span>
+                  </div>
+                  <span class="overview-stage-label">Text Lab</span>
+                  <span class="stage-state" id="overview-listing-state">Ready</span>
+                  <strong id="overview-listing-status">Not created</strong>
+                  <small id="overview-listing-detail">Title, description, tags</small>
+                  <span class="stage-meter n-bar" aria-hidden="true"><i id="overview-listing-meter"></i></span>
+                  <button class="stage-run-btn" data-action="run-stage" data-stage="listing" type="button">Start SEO</button>
+                </article>
+
+                <div class="pipeline-link link text-lab-only" aria-hidden="true"></div>
+
+                <article class="overview-stage-card node editable-only" data-stage="editable" data-action="select-workspace-view" data-view-target="editable" role="listitem">
+                  <div class="n-top">
+                    <span class="n-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+                    </span>
+                    <span class="n-idx">03</span>
+                  </div>
+                  <span class="overview-stage-label">Editable Lab</span>
                   <span class="stage-state" id="overview-editable-state">Ready</span>
                   <strong id="overview-editable-status">Static print</strong>
                   <small id="overview-editable-detail">Toggle Editable</small>
-                  <span class="stage-meter" aria-hidden="true"><i id="overview-editable-meter"></i></span>
+                  <span class="stage-meter n-bar" aria-hidden="true"><i id="overview-editable-meter"></i></span>
                   <button class="stage-run-btn" data-action="run-stage" data-stage="editable" type="button">Build Editable</button>
                 </article>
-                <article class="overview-stage-card" data-stage="thumbnails" data-action="select-workspace-view" data-view-target="thumbnails">
-                  <span class="overview-stage-label">Mockups</span>
+
+                <div class="pipeline-link link editable-only" aria-hidden="true"></div>
+
+                <article class="overview-stage-card node" data-stage="thumbnails" data-action="select-workspace-view" data-view-target="thumbnails" role="listitem">
+                  <div class="n-top">
+                    <span class="n-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 3h18v18H3z"/><path d="m3 15 5-5 4 4 3-3 6 6"/><circle cx="8" cy="8" r="1.4"/></svg>
+                    </span>
+                    <span class="n-idx">04</span>
+                  </div>
+                  <span class="overview-stage-label">Mockups Lab</span>
                   <span class="stage-state" id="overview-thumbnails-state">Ready</span>
                   <strong id="overview-thumbnail-count">0 / 4 saved</strong>
                   <small id="overview-thumbnail-detail">After pages finish</small>
-                  <span class="stage-meter" aria-hidden="true"><i id="overview-thumbnails-meter"></i></span>
+                  <span class="stage-meter n-bar" aria-hidden="true"><i id="overview-thumbnails-meter"></i></span>
                   <button class="stage-run-btn" data-action="run-stage" data-stage="thumbnails" type="button">Start mockups</button>
                 </article>
-                <article class="overview-stage-card" data-stage="preview" data-action="select-workspace-view" data-view-target="preview">
-                  <span class="overview-stage-label">Preview</span>
+
+                <div class="pipeline-link link" aria-hidden="true"></div>
+
+                <article class="overview-stage-card node" data-stage="preview" data-action="select-workspace-view" data-view-target="preview" role="listitem">
+                  <div class="n-top">
+                    <span class="n-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 4h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M8 20h8M10 16v4M14 16v4"/></svg>
+                    </span>
+                    <span class="n-idx">05</span>
+                  </div>
+                  <span class="overview-stage-label">Preview Lab</span>
                   <span class="stage-state" id="overview-preview-state">Ready</span>
                   <strong id="overview-preview-status">Not generated</strong>
                   <small id="overview-preview-detail">After mockups</small>
-                  <span class="stage-meter" aria-hidden="true"><i id="overview-preview-meter"></i></span>
+                  <span class="stage-meter n-bar" aria-hidden="true"><i id="overview-preview-meter"></i></span>
                   <button class="stage-run-btn" data-action="run-stage" data-stage="preview" type="button">Start preview</button>
                 </article>
-                <article class="overview-stage-card" data-stage="export" data-action="select-workspace-view" data-view-target="export">
+
+                <div class="pipeline-link link" aria-hidden="true"></div>
+
+                <article class="overview-stage-card node" data-stage="export" data-action="select-workspace-view" data-view-target="export" role="listitem">
+                  <div class="n-top">
+                    <span class="n-ico" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3v12M8 11l4 4 4-4"/><path d="M4 21h16"/></svg>
+                    </span>
+                    <span class="n-idx">06</span>
+                  </div>
                   <span class="overview-stage-label">Export</span>
                   <span class="stage-state" id="overview-export-state">Ready</span>
                   <strong id="overview-export-status">Book incomplete</strong>
                   <small id="overview-export-detail">Finish pages</small>
-                  <span class="stage-meter" aria-hidden="true"><i id="overview-export-meter"></i></span>
+                  <span class="stage-meter n-bar" aria-hidden="true"><i id="overview-export-meter"></i></span>
                   <button class="stage-run-btn" data-action="run-stage" data-stage="export" type="button">Start export</button>
                 </article>
-                <article class="overview-stage-card" data-stage="listing" data-action="select-workspace-view" data-view-target="listing">
-                  <span class="overview-stage-label">SEO</span>
-                  <span class="stage-state" id="overview-listing-state">Ready</span>
-                  <strong id="overview-listing-status">Not created</strong>
-                  <small id="overview-listing-detail">Last stage · title, description, tags</small>
-                  <span class="stage-meter" aria-hidden="true"><i id="overview-listing-meter"></i></span>
-                  <button class="stage-run-btn" data-action="run-stage" data-stage="listing" type="button">Start SEO</button>
-                </article>
+                </div>
               </section>
               </div>
               </div>
@@ -1226,7 +1295,7 @@
               <section class="chrome-profiles-panel">
                 <p class="eyebrow">BROWSER PROFILES</p>
                 <h4>Chrome profiles for Gemini and ChatGPT</h4>
-                <p class="field-hint">The selected Chrome profile must be signed into Google Gemini (listing and page text) and ChatGPT (mockups).</p>
+                <p class="field-hint">The selected Chrome profile must be signed into Gemini and ChatGPT.</p>
                 <div class="profile-select-container">
                   <label for="settings-chatgpt-profile-select">Active profile to sync</label>
                   <select id="settings-chatgpt-profile-select">
@@ -1239,29 +1308,29 @@
                     <input type="checkbox" id="settings-enable-profile-swapping" checked>
                     <strong>Auto-swap Chrome profiles on Gemini rate limits</strong>
                   </label>
-                  <p class="field-hint" style="font-size: 11px; opacity: 0.8; margin-bottom: 8px;">Select accounts to cycle. ChatGPT mockups use the same profile, so keep ChatGPT signed in on every selected account:</p>
+                  <p class="field-hint" style="font-size: 11px; opacity: 0.8; margin-bottom: 8px;">Select accounts to cycle. Keep ChatGPT signed in on every selected account:</p>
                   <div id="settings-profile-rotation-list" class="profile-rotation-list" style="display: flex; flex-direction: column; gap: 6px;"></div>
                 </div>
               </section>
 
               <section class="chrome-profiles-panel engine-picker">
-                <p class="eyebrow">ACTIVE IMAGE ENGINE</p>
-                <h4>One engine at a time for page images</h4>
-                <p class="field-hint">Gemini still writes analysis, blueprints, and prompts. Turn on ChatGPT, Gemini, or Meta only for interior page images.</p>
+                <p class="eyebrow">ACTIVE ENGINE</p>
+                <h4>ChatGPT, Gemini, or Meta AI</h4>
+                <p class="field-hint">One engine at a time.</p>
                 <div class="engine-toggle-row">
                   <button class="engine-toggle is-on" id="engine-chatgpt-toggle" data-action="set-ai-engine" data-engine="chatgpt" type="button">
-                    <span class="engine-toggle-brand brand-chatgpt" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/chatgpt.png" alt="ChatGPT" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></span>
+                    <span class="engine-toggle-brand brand-chatgpt" aria-hidden="true"><img class="brand-mark" src="../assets/brand/chatgpt.png" alt=""></span>
                     <span class="engine-toggle-name">ChatGPT</span>
                     <span class="engine-toggle-state" id="engine-chatgpt-state">On</span>
                   </button>
                   <button class="engine-toggle" id="engine-gemini-toggle" data-action="set-ai-engine" data-engine="gemini" type="button">
-                    <span class="engine-toggle-brand brand-gemini" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/gemini.png" alt="Gemini" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></span>
+                    <span class="engine-toggle-brand brand-gemini" aria-hidden="true"><img class="brand-mark" src="../assets/brand/gemini.png" alt=""></span>
                     <span class="engine-toggle-name">Gemini</span>
                     <span class="engine-toggle-state" id="engine-gemini-state">Off</span>
                   </button>
                   <button class="engine-toggle" id="engine-meta-toggle" data-action="set-ai-engine" data-engine="meta" type="button">
-                    <span class="engine-toggle-brand brand-meta" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/meta.png" alt="Meta" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></span>
-                    <span class="engine-toggle-name">Meta</span>
+                    <span class="engine-toggle-brand brand-meta" aria-hidden="true"><img class="brand-mark" src="../assets/brand/meta.png" alt=""></span>
+                    <span class="engine-toggle-name">Meta AI</span>
                     <span class="engine-toggle-state" id="engine-meta-state">Off</span>
                   </button>
                 </div>
@@ -1269,12 +1338,12 @@
 
               <div class="integration-grid">
                 <article id="settings-mockups-card" class="integration-card">
-                  <div class="integration-icon brand-chatgpt" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/chatgpt.png" alt="ChatGPT" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></div>
+                  <div class="integration-icon brand-chatgpt" aria-hidden="true"><img class="brand-mark" src="../assets/brand/chatgpt.png" alt="ChatGPT"></div>
                   <div class="integration-copy">
                     <span class="settings-status-dot"></span>
                     <small id="settings-mockups-status">Checking ChatGPT session</small>
-                    <h4>ChatGPT account (mockups)</h4>
-                    <p id="settings-mockups-profile">Mockups use the Winner Mockups Custom GPT. Sign in and verify ChatGPT separately from Gemini.</p>
+                    <h4>ChatGPT</h4>
+                    <p id="settings-mockups-profile">Sign in and verify ChatGPT.</p>
                     <p id="settings-mockups-verified" class="integration-meta"></p>
                   </div>
                   <div class="integration-actions">
@@ -1285,12 +1354,12 @@
                   </div>
                 </article>
                 <article id="settings-chatgpt-card" class="integration-card">
-                  <div class="integration-icon brand-gemini" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/gemini.png" alt="Gemini" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></div>
+                  <div class="integration-icon brand-gemini" aria-hidden="true"><img class="brand-mark" src="../assets/brand/gemini.png" alt="Gemini"></div>
                   <div class="integration-copy">
                     <span class="settings-status-dot"></span>
                     <small id="settings-chatgpt-status">Not connected</small>
-                    <h4>Google Gemini (text &amp; listing)</h4>
-                    <p id="settings-chatgpt-profile">Sign in or create an account, then verify the local session.</p>
+                    <h4>Gemini</h4>
+                    <p id="settings-chatgpt-profile">Sign in and verify Gemini.</p>
                     <p id="settings-chatgpt-verified" class="integration-meta"></p>
                   </div>
                   <div class="integration-actions">
@@ -1300,18 +1369,18 @@
                   </div>
                 </article>
                 <article id="settings-meta-card" class="integration-card">
-                  <div class="integration-icon brand-meta" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/meta.png" alt="Meta" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></div>
+                  <div class="integration-icon brand-meta" aria-hidden="true"><img class="brand-mark" src="../assets/brand/meta.png" alt="Meta AI"></div>
                   <div class="integration-copy">
                     <span class="settings-status-dot"></span>
                     <small id="settings-meta-status">Not connected</small>
-                    <h4>Meta (page images)</h4>
-                    <p id="settings-meta-profile">Sign in on meta.ai, then verify the local session. Used only while Meta is turned on for images.</p>
+                    <h4>Meta AI</h4>
+                    <p id="settings-meta-profile">Sign in on meta.ai, then verify.</p>
                     <p id="settings-meta-verified" class="integration-meta"></p>
                   </div>
                   <div class="integration-actions">
                     <button class="button button-ghost button-danger" id="settings-meta-logout" data-action="settings-logout-meta" type="button" style="display: none;">Log out</button>
                     <button class="button button-ghost" data-action="settings-manage-meta" type="button">Sign in / manage</button>
-                    <button class="button button-gold" data-action="settings-verify-meta" type="button">Verify Meta</button>
+                    <button class="button button-gold" data-action="settings-verify-meta" type="button">Verify Meta AI</button>
                   </div>
                 </article>
                 <article id="settings-canva-card" class="integration-card">
@@ -1330,12 +1399,15 @@
                   </div>
                 </article>
                 <article id="settings-gpt-card" class="integration-card studio-card">
-                  <div class="integration-icon integration-icon-gpt">G</div>
+                  <div class="integration-icon brand-pair" aria-hidden="true">
+                    <img class="brand-mark" src="../assets/brand/gemini.png" alt="Gemini">
+                    <img class="brand-mark" src="../assets/brand/chatgpt.png" alt="ChatGPT">
+                  </div>
                   <div class="integration-copy">
                     <span class="settings-status-dot"></span>
                     <small id="settings-gpt-status">Waiting for Gemini</small>
                     <h4>VERSA CLASS Gems &amp; Custom GPTs</h4>
-                    <p id="settings-gpt-profile">Gemini gems write analysis, listings, and Veo. ChatGPT custom GPTs stay available for mockups when ChatGPT is verified.</p>
+                    <p id="settings-gpt-profile">Gems and Custom GPTs use the verified Gemini and ChatGPT sessions.</p>
                   </div>
                   <div class="integration-actions">
                     <button class="button button-ghost" data-action="settings-open-custom-gpt" type="button">Open Content Pages Gem</button>
@@ -1552,9 +1624,9 @@
 
     <dialog id="auth-dialog" class="project-dialog auth-dialog">
       <div class="auth-dialog-content">
-        <div id="auth-brand-logo" class="auth-brand-logo brand-gemini" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/gemini.png" alt="Gemini" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></div>
+        <div id="auth-brand-logo" class="auth-brand-logo brand-gemini" aria-hidden="true"><img class="brand-mark" src="../assets/brand/gemini.png" alt="Gemini"></div>
         <p class="eyebrow" id="auth-eyebrow">FIRST-RUN LOGIN</p>
-        <h2 id="auth-title">Connect Google Gemini</h2>
+        <h2 id="auth-title">Connect Gemini</h2>
         <p id="auth-copy">Sign in once. Canary stays in the background after that — VERSA CLASS keeps the login until you sign out.</p>
         <div class="auth-actions">
           <button id="auth-open-button" class="button button-gold" type="button">Sign in to Gemini</button>
@@ -1729,6 +1801,7 @@
     <script src="./renderer.js"></script>
     <script src="./guide.js"></script>
     <script src="./ui.js"></script>
+    <script src="./gate-ui.js"></script>
     <script src="./performance-monitor.js"></script>
   
 

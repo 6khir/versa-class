@@ -1,0 +1,1869 @@
+/* VERSA CLASS — Spatial architecture (V0 Gate reference)
+   Fixed viewport · Z-axis depth · OLED glass Gate · Studio engine chrome
+   Presentation only: preserve every production id / data-action / IPC hook. */
+
+/* ========== 1. NO-SCROLL DESKTOP LAW ========== */
+html,
+html body.ui-redesign.versa-studio.pro-suite {
+  height: 100%;
+  width: 100%;
+  max-height: 100vh;
+  max-width: 100vw;
+  overflow: hidden !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite {
+  background: var(--vc-bg-0);
+  color: var(--vc-tx-hi);
+  font-family: var(--vc-font) !important;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Beat legacy Nunito/Geist locks — match Gate reference Inter stack */
+html body.ui-redesign.versa-studio.pro-suite,
+html body.ui-redesign.versa-studio.pro-suite button,
+html body.ui-redesign.versa-studio.pro-suite input,
+html body.ui-redesign.versa-studio.pro-suite select,
+html body.ui-redesign.versa-studio.pro-suite textarea,
+html body.ui-redesign.versa-studio.pro-suite h1,
+html body.ui-redesign.versa-studio.pro-suite h2,
+html body.ui-redesign.versa-studio.pro-suite h3,
+html body.ui-redesign.versa-studio.pro-suite h4,
+html body.ui-redesign.versa-studio.pro-suite p,
+html body.ui-redesign.versa-studio.pro-suite span,
+html body.ui-redesign.versa-studio.pro-suite label,
+html body.ui-redesign.versa-studio.pro-suite a,
+html body.ui-redesign.versa-studio.pro-suite li,
+html body.ui-redesign.versa-studio.pro-suite small,
+html body.ui-redesign.versa-studio.pro-suite strong,
+html body.ui-redesign.versa-studio.pro-suite .studio-intro,
+html body.ui-redesign.versa-studio.pro-suite .studio-intro * {
+  font-family: var(--vc-font) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-shell,
+html body.ui-redesign.versa-studio.pro-suite #ui-shell {
+  position: relative;
+  height: 100vh;
+  width: 100vw;
+  max-height: 100vh;
+  max-width: 100vw;
+  overflow: hidden !important;
+  display: flex;
+  flex-direction: column;
+  isolation: isolate;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-body,
+html body.ui-redesign.versa-studio.pro-suite #ui-body,
+html body.ui-redesign.versa-studio.pro-suite .workspace {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden !important;
+}
+
+/* Ambient stage wash behind shell once past the Gate */
+html body.ui-redesign.versa-studio.pro-suite .ui-shell::before,
+html body.ui-redesign.versa-studio.pro-suite .ui-shell::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  animation: vc-drift 22s ease-in-out infinite alternate;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-shell::before {
+  width: 640px;
+  height: 640px;
+  left: 18%;
+  top: -22%;
+  background: radial-gradient(circle at 50% 50%, var(--vc-orb) 0%, transparent 70%);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-shell::after {
+  width: 560px;
+  height: 560px;
+  right: 6%;
+  bottom: -26%;
+  background: radial-gradient(circle at 50% 50%, var(--vc-royal) 0%, transparent 70%);
+  animation-delay: -6s;
+  opacity: 0.28;
+}
+
+@keyframes vc-drift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(40px, 30px, 0) scale(1.12); }
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-header,
+html body.ui-redesign.versa-studio.pro-suite .ui-body,
+html body.ui-redesign.versa-studio.pro-suite .ui-sidebar,
+html body.ui-redesign.versa-studio.pro-suite .workspace-main,
+html body.ui-redesign.versa-studio.pro-suite #ui-primary-canvas {
+  position: relative;
+  z-index: 1;
+}
+
+/* ========== 2. V0 GATE PAGE ========== */
+html body.ui-redesign.versa-studio.pro-suite .studio-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden !important;
+  isolation: isolate;
+  background: var(--vc-bg-0);
+  color: var(--vc-tx-hi);
+  /* Gate has no sidebar — fullscreen stage only */
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro[hidden] {
+  display: none !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="intro"] .ui-shell {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__veil,
+html body.ui-redesign.versa-studio.pro-suite .studio-intro .stage-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__veil,
+html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite .studio-intro__veil,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .studio-intro__veil {
+  background: transparent !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__veil::before,
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__veil::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  z-index: -1;
+  opacity: 0.5;
+  animation: vc-drift 22s ease-in-out infinite alternate;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__veil::before {
+  width: 640px;
+  height: 640px;
+  left: 18%;
+  top: -22%;
+  background: radial-gradient(circle at 50% 50%, var(--vc-orb) 0%, transparent 70%);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__veil::after {
+  width: 560px;
+  height: 560px;
+  right: 6%;
+  bottom: -26%;
+  background: radial-gradient(circle at 50% 50%, var(--vc-royal) 0%, transparent 70%);
+  animation-delay: -6s;
+  opacity: 0.4;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro .stage-grid {
+  z-index: -1;
+  background-image:
+    linear-gradient(rgba(126, 178, 240, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(126, 178, 240, 0.035) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(circle at 50% 40%, black 0%, transparent 78%);
+  -webkit-mask-image: radial-gradient(circle at 50% 40%, black 0%, transparent 78%);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__wordmark {
+  position: absolute;
+  z-index: 2;
+  top: var(--vc-s-5);
+  left: var(--vc-s-6);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vc-s-3);
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--vc-tx-hi);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__wordmark::before {
+  content: "";
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: url("../assets/brand/versa-monogram.png") center / cover no-repeat;
+  box-shadow: 0 0 0 1px rgba(126, 178, 240, 0.3), 0 0 22px rgba(78, 169, 240, 0.4);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__appearance {
+  position: absolute;
+  z-index: 2;
+  top: var(--vc-s-5);
+  right: var(--vc-s-6);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__core {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--vc-s-7);
+  width: min(780px, 92vw);
+  padding: var(--vc-s-6);
+  text-align: center;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vc-s-2);
+  margin: 0 0 var(--vc-s-5);
+  padding: var(--vc-s-2) var(--vc-s-4);
+  border-radius: var(--vc-r-pill);
+  border: 1px solid var(--vc-glass-brd);
+  background: rgba(78, 169, 240, 0.08);
+  color: var(--vc-sky);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__eyebrow .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--vc-sky-bright);
+  box-shadow: 0 0 10px var(--vc-sky);
+  animation: vc-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes vc-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__kicker,
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__lede {
+  display: none;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__title {
+  margin: 0;
+  font-size: clamp(30px, 4.4vw, 58px);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  background: linear-gradient(180deg, var(--vc-title-from) 30%, var(--vc-title-to) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-wrap: balance;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__cursor {
+  display: inline-block;
+  width: 3px;
+  height: 0.95em;
+  margin-left: 4px;
+  border-radius: 2px;
+  transform: translateY(0.12em);
+  background: var(--vc-sky-bright);
+  box-shadow: 0 0 12px var(--vc-sky);
+  -webkit-text-fill-color: initial;
+  color: var(--vc-sky-bright);
+  animation: vc-blink 1.05s steps(1) infinite;
+}
+
+@keyframes vc-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+/* Glass prompt dock (Gate routing surface) */
+html body.ui-redesign.versa-studio.pro-suite .studio-intro .prompt {
+  width: min(680px, 100%);
+  display: flex;
+  align-items: center;
+  gap: var(--vc-s-3);
+  padding: var(--vc-s-3) var(--vc-s-3) var(--vc-s-3) var(--vc-s-5);
+  border-radius: var(--vc-r-pill);
+  background: var(--vc-glass-fill);
+  backdrop-filter: blur(30px) saturate(160%);
+  -webkit-backdrop-filter: blur(30px) saturate(160%);
+  border: 1px solid var(--vc-glass-brd-hi);
+  box-shadow: var(--vc-elev), var(--vc-inset);
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro .prompt:focus-within {
+  border-color: var(--vc-sky);
+  box-shadow: var(--vc-glow-sky), var(--vc-elev);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro .prompt > svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  color: var(--vc-tx-lo);
+}
+
+html body.ui-redesign.versa-studio.pro-suite #studio-intro-route {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--vc-tx-hi);
+  font-size: 15px;
+  font-family: inherit;
+}
+
+html body.ui-redesign.versa-studio.pro-suite #studio-intro-route::placeholder {
+  color: var(--vc-tx-lo);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__enter,
+html body.ui-redesign.versa-studio.pro-suite #studio-intro-enter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vc-s-2);
+  margin: 0;
+  padding: var(--vc-s-3) var(--vc-s-5);
+  border: none !important;
+  border-radius: var(--vc-r-pill);
+  background: linear-gradient(135deg, var(--vc-cta-from), var(--vc-cta-to)) !important;
+  color: var(--vc-on-accent) !important;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: var(--vc-cta-glow) !important;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+html body.ui-redesign.versa-studio.pro-suite #studio-intro-enter:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--vc-cta-glow), 0 16px 36px rgba(27, 70, 194, 0.28) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite #studio-intro-enter svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ========== 3. GLASS SIDEBAR / SHELL (post-Gate) ========== */
+html body.ui-redesign.versa-studio.pro-suite .ui-sidebar,
+html body.ui-redesign.versa-studio.pro-suite #ui-sidebar {
+  background: var(--vc-glass-fill) !important;
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid var(--vc-glass-brd) !important;
+  box-shadow: var(--vc-elev), var(--vc-inset);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-header.topbar {
+  background: var(--vc-bar) !important;
+  border-bottom: 1px solid var(--vc-glass-brd) !important;
+}
+
+/* ========== 4. LIVING EDITABLE PIPELINE RAIL ========== */
+html body.ui-redesign.versa-studio.pro-suite .overview-board {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px 16px;
+  overflow: hidden;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .overview-stage-grid.studio-pipeline-rail {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 18px !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  margin: 0 !important;
+  padding: 18px !important;
+  border-radius: 28px !important;
+  border: 1px solid rgba(126, 178, 240, 0.16) !important;
+  background:
+    linear-gradient(165deg, var(--vc-card-hi), var(--vc-glass-fill-2)) !important;
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  box-shadow:
+    var(--vc-shadow-rail),
+    var(--vc-inset) !important;
+  overflow: hidden !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 20px !important;
+  min-height: 0 !important;
+  border-radius: 20px !important;
+  border: 1px solid rgba(126, 178, 240, 0.18) !important;
+  background: linear-gradient(120deg, rgba(78, 169, 240, 0.12), var(--vc-glass-fill-2)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall .product-progress-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall .overview-stage-label {
+  font-size: 11px !important;
+  letter-spacing: 0.22em !important;
+  text-transform: uppercase !important;
+  color: var(--vc-sky) !important;
+  font-weight: 700 !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: stretch;
+  gap: 0;
+  flex: 1 1 auto;
+  min-height: 220px;
+  width: 100%;
+  overflow: hidden;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .overview-stage-card.node {
+  position: relative;
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px;
+  padding: 18px 16px 16px !important;
+  border-radius: 22px !important;
+  background: var(--vc-card) !important;
+  border: 1px solid rgba(126, 178, 240, 0.14) !important;
+  box-shadow:
+    var(--vc-shadow-card),
+    var(--vc-inset) !important;
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .overview-stage-card.node::after {
+  content: "";
+  position: absolute;
+  inset: auto -20% -40% -20%;
+  height: 55%;
+  background: radial-gradient(circle at 50% 0%, rgba(78, 169, 240, 0.16), transparent 70%);
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .overview-stage-card.node:hover {
+  transform: translateY(-8px);
+  background: var(--vc-card-hi) !important;
+  border-color: rgba(126, 178, 240, 0.34) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .n-top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .n-ico {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: rgba(126, 178, 240, 0.08);
+  border: 1px solid rgba(126, 178, 240, 0.16);
+  color: var(--vc-tx-mid);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .n-ico svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.8;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .n-idx {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--vc-tx-lo);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .overview-stage-label {
+  position: relative;
+  z-index: 1;
+  font-size: 15px !important;
+  font-weight: 750 !important;
+  color: var(--vc-tx-hi) !important;
+  letter-spacing: -0.02em !important;
+  text-transform: none !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .stage-state {
+  position: relative;
+  z-index: 1;
+  width: fit-content;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vc-tx-mid);
+  background: var(--vc-fill-quiet);
+  border: 1px solid rgba(126, 178, 240, 0.12);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node strong,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node small {
+  position: relative;
+  z-index: 1;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node strong {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--vc-tx-hi);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node small {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--vc-tx-mid);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .stage-meter.n-bar {
+  position: relative;
+  z-index: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--vc-fill-quiet);
+  overflow: hidden;
+  margin-top: auto;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .stage-meter i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--vc-cta-from), var(--vc-cta-to));
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .stage-run-btn {
+  position: relative;
+  z-index: 1;
+  margin-top: 4px;
+  align-self: stretch;
+  min-height: 34px;
+  border-radius: 999px !important;
+  border: 1px solid rgba(126, 178, 240, 0.22) !important;
+  background: rgba(78, 169, 240, 0.08) !important;
+  color: var(--vc-tx-hi) !important;
+  font-size: 12px !important;
+  font-weight: 650 !important;
+  box-shadow: none !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .stage-run-btn:not(:disabled):hover {
+  background: var(--vc-fill-hot) !important;
+  border-color: rgba(124, 196, 255, 0.45) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-link.link {
+  flex: 0 0 22px;
+  align-self: center;
+  height: 2px;
+  position: relative;
+  background: rgba(126, 178, 240, 0.12);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-link.link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--vc-sky-bright), transparent);
+  background-size: 200% 100%;
+  animation: vc-flow 2.4s linear infinite;
+}
+
+@keyframes vc-flow {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.done .n-ico,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-done .n-ico {
+  background: rgba(78, 169, 240, 0.16);
+  color: var(--vc-sky-bright);
+  border-color: rgba(126, 178, 240, 0.32);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.active,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-live,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-progress {
+  border-color: rgba(78, 169, 240, 0.7) !important;
+  box-shadow: var(--vc-glow-sky), var(--vc-shadow-card) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.active .n-ico,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-live .n-ico {
+  background: linear-gradient(135deg, var(--vc-cta-from), var(--vc-cta-to));
+  color: var(--vc-on-accent);
+  border-color: transparent;
+  box-shadow: 0 0 20px rgba(78, 169, 240, 0.55);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.active .stage-state,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-live .stage-state {
+  color: var(--vc-sky-bright);
+  border-color: rgba(78, 169, 240, 0.35);
+  background: rgba(78, 169, 240, 0.12);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.pending,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-waiting,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-blocked,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-skipped {
+  opacity: 0.58;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .overview-stage-card[data-stage="editable"],
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .workspace-tab[data-view-target="editable"],
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .overview-stage-card[data-stage="editable"],
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .workspace-tab[data-view-target="editable"],
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .pipeline-link.editable-only,
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .pipeline-link.editable-only,
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .text-lab-only,
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .text-lab-only,
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .editable-only,
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .editable-only {
+  display: none !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .pipeline-rail-track,
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .pipeline-rail-track {
+  counter-reset: vc-lab;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .pipeline-rail-track .overview-stage-card.node:not(.text-lab-only):not(.editable-only),
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .pipeline-rail-track .overview-stage-card.node:not(.text-lab-only):not(.editable-only) {
+  counter-increment: vc-lab;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .pipeline-rail-track .overview-stage-card.node:not(.text-lab-only):not(.editable-only) .n-idx,
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .pipeline-rail-track .overview-stage-card.node:not(.text-lab-only):not(.editable-only) .n-idx {
+  font-size: 0;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .pipeline-rail-track .overview-stage-card.node:not(.text-lab-only):not(.editable-only) .n-idx::before,
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .pipeline-rail-track .overview-stage-card.node:not(.text-lab-only):not(.editable-only) .n-idx::before {
+  content: counter(vc-lab, decimal-leading-zero);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--vc-tx-lo);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .workspace-pane,
+html body.ui-redesign.versa-studio.pro-suite #ui-primary-canvas,
+html body.ui-redesign.versa-studio.pro-suite .project-list,
+html body.ui-redesign.versa-studio.pro-suite #project-list {
+  overflow: auto;
+  min-height: 0;
+}
+
+/* ========== 5. RIGHT RAIL — APPLE NOTIFICATION STACK ========== */
+html body.ui-redesign.versa-studio.pro-suite .studio-now-column,
+html body.ui-redesign.versa-studio.pro-suite #studio-activity-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 4px 2px 8px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite #live-dock.live-dock {
+  flex: 0 0 auto;
+  margin: 0 !important;
+  padding: 14px 14px 12px !important;
+  border-radius: 22px !important;
+  border: 1px solid var(--vc-notify-brd) !important;
+  background: var(--vc-notify-dock) !important;
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  box-shadow: var(--vc-shadow-soft), var(--vc-inset) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite #live-dock .eyebrow {
+  color: var(--vc-notify-mute) !important;
+  letter-spacing: 0.16em;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite #current-job-label {
+  color: var(--vc-notify-ink) !important;
+  font-size: 15px !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.02em;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .logs-panel.studio-now-log.apple-notify-stack {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0 !important;
+  padding: 12px !important;
+  border-radius: 24px !important;
+  border: 1px solid var(--vc-notify-brd) !important;
+  background: var(--vc-notify-stack) !important;
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  box-shadow: var(--vc-inset) !important;
+  overflow: hidden;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-head .eyebrow {
+  margin: 0;
+  color: var(--vc-notify-mute) !important;
+  letter-spacing: 0.18em;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-title {
+  display: block;
+  margin: 2px 0 10px;
+  color: var(--vc-notify-ink);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+html body.ui-redesign.versa-studio.pro-suite #event-log.apple-notify-list,
+html body.ui-redesign.versa-studio.pro-suite .event-log.apple-notify-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto !important;
+  padding: 2px 2px 8px !important;
+  scrollbar-width: thin;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card,
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .log-row,
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .log-row.note-card {
+  display: grid !important;
+  grid-template-columns: 36px minmax(0, 1fr) auto !important;
+  column-gap: 10px !important;
+  row-gap: 0 !important;
+  align-items: start !important;
+  margin: 0 !important;
+  padding: 12px 12px 12px 10px !important;
+  border-radius: 18px !important;
+  border: 1px solid var(--vc-notify-brd) !important;
+  border-bottom: 1px solid var(--vc-notify-brd) !important;
+  background: var(--vc-notify-card) !important;
+  backdrop-filter: blur(36px) saturate(190%);
+  -webkit-backdrop-filter: blur(36px) saturate(190%);
+  box-shadow:
+    var(--vc-shadow-soft),
+    var(--vc-inset) !important;
+  color: var(--vc-notify-ink) !important;
+  animation: vc-notify-in 0.35s var(--vc-rise) both;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card__dot {
+  width: 28px !important;
+  height: 28px !important;
+  margin: 1px 0 0 !important;
+  border-radius: 8px !important;
+  background: linear-gradient(145deg, #5ac8fa, #0a84ff) !important;
+  box-shadow: 0 6px 14px rgba(10, 132, 255, 0.35) !important;
+  position: relative;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card__dot::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .level-success .note-card__dot {
+  background: linear-gradient(145deg, #30d158, #248a3d) !important;
+  box-shadow: 0 6px 14px rgba(48, 209, 88, 0.3) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .level-warn .note-card__dot {
+  background: linear-gradient(145deg, #ffd60a, #ff9f0a) !important;
+  box-shadow: 0 6px 14px rgba(255, 159, 10, 0.3) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .level-error .note-card__dot {
+  background: linear-gradient(145deg, #ff6961, #ff453a) !important;
+  box-shadow: 0 6px 14px rgba(255, 69, 58, 0.35) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card__copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card__app {
+  color: var(--vc-notify-mute) !important;
+  font-size: 11px !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.02em;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card__kicker {
+  color: var(--vc-notify-faint) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  margin-left: auto;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card__text,
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card p {
+  color: var(--vc-notify-ink) !important;
+  font-size: 13px !important;
+  line-height: 1.35 !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.015em;
+  margin: 0 !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card__time {
+  color: var(--vc-notify-faint) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  white-space: nowrap;
+  padding-top: 1px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-empty {
+  padding: 28px 12px;
+  text-align: center;
+  color: var(--vc-notify-faint);
+  font-size: 13px;
+  letter-spacing: -0.01em;
+}
+
+@keyframes vc-notify-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ========== 6. LIBRARY BOARD — OLED GLASS ========== */
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] #ui-sidebar,
+html body.ui-redesign.versa-studio.pro-suite[data-mode="library"] #ui-sidebar {
+  padding: 22px 24px 28px !important;
+  gap: 14px !important;
+  background: var(--vc-sidebar) !important;
+  border-right: 1px solid rgba(126, 178, 240, 0.1) !important;
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .library-masthead {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 0;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .library-masthead__kicker {
+  margin: 0;
+  color: var(--vc-sky) !important;
+  font-size: 10px !important;
+  font-weight: 750 !important;
+  letter-spacing: 0.24em !important;
+  text-transform: uppercase;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .library-masthead__title {
+  margin: 0;
+  color: var(--vc-tx-hi) !important;
+  font-size: 28px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.045em !important;
+  line-height: 1.05;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .library-masthead__lede {
+  margin: 0;
+  color: var(--vc-tx-mid) !important;
+  font-size: 13px !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite #new-project-button {
+  min-height: 44px;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: linear-gradient(135deg, var(--vc-cta-from), var(--vc-cta-to)) !important;
+  color: var(--vc-on-accent) !important;
+  font-weight: 750 !important;
+  box-shadow: var(--vc-cta-glow) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .sidebar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--vc-tx-lo);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .count-badge {
+  background: rgba(78, 169, 240, 0.14) !important;
+  color: var(--vc-sky-bright) !important;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .library-board__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .library-board__modes {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--vc-card);
+  border: 1px solid var(--vc-glass-brd);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .library-board__modes button {
+  border: 0;
+  border-radius: 999px;
+  min-height: 28px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--vc-tx-mid);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .library-board__modes button.is-active {
+  background: var(--vc-fill-hot) !important;
+  color: var(--vc-tx-hi) !important;
+  box-shadow: inset 0 0 0 1px var(--vc-glass-brd-hi) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .library-board-frame {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid rgba(126, 178, 240, 0.12);
+  background: var(--vc-board);
+  box-shadow: var(--vc-inset);
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] #project-list,
+html body.ui-redesign.versa-studio.pro-suite[data-mode="library"] #project-list {
+  height: 100%;
+  padding: 14px !important;
+  gap: 14px !important;
+  overflow: auto !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-item,
+html body.ui-redesign.versa-studio.pro-suite[data-mode="library"] .project-item {
+  border-radius: 20px !important;
+  border: 1px solid rgba(126, 178, 240, 0.16) !important;
+  background: var(--vc-item) !important;
+  box-shadow: var(--vc-shadow-card), var(--vc-inset) !important;
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-item:hover {
+  transform: translateY(-4px);
+  border-color: rgba(126, 178, 240, 0.34) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-item.is-active {
+  border-color: rgba(78, 169, 240, 0.7) !important;
+  box-shadow: var(--vc-glow-sky), var(--vc-shadow-card) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-cover {
+  background: var(--vc-cover) !important;
+  border-bottom: 1px solid var(--vc-glass-brd) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-item:nth-child(3n) .project-cover,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-item:nth-child(3n) .project-cover {
+  background: var(--vc-cover-2) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-item:nth-child(3n+2) .project-cover,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-item:nth-child(3n+2) .project-cover {
+  background: var(--vc-cover-3) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-cover::after {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(124, 196, 255, 0.35) !important;
+  color: var(--vc-letter) !important;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-item-main {
+  padding: 12px 12px 10px;
+  gap: 4px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-item-main strong {
+  color: var(--vc-tx-hi) !important;
+  font-size: 14px !important;
+  font-weight: 750 !important;
+  letter-spacing: -0.02em;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-item-main small,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-readiness {
+  color: var(--vc-tx-mid) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-type-badge,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-format-badge,
+html body.ui-redesign.versa-studio.pro-suite .project-format-badge,
+html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-type-badge,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-type-badge,
+html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite .project-format-badge,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .project-format-badge {
+  border-radius: 999px !important;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  background: var(--vc-fill-hot) !important;
+  color: var(--vc-sky-bright) !important;
+  border: 1px solid var(--vc-glass-brd-hi) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-live-badge,
+html body.ui-redesign.versa-studio.pro-suite .project-live-badge {
+  background: rgba(48, 209, 88, 0.14) !important;
+  color: #248a3d !important;
+  border: 1px solid rgba(48, 209, 88, 0.28) !important;
+}
+
+html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-live-badge,
+html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite .project-live-badge {
+  color: #30d158 !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-progress-mini,
+html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-progress-mini,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-progress-mini {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--vc-chip) !important;
+  border: 1px solid var(--vc-notify-brd);
+  color: var(--vc-chip-ink) !important;
+  font-size: 11px;
+  font-weight: 700;
+  backdrop-filter: blur(12px);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .privacy-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--vc-card);
+  border: 1px solid rgba(126, 178, 240, 0.12);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .privacy-card strong {
+  color: var(--vc-tx-hi);
+  font-size: 13px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .privacy-card p {
+  margin: 0;
+  color: var(--vc-tx-mid);
+  font-size: 12px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-sidebar__extras {
+  display: grid;
+  gap: 4px;
+  padding-top: 4px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-sidebar__label {
+  margin: 8px 4px 2px;
+  color: var(--vc-tx-lo);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-sidebar__link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--vc-tx-mid);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-sidebar__link:hover {
+  color: var(--vc-tx-hi);
+  background: rgba(126, 178, 240, 0.08);
+  border-color: rgba(126, 178, 240, 0.12);
+}
+
+/* ========== 7. ATELIER HEADER + WORKSPACE TABS ========== */
+html body.ui-redesign.versa-studio.pro-suite .ui-header.topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(220px, 0.7fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 18px 8px;
+  background: var(--vc-bar) !important;
+  border-bottom: 1px solid var(--vc-glass-brd) !important;
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-header__brand.brand-block {
+  gap: 12px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-header__brand .eyebrow {
+  color: var(--vc-sky);
+  letter-spacing: 0.22em;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-header__brand h1 {
+  margin: 0;
+  color: var(--vc-tx-hi);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .brand-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(126, 178, 240, 0.28), 0 0 18px rgba(78, 169, 240, 0.28);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-modes {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: 8px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(126, 178, 240, 0.14);
+  background: var(--vc-card);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-modes button {
+  min-height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--vc-tx-mid);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  transition: background 0.2s var(--vc-ease), color 0.2s var(--vc-ease), box-shadow 0.2s var(--vc-ease);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-modes button.is-active,
+html body.ui-redesign.versa-studio.pro-suite .studio-modes button[aria-pressed="true"] {
+  color: var(--vc-tx-hi) !important;
+  background: var(--vc-fill-hot) !important;
+  box-shadow: inset 0 0 0 1px var(--vc-glass-brd-hi), 0 0 18px rgba(78, 169, 240, 0.18);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-header__search {
+  position: relative;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-header__search-input {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 42px 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(126, 178, 240, 0.14);
+  background: var(--vc-card);
+  color: var(--vc-tx-hi);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-header__search-input::placeholder {
+  color: var(--vc-tx-lo);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .ui-header__search kbd {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(126, 178, 240, 0.16);
+  background: var(--vc-fill-quiet);
+  color: var(--vc-tx-lo);
+  font-size: 10px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-hud-cta,
+html body.ui-redesign.versa-studio.pro-suite .ui-header__actions .button-primary {
+  border-radius: 999px !important;
+  border: 1px solid rgba(124, 196, 255, 0.35) !important;
+  background: linear-gradient(135deg, var(--vc-cta-from), var(--vc-cta-to)) !important;
+  color: var(--vc-on-accent) !important;
+  box-shadow: var(--vc-cta-glow) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .profile-pill {
+  border-radius: 999px;
+  border: 1px solid rgba(126, 178, 240, 0.14);
+  background: var(--vc-card);
+  color: var(--vc-tx-hi);
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-mode="studio"] .project-workspace-nav,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="spine"] .project-workspace-nav,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="split"] .project-workspace-nav {
+  display: flex !important;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px !important;
+  margin: 0 0 12px !important;
+  padding: 6px !important;
+  border-radius: 18px !important;
+  border: 1px solid rgba(126, 178, 240, 0.14) !important;
+  border-right: 1px solid rgba(126, 178, 240, 0.14) !important;
+  background:
+    linear-gradient(165deg, var(--vc-card-hi), var(--vc-glass-fill-2)) !important;
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+  overflow-x: auto;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-mode="studio"] .project-workspace-nav::before,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="spine"] .project-workspace-nav::before,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="split"] .project-workspace-nav::before {
+  display: none !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-mode="studio"] .workspace-tab,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="spine"] .workspace-tab,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="split"] .workspace-tab {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 14px !important;
+  border-radius: 12px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: var(--vc-tx-mid) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.01em !important;
+  text-transform: none !important;
+  box-shadow: none !important;
+  white-space: nowrap;
+  transition: background 0.2s var(--vc-ease), color 0.2s var(--vc-ease), border-color 0.2s var(--vc-ease), box-shadow 0.2s var(--vc-ease);
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-mode="studio"] .workspace-tab::before {
+  display: none !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-mode="studio"] .workspace-tab:hover,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="spine"] .workspace-tab:hover,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="split"] .workspace-tab:hover {
+  color: var(--vc-tx-hi) !important;
+  background: rgba(126, 178, 240, 0.08) !important;
+  border-color: rgba(126, 178, 240, 0.12) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-mode="studio"] .workspace-tab.is-active,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="spine"] .workspace-tab.is-active,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="split"] .workspace-tab.is-active {
+  color: var(--vc-tx-hi) !important;
+  background: rgba(78, 169, 240, 0.16) !important;
+  border-color: rgba(124, 196, 255, 0.32) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 0 22px rgba(78, 169, 240, 0.18) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-layer="spine"] .workspace-tab.is-active::after,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="split"] .workspace-tab.is-active::after {
+  content: "NOW" !important;
+  margin-inline-start: 2px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(78, 169, 240, 0.22);
+  color: var(--vc-sky-bright);
+  font: 800 8px/1 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  letter-spacing: 0.1em;
+  box-shadow: inset 0 0 0 1px rgba(124, 196, 255, 0.28);
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-mode="studio"] .workspace-tab .tab-mark,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="spine"] .workspace-tab .tab-mark,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="split"] .workspace-tab .tab-mark {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(126, 178, 240, 0.28);
+  box-shadow: none;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-mode="studio"] .workspace-tab .tab-mark.is-live {
+  background: var(--vc-sky-bright);
+  box-shadow: 0 0 10px rgba(78, 169, 240, 0.7);
+  animation: vc-pulse 1.8s ease-in-out infinite;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-mode="studio"] .workspace-tab .tab-mark.is-done {
+  background: #48ce89;
+  box-shadow: 0 0 8px rgba(72, 206, 137, 0.45);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-scale-page,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="spine"] .studio-scale-page,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="split"] .studio-scale-page {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 12px !important;
+  padding: 16px 18px !important;
+  border-radius: 20px !important;
+  border: 1px solid rgba(126, 178, 240, 0.14) !important;
+  background:
+    linear-gradient(120deg, rgba(78, 169, 240, 0.1), var(--vc-glass-fill-2)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-scale-page__kicker,
+html body.ui-redesign.versa-studio.pro-suite .studio-stage-banner__kicker {
+  margin: 0 0 4px;
+  color: var(--vc-sky) !important;
+  font-size: 11px !important;
+  font-weight: 750 !important;
+  letter-spacing: 0.22em !important;
+  text-transform: uppercase !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-scale-page__title,
+html body.ui-redesign.versa-studio.pro-suite .studio-stage-banner__title {
+  margin: 0;
+  color: var(--vc-tx-hi) !important;
+  font-size: 22px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.03em !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-scale-page__meta {
+  margin: 4px 0 0;
+  color: var(--vc-tx-mid) !important;
+  font-size: 12px !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-scale-page__actions,
+html body.ui-redesign.versa-studio.pro-suite .studio-stage-banner__actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-scale-page__actions .button-primary,
+html body.ui-redesign.versa-studio.pro-suite .studio-stage-banner__actions .button-primary,
+html body.ui-redesign.versa-studio.pro-suite .hero-transport .button-primary {
+  border-radius: 999px !important;
+  border: 1px solid rgba(124, 196, 255, 0.35) !important;
+  background: linear-gradient(135deg, var(--vc-cta-from), var(--vc-cta-to)) !important;
+  color: var(--vc-on-accent) !important;
+  box-shadow: var(--vc-cta-glow) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-scale-page__actions .button-pause,
+html body.ui-redesign.versa-studio.pro-suite .studio-stage-banner__actions .button-pause,
+html body.ui-redesign.versa-studio.pro-suite .hero-transport .button-pause {
+  border-radius: 999px !important;
+  border: 1px solid rgba(126, 178, 240, 0.18) !important;
+  background: var(--vc-card) !important;
+  color: var(--vc-tx-hi) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-stage-banner,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="spine"] .studio-stage-banner,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="split"] .studio-stage-banner {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 12px !important;
+  padding: 14px 16px !important;
+  border-radius: 18px !important;
+  border: 1px solid rgba(126, 178, 240, 0.12) !important;
+  background: var(--vc-card) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .project-hero.studio-stage-settings,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="spine"] .project-hero.studio-stage-settings,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="split"] .project-hero.studio-stage-settings {
+  margin: 0 0 14px !important;
+  padding: 16px 18px !important;
+  border-radius: 20px !important;
+  border: 1px solid rgba(126, 178, 240, 0.14) !important;
+  background:
+    linear-gradient(165deg, var(--vc-card-hi), var(--vc-glass-fill-2)) !important;
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .project-hero .eyebrow,
+html body.ui-redesign.versa-studio.pro-suite .studio-stage-settings__label {
+  color: var(--vc-sky) !important;
+  letter-spacing: 0.18em !important;
+  text-transform: uppercase !important;
+  font-size: 10px !important;
+  font-weight: 750 !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .project-hero #project-title {
+  color: var(--vc-tx-hi) !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.03em !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .project-format-toggle {
+  border-radius: 999px !important;
+  border: 1px solid rgba(126, 178, 240, 0.22) !important;
+  background: rgba(78, 169, 240, 0.1) !important;
+  color: var(--vc-sky-bright) !important;
+  font-weight: 700 !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .hero-utility-row .button-ghost,
+html body.ui-redesign.versa-studio.pro-suite .hero-utility-row .button-gold {
+  border-radius: 999px !important;
+  border: 1px solid rgba(126, 178, 240, 0.16) !important;
+  background: var(--vc-card) !important;
+  color: var(--vc-tx-hi) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .when-complete-field select {
+  border-radius: 10px;
+  border: 1px solid rgba(126, 178, 240, 0.16);
+  background: var(--vc-card);
+  color: var(--vc-tx-hi);
+}
+
+/* ========== 8. OVERVIEW PROGRESS CARD ========== */
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall::before {
+  content: "";
+  position: absolute;
+  inset: auto -15% -55% 35%;
+  height: 90%;
+  background: radial-gradient(circle at 30% 20%, rgba(78, 169, 240, 0.22), transparent 68%);
+  pointer-events: none;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall .stage-state {
+  width: fit-content;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(126, 178, 240, 0.16);
+  background: var(--vc-fill-quiet);
+  color: var(--vc-tx-mid) !important;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall #queue-caption,
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall small {
+  color: var(--vc-tx-mid) !important;
+  font-size: 12px !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall .overview-open-stages {
+  margin: 2px 0 0;
+  color: var(--vc-tx-hi) !important;
+  font-size: 13px !important;
+  font-weight: 650 !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall .product-ring,
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail #overview-product-ring {
+  position: relative;
+  z-index: 1;
+  width: 76px !important;
+  height: 76px !important;
+  border-radius: 50% !important;
+  background:
+    radial-gradient(circle at center, var(--vc-ring-core) 0 56%, transparent 57%),
+    conic-gradient(var(--vc-sky-bright) calc(var(--progress, 0) * 1%), rgba(126, 178, 240, 0.12) 0) !important;
+  box-shadow:
+    0 0 0 1px rgba(126, 178, 240, 0.22),
+    0 0 28px rgba(78, 169, 240, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall.is-done .product-ring {
+  background:
+    radial-gradient(circle at center, var(--vc-ring-core) 0 56%, transparent 57%),
+    conic-gradient(#48ce89 calc(var(--progress, 0) * 1%), rgba(72, 206, 137, 0.14) 0) !important;
+  box-shadow:
+    0 0 0 1px rgba(72, 206, 137, 0.28),
+    0 0 28px rgba(72, 206, 137, 0.18) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall .product-ring strong,
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail #stat-percent {
+  color: var(--vc-tx-hi) !important;
+  font-size: 18px !important;
+  font-weight: 800 !important;
+  font-variant-numeric: tabular-nums;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall .stage-meter {
+  position: relative;
+  z-index: 1;
+  grid-column: 1 / -1;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--vc-fill-quiet);
+  overflow: hidden;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall .stage-meter i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--vc-cta-from), var(--vc-cta-to));
+  box-shadow: 0 0 12px rgba(78, 169, 240, 0.45);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall .stage-run-btn {
+  position: relative;
+  z-index: 1;
+  grid-column: 1 / -1;
+  justify-self: start;
+  min-height: 38px;
+  padding: 0 18px !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(124, 196, 255, 0.35) !important;
+  background: linear-gradient(135deg, var(--vc-cta-from), var(--vc-cta-to)) !important;
+  color: var(--vc-on-accent) !important;
+  font-size: 12px !important;
+  font-weight: 750 !important;
+  box-shadow: var(--vc-cta-glow) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall .stage-run-btn:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+/* ========== 9. PROVIDER LOGOS (ChatGPT / Gemini / Meta AI) ========== */
+html body.ui-redesign.versa-studio.pro-suite .brand-mark {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  filter: drop-shadow(0 0 10px rgba(78, 169, 240, 0.28));
+}
+
+html body.ui-redesign.versa-studio.pro-suite .brand-chatgpt,
+html body.ui-redesign.versa-studio.pro-suite .brand-gemini,
+html body.ui-redesign.versa-studio.pro-suite .brand-meta {
+  background: #050609 !important;
+  border: 1px solid rgba(126, 178, 240, 0.12) !important;
+  box-shadow: inset 0 0 18px rgba(78, 169, 240, 0.08);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .engine-toggle-brand {
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 9px !important;
+  overflow: hidden;
+  background: #050609 !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .integration-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .integration-icon.brand-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 4px;
+  background: #050609 !important;
+  border: 1px solid rgba(126, 178, 240, 0.12) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .auth-brand-logo {
+  width: 72px !important;
+  height: 72px !important;
+  margin: 0 auto 14px !important;
+  border-radius: 20px !important;
+  overflow: hidden;
+  background: #050609 !important;
+  border: 1px solid rgba(126, 178, 240, 0.14);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .session-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .session-chip__mark,
+html body.ui-redesign.versa-studio.pro-suite .studio-row__mark {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 6px rgba(78, 169, 240, 0.35));
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .appearance-switch {
+  background: var(--vc-card) !important;
+  border: 1px solid var(--vc-glass-brd) !important;
+  box-shadow: var(--vc-inset);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .appearance-switch button {
+  color: var(--vc-tx-mid) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .appearance-switch button.is-active,
+html body.ui-redesign.versa-studio.pro-suite .appearance-switch button[aria-pressed="true"] {
+  color: var(--vc-tx-hi) !important;
+  background: var(--vc-fill-hot) !important;
+  box-shadow: inset 0 0 0 1px var(--vc-glass-brd-hi) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-intro__appearance button span {
+  display: inline !important;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ========== 10. DAY MODE — same spatial grade as night ========== */
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .studio-intro,
+html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite .studio-intro {
+  background: var(--vc-bg-0) !important;
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .studio-intro__veil::before {
+  opacity: 0.28;
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .studio-intro__veil::after {
+  opacity: 0.18;
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .studio-intro .stage-grid {
+  background-image:
+    linear-gradient(rgba(27, 70, 194, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(27, 70, 194, 0.055) 1px, transparent 1px);
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .ui-shell::before,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .ui-shell::after {
+  opacity: 0.2;
+}
+
+html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite .ui-header.topbar,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .ui-header.topbar,
+html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .ui-header.topbar,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .ui-header.topbar {
+  background: var(--vc-bar) !important;
+  border-bottom-color: var(--vc-glass-brd) !important;
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .studio-modes button.is-active,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .studio-modes button[aria-pressed="true"] {
+  color: var(--vc-tx-hi) !important;
+  background: var(--vc-fill-hot) !important;
+  box-shadow: inset 0 0 0 1px var(--vc-glass-brd-hi) !important;
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-cover,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-cover::after {
+  color: var(--vc-letter) !important;
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-cover {
+  background: var(--vc-cover) !important;
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-item:nth-child(3n) .project-cover {
+  background: var(--vc-cover-2) !important;
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-item:nth-child(3n+2) .project-cover {
+  background: var(--vc-cover-3) !important;
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite[data-layer="library"] .project-cover::after {
+  background: rgba(255, 255, 255, 0.72) !important;
+  border-color: rgba(27, 70, 194, 0.18) !important;
+  color: var(--vc-letter) !important;
+  box-shadow: 0 10px 24px rgba(18, 40, 90, 0.12);
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall .product-ring,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail #overview-product-ring {
+  box-shadow:
+    0 0 0 1px rgba(27, 70, 194, 0.16),
+    0 10px 24px rgba(18, 40, 90, 0.1),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.85) !important;
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .brand-mark {
+  filter: drop-shadow(0 0 8px rgba(27, 70, 194, 0.16));
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .settings-dialog,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .project-dialog,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite dialog {
+  background: var(--vc-card-hi) !important;
+  color: var(--vc-tx-hi) !important;
+  border-color: var(--vc-glass-brd) !important;
+  box-shadow: var(--vc-elev) !important;
+}
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .settings-dialog h2,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .settings-dialog h3,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .settings-dialog h4,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .settings-dialog label,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .settings-nav-button {
+  color: var(--vc-tx-hi);
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .settings-dialog p,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .settings-dialog .field-hint,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .settings-dialog small {
+  color: var(--vc-tx-mid);
+}
+
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .overview-stage-label,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .overview-stage-card .overview-stage-label,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .overview-stage-card strong,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .overview-stage-card .product-progress-copy strong {
+  color: var(--vc-tx-hi);
+}
