@@ -7212,10 +7212,23 @@ class BrowserController extends EventEmitter {
     return { thumbnails: results, conversationUrl: lastUrl };
   }
 
-  async generateTptPreviewVideoWithGpt({ project, pdfPath, listing, gptUrl = null }) {
+  async generateTptPreviewVideoWithGpt({
+    project,
+    pdfPath,
+    listing,
+    gptUrl = null,
+    clipIndex = 0,
+    clipCount = 1,
+    clipSeconds = 8
+  }) {
     const previousEngine = this.engine;
     this.setEngine('gemini');
-    const jobId = `tpt-preview-${project.id}`;
+    const clips = Math.max(1, Number(clipCount) || 1);
+    const index = Math.max(0, Number(clipIndex) || 0);
+    const seconds = Math.max(1, Number(clipSeconds) || 8);
+    const jobId = clips > 1
+      ? `tpt-preview-${project.id}-clip-${index + 1}`
+      : `tpt-preview-${project.id}`;
     gptUrl = gptUrl || getJobStartUrl({ kind: 'preview' }, 'gemini');
     let attachments = selectPreviewAttachmentPaths({
       jobs: project?.jobs,
@@ -7231,7 +7244,10 @@ class BrowserController extends EventEmitter {
     const prompt = buildTptPreviewVideoPrompt({
       title: listing?.title || project?.name || '',
       description: listing?.description || '',
-      attachmentCount: attachments.length
+      attachmentCount: attachments.length,
+      clipIndex: index,
+      clipCount: clips,
+      clipSeconds: seconds
     });
     try {
       await this.launch({ headless: true, forceBrowser: true });

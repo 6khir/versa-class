@@ -34,10 +34,10 @@ test('preview sits between thumbnails and export in the pipeline', () => {
     'characters',
     'interior',
     'editable',
-    'listing',
     'thumbnails',
     'preview',
-    'export'
+    'export',
+    'listing'
   ]);
 });
 
@@ -82,6 +82,18 @@ test('saves a generated MP4 into the listing preview folder', async () => {
   });
   assert.ok(existsSync(outputPath));
   assert.match(outputPath, /tpt-preview\/tpt-preview\.mp4$/);
+});
+
+test('saves the stitched 24-second preview as preview_final.mp4', async () => {
+  const dir = workDir();
+  const manager = new FileManager({ nativeImage: {} });
+  const outputPath = await manager.saveGeneratedPreviewVideo({
+    buffer: fakeMp4(),
+    outputDir: dir,
+    fileName: 'preview_final.mp4'
+  });
+  assert.ok(existsSync(outputPath));
+  assert.match(outputPath, /tpt-preview\/preview_final\.mp4$/);
 });
 
 test('rejects a non-video buffer as a preview', async () => {
