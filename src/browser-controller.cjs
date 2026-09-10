@@ -24,12 +24,19 @@ const { chromium } = require('playwright-core');
 const {
   buildAnalysisPrompt,
   buildPromptsGenerationRequest,
+  buildPromptsContinuationRequest,
+  parseGeneratedPrompts,
+  inspectGeneratedPromptProgress,
+  mergeGeneratedPromptSlots,
+  densePromptPrefix,
+  PROMPT_BATCH_SIZE,
   buildTptListingPrompt,
   buildTptListingTaxonomyCorrectionPrompt,
   buildTptThumbnailImagePrompt,
   buildTptThumbnailRetryPrompt,
   buildTptPreviewVideoPrompt
 } = require('./prompt-builder.cjs');
+const { classifyGeminiTextObservation, decideGeminiTextAction, nextPromptBatchSize, GEMINI_TEXT_PHASE } = require('./gemini-text-observer.cjs');
 const {
   CHATGPT_URL,
   GEMINI_URL,
@@ -4264,7 +4271,73 @@ class BrowserController extends EventEmitter {
     const messages = page.locator(GEMINI_ASSISTANT_TEXT_SELECTOR);
     const count = await page.locator(GEMINI_ASSISTANT_MESSAGE_SELECTOR).count().catch(() => 0);
     if (count <= baselineCount) return '';
-    return messages.last().innerText({ timeout: 5_000 }).catch(() => '');
+    return messages.last().evaluate((element) => String(element.textContent || element.innerText || '')).catch(() => '');
+  }
+
+  async #collapsedAssistantVisible(page = null) {
+    page ??= await this.ensurePage();
+    if (this.#pageKind(page) !== 'gemini') return false;
+    return page.evaluate(() => {
+      const labels = /show more|see more|view more|show full|expand/i;
+      const roots = [
+        document.querySelector('model-response:last-of-type'),
+        document.querySelector('response-container:last-of-type'),
+        document
+      ].filter(Boolean);
+      return roots.some((root) => [...root.querySelectorAll('button, [role="button"], a')].some((element) => {
+        const text = `${element.getAttribute('aria-label') || ''} ${element.textContent || ''}`;
+        if (!labels.test(text)) return false;
+        const box = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+      }));
+    }).catch(() => false);
+  }
+
+  async #expandCollapsedAssistant(page = null) {
+    page ??= await this.ensurePage();
+    if (this.#pageKind(page) !== 'gemini') return 0;
+    return page.evaluate(() => {
+      const labels = /^(show more|see more|view more|show full|expand)$/i;
+      const loose = /show more|see more|view more|show full/i;
+      const root = document.querySelector('model-response:last-of-type, response-container:last-of-type') || document;
+      let clicked = 0;
+      for (const element of root.querySelectorAll('button, [role="button"], a')) {
+        const text = `${element.getAttribute('aria-label') || ''} ${element.textContent || ''}`.replace(/\s+/g, ' ').trim();
+        if (!(labels.test(text) || loose.test(text))) continue;
+        const box = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        if (box.width < 2 || box.height < 2 || style.visibility === 'hidden' || style.display === 'none') continue;
+        element.click();
+        clicked += 1;
+      }
+      return clicked;
+    }).catch(() => 0);
+  }
+
+  async #observeGeminiAssistant(baselineCount, page = null) {
+    page ??= await this.ensurePage();
+    const kind = this.#pageKind(page);
+    const stopButton = await this.#findVisible(this.#stopSelectors(page), 80, page);
+    const busySelectors = kind === 'gemini' ? GEMINI_BUSY_SELECTORS : (kind === 'meta' ? META_BUSY_SELECTORS : []);
+    const busyVisible = busySelectors.length
+      ? await page.locator(busySelectors.join(', ')).first().isVisible().catch(() => false)
+      : false;
+    const collapsedVisible = kind === 'gemini' ? await this.#collapsedAssistantVisible(page) : false;
+    const text = await this.#newAssistantText(baselineCount, page);
+    const progressText = kind === 'gemini'
+      ? await page.locator(GEMINI_ASSISTANT_TEXT_SELECTOR).last().evaluate((element) => String(element.textContent || '')).catch(() => '')
+      : text;
+    const inProgress = Boolean(stopButton)
+      || Boolean(busyVisible)
+      || GENERATION_PROGRESS_PATTERNS.some((pattern) => pattern.test(progressText || text));
+    return {
+      inProgress,
+      stopVisible: Boolean(stopButton),
+      busyVisible: Boolean(busyVisible),
+      collapsedVisible: Boolean(collapsedVisible),
+      text: String(text || '')
+    };
   }
 
   async #activeNoticeText(page = null) {
@@ -4848,7 +4921,7 @@ class BrowserController extends EventEmitter {
     if (stopButton) return true;
     const busy = await page.locator(GEMINI_BUSY_SELECTORS.join(', ')).first().isVisible().catch(() => false);
     if (busy) return true;
-    const progressText = await page.locator(GEMINI_ASSISTANT_TEXT_SELECTOR).last().innerText({ timeout: 2_000 }).catch(() => '');
+    const progressText = await page.locator(GEMINI_ASSISTANT_TEXT_SELECTOR).last().evaluate((element) => String(element.textContent || element.innerText || '')).catch(() => '');
     return GENERATION_PROGRESS_PATTERNS.some((pattern) => pattern.test(progressText));
   }
 
@@ -5576,7 +5649,8 @@ class BrowserController extends EventEmitter {
     gptUrl = null,
     requireAttachmentChips = false,
     attachBeforePrompt = false,
-    promptKind = 'prompt'
+    promptKind = 'prompt',
+    reuseCurrentPage = false
   } = {}) {
     if (conversationUrl && isMetaLocalUrl(conversationUrl)) conversationUrl = null;
     if (conversationUrl && isRetiredGeminiGemUrl(conversationUrl)) conversationUrl = null;
@@ -5614,7 +5688,11 @@ class BrowserController extends EventEmitter {
     });
     // #endregion
     let page;
-    if (conversationUrl) {
+    if (conversationUrl && reuseCurrentPage) {
+      page = jobId
+        ? await this.#jobPage(jobId, { fresh: false, url: conversationUrl })
+        : await this.ensurePage();
+    } else if (conversationUrl) {
       page = await this.#jobPage(jobId, { fresh: true, url: conversationUrl });
     } else if (jobId) {
       page = await this.#jobPage(jobId, {
@@ -5624,7 +5702,7 @@ class BrowserController extends EventEmitter {
       });
     } else {
       page = await this.ensurePage();
-      if (startUrl && jobPageNeedsNavigation(page.url(), startUrl, true)) {
+      if (!reuseCurrentPage && startUrl && jobPageNeedsNavigation(page.url(), startUrl, true)) {
         await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
         await sleep(1_000);
       }
@@ -6104,18 +6182,37 @@ class BrowserController extends EventEmitter {
     return { buffer, contentType };
   }
 
-  async waitForAssistantTextResponse(baseline = [], timeoutMs = 180_000, page = null) {
+  async waitForAssistantTextResponse(baseline = [], timeoutMs = 180_000, page = null, options = {}) {
+    const result = await this.#waitForAssistantTextObservation(baseline, timeoutMs, page, options);
+    if (result.text) return result.text;
+    throw Object.assign(new Error(`${this.#serviceName(page)} did not complete the response within the timeout.`), {
+      code: 'GPT_RESPONSE_TIMEOUT',
+      observation: result.observation || null
+    });
+  }
+
+  async #waitForAssistantTextObservation(baseline = [], timeoutMs = 180_000, page = null, options = {}) {
     page ??= await this.ensurePage();
     const assistantCountMarker = Array.isArray(baseline)
       ? baseline.find((item) => String(item).startsWith('assistant-count::'))
       : null;
     const assistantBaselineCount = Number.parseInt(String(assistantCountMarker ?? '').split('::')[1], 10) || 0;
+    const expectedCount = Math.max(0, Number.parseInt(options.expectedCount, 10) || 0);
+    const startPage = Math.max(1, Number.parseInt(options.startPage, 10) || 1);
+    const endPage = Math.max(startPage, Number.parseInt(options.endPage, 10) || (expectedCount ? startPage + expectedCount - 1 : startPage));
+    const batchSize = Math.max(10, Number.parseInt(options.batchSize, 10) || expectedCount || 50);
+    const hardCapMs = Math.max(timeoutMs || 180_000, Number(options.hardCapMs) || Number(options.maxDraftMs) || timeoutMs || 180_000);
     const startedAt = Date.now();
+    let previousText = '';
     let lastText = '';
-    let stableCount = 0;
+    let lastGrowthAt = startedAt;
+    let lastPhase = '';
+    let expandAttempts = 0;
+    let observation = null;
+    let decision = { action: 'wait', pollMs: 300 };
 
     const cancelVersion = this.cancelVersion;
-    while (Date.now() - startedAt < timeoutMs) {
+    while (Date.now() - startedAt < hardCapMs) {
       if (this.abortRequested || cancelVersion !== this.cancelVersion) {
         throw Object.assign(new Error('Waiting was paused.'), { code: 'QUEUE_PAUSED' });
       }
@@ -6127,21 +6224,69 @@ class BrowserController extends EventEmitter {
       const blocker = await this.detectBlocker(page);
       if (blocker) throw Object.assign(new Error(blocker.message), { code: blocker.code });
 
-      const inProgress = await this.#generationInProgress(page);
-      const text = await this.#newAssistantText(assistantBaselineCount, page);
-
-      if (!inProgress && text) {
-        if (text === lastText) stableCount += 1;
-        else {
-          lastText = text;
-          stableCount = 0;
+      const snapshot = await this.#observeGeminiAssistant(assistantBaselineCount, page);
+      const now = Date.now();
+      if (String(snapshot.text || '').length > previousText.length) lastGrowthAt = now;
+      const progress = expectedCount
+        ? inspectGeneratedPromptProgress(snapshot.text, { startPage, endPage, expectedCount })
+        : { parsedCount: snapshot.text ? 1 : 0, complete: Boolean(snapshot.text) };
+      observation = classifyGeminiTextObservation({
+        inProgress: snapshot.inProgress,
+        text: snapshot.text,
+        previousText,
+        expectedCount,
+        parsedCount: progress.parsedCount,
+        collapsedVisible: snapshot.collapsedVisible,
+        now,
+        startedAt,
+        lastGrowthAt
+      });
+      decision = decideGeminiTextAction(observation, { batchSize });
+      if (observation.phase !== lastPhase) {
+        lastPhase = observation.phase;
+        console.log(`[browser] Gemini text watch: ${observation.phase} (${observation.reason}) pages=${progress.parsedCount}/${expectedCount || 'n'} busy=${snapshot.inProgress} stop=${snapshot.stopVisible}`);
+        if (typeof options.onObservation === 'function') {
+          try { options.onObservation({ ...observation, ...snapshot, parsedCount: progress.parsedCount, expectedCount, decision }); } catch {}
         }
-        if (stableCount >= 2) return text;
       }
-      await this.#sleepOrPause(1_000);
+      previousText = snapshot.text;
+      if (snapshot.text) lastText = snapshot.text;
+
+      if (decision.action === 'expand' && expandAttempts < 4) {
+        expandAttempts += 1;
+        await this.#expandCollapsedAssistant(page);
+        await this.#sleepOrPause(200);
+        continue;
+      }
+      if (decision.action === 'accept' || decision.action === 'accept-partial' || decision.action === 'continue') {
+        if (snapshot.collapsedVisible) await this.#expandCollapsedAssistant(page);
+        const finalText = snapshot.text || lastText;
+        return { text: finalText, observation, decision, parsedCount: progress.parsedCount };
+      }
+      if (decision.action === 'shrink' || decision.action === 'retry') {
+        return { text: lastText, observation, decision, parsedCount: progress.parsedCount };
+      }
+      await this.#sleepOrPause(decision.pollMs || 300);
     }
-    if (lastText) return lastText;
-    throw Object.assign(new Error(`${this.#serviceName(page)} did not complete the response within the timeout.`), { code: 'GPT_RESPONSE_TIMEOUT' });
+
+    if (lastText) {
+      const progress = expectedCount
+        ? inspectGeneratedPromptProgress(lastText, { startPage, endPage, expectedCount })
+        : { parsedCount: 1 };
+      observation = observation || { phase: GEMINI_TEXT_PHASE.LAGGING, reason: 'hard-cap', parsedCount: progress.parsedCount, expectedCount };
+      return {
+        text: lastText,
+        observation,
+        decision: { action: progress.parsedCount ? 'accept-partial' : 'retry', reason: 'hard-cap' },
+        parsedCount: progress.parsedCount
+      };
+    }
+    return {
+      text: '',
+      observation: observation || { phase: GEMINI_TEXT_PHASE.FAILED, reason: 'timeout-empty' },
+      decision: { action: 'retry', reason: 'timeout-empty' },
+      parsedCount: 0
+    };
   }
 
   async scrapeTptListingMockups(productUrl, destDir) {
@@ -6252,6 +6397,7 @@ class BrowserController extends EventEmitter {
     if (this.engine !== 'gemini') {
       return this.withEngine('gemini', () => this.analyzeProductWithGpt(input));
     }
+    this.beginWork();
     const listing = resolveListingAnalysisInput(input);
     let mockups = emptyMockupResult({
       status: 'skipped',
@@ -6334,7 +6480,8 @@ class BrowserController extends EventEmitter {
     theme = '',
     niche = '',
     visualTheme = '',
-    productFormat = 'static'
+    productFormat = 'static',
+    onBatch = null
   }) {
     if (this.engine !== 'gemini') {
       return this.withEngine('gemini', () => this.generatePromptsWithGpt({
@@ -6349,20 +6496,15 @@ class BrowserController extends EventEmitter {
         theme,
         niche,
         visualTheme,
-        productFormat
+        productFormat,
+        onBatch
       }));
     }
+    this.beginWork();
     if (conversationUrl && (!isGeminiPageUrl(conversationUrl) || isRetiredGeminiGemUrl(conversationUrl))) conversationUrl = null;
     const filesToAttach = [...new Set((Array.isArray(attachmentPaths) ? attachmentPaths : []).filter((filePath) => filePath && existsSync(filePath)))];
-    const prompt = buildPromptsGenerationRequest(pageCount, format, orientation, {
-      hasCompetitorMockups: filesToAttach.length > 0,
-      seed: seed || [title, theme, niche, productFormat].filter(Boolean).join(' | '),
-      title,
-      theme,
-      niche,
-      visualTheme,
-      productFormat
-    });
+    const total = Math.max(1, Math.min(500, Number.parseInt(pageCount, 10) || 20));
+    const seedValue = seed || [title, theme, niche, productFormat].filter(Boolean).join(' | ');
     await this.#launchForPromptWork();
     const page = await this.ensurePage();
     await this.#afterNavigate(page);
@@ -6371,17 +6513,127 @@ class BrowserController extends EventEmitter {
       await sleep(1_000);
       await this.#ensureLiveGeminiStudio(page, gptUrl || getJobStartUrl({ kind: 'prompts' }, this.engine));
     }
-    const submission = await this.submitPrompt(prompt, {
-      conversationUrl,
-      gptUrl: gptUrl || getJobStartUrl({ kind: 'prompts' }, this.engine),
-      attachmentPaths: filesToAttach,
-      requireAttachmentChips: filesToAttach.length > 0,
-      promptKind: 'generate-prompts'
-    });
-    const responseText = await this.waitForAssistantTextResponse(submission.baseline, 240_000, page);
+
+    let slots = new Array(total).fill(null);
+    const rawParts = [];
+    const batches = [];
+    let conversation = conversationUrl;
+    let batchSize = Math.min(PROMPT_BATCH_SIZE, total);
+    let emptyRounds = 0;
+    let round = 0;
+    const maxRounds = Math.max(6, Math.ceil(total / 10) * 3);
+
+    while (slots.includes(null) && round < maxRounds) {
+      this.beginWork();
+      const firstMissing = slots.findIndex((item) => !item) + 1;
+      const have = slots.filter(Boolean).length;
+      const endPage = Math.min(total, firstMissing + batchSize - 1);
+      const batchCount = endPage - firstMissing + 1;
+      const prompt = have === 0
+        ? buildPromptsGenerationRequest(total, format, orientation, {
+          startPage: firstMissing,
+          endPage,
+          alreadyHave: have,
+          hasCompetitorMockups: filesToAttach.length > 0 && round === 0,
+          seed: seedValue,
+          title,
+          theme,
+          niche,
+          visualTheme,
+          productFormat
+        })
+        : buildPromptsContinuationRequest(total, format, orientation, {
+          startPage: firstMissing,
+          endPage,
+          alreadyHave: have
+        });
+      const submission = await this.submitPrompt(prompt, {
+        conversationUrl: conversation,
+        gptUrl: gptUrl || getJobStartUrl({ kind: 'prompts' }, this.engine),
+        attachmentPaths: round === 0 ? filesToAttach : [],
+        requireAttachmentChips: round === 0 && filesToAttach.length > 0,
+        promptKind: 'generate-prompts',
+        reuseCurrentPage: round > 0
+      });
+      conversation = submission.conversationUrl || conversation;
+      const watched = await this.#waitForAssistantTextObservation(submission.baseline, 240_000, page, {
+        expectedCount: batchCount,
+        startPage: firstMissing,
+        endPage,
+        batchSize,
+        maxDraftMs: 10 * 60_000,
+        hardCapMs: 10 * 60_000,
+        onObservation: (obs) => {
+          if (typeof onBatch === 'function') {
+            onBatch({
+              startPage: firstMissing,
+              endPage,
+              have,
+              total,
+              phase: obs.phase,
+              reason: obs.reason,
+              parsedCount: obs.parsedCount
+            });
+          }
+        }
+      });
+      rawParts.push(watched.text || '');
+      let parsed = [];
+      try {
+        parsed = parseGeneratedPrompts(watched.text || '', total, {
+          startPage: 1,
+          endPage: total,
+          allowEmpty: true
+        });
+      } catch {
+        parsed = [];
+      }
+      slots = mergeGeneratedPromptSlots(slots, parsed, { startPage: firstMissing, total });
+      const after = slots.filter(Boolean).length;
+      const phase = watched.observation?.phase || 'unknown';
+      batches.push({
+        startPage: firstMissing,
+        endPage,
+        have: after,
+        total,
+        phase,
+        reason: watched.observation?.reason || watched.decision?.reason || ''
+      });
+      console.log(`[analysis] Content Gem prompt batch: pages ${firstMissing}–${endPage} (${after}/${total} saved) [${phase}].`);
+      if (typeof onBatch === 'function') {
+        onBatch({ startPage: firstMissing, endPage, have: after, total, phase, reason: watched.observation?.reason });
+      }
+
+      if (after === have) {
+        emptyRounds += 1;
+        if (watched.decision?.action === 'shrink' || phase === GEMINI_TEXT_PHASE.LAGGING || phase === GEMINI_TEXT_PHASE.FAILED) {
+          batchSize = nextPromptBatchSize(batchSize);
+          console.log(`[browser] Gemini lagged on a ${batchCount}-page request; retrying with ${batchSize}-page batches.`);
+        }
+        if (emptyRounds >= 3 && batchSize <= 10) break;
+      } else {
+        emptyRounds = 0;
+        if (after - have >= batchCount && batchSize < PROMPT_BATCH_SIZE) {
+          batchSize = Math.min(PROMPT_BATCH_SIZE, batchSize * 2);
+        }
+      }
+      round += 1;
+    }
+
+    const prompts = densePromptPrefix(slots);
+    if (!prompts.length) {
+      throw Object.assign(new Error('The Content Gem did not finish drafting page prompts. Generate prompts again.'), {
+        code: 'PROMPTS_NOT_PARSED'
+      });
+    }
+    if (prompts.length < total) {
+      console.warn(`[browser] Gemini finished with ${prompts.length} of ${total} page prompts after ${round} watched batches.`);
+    }
     return {
-      rawText: responseText,
-      conversationUrl: submission.conversationUrl
+      rawText: rawParts.filter(Boolean).join('\n\n'),
+      conversationUrl: conversation,
+      prompts,
+      batches
     };
   }
 
@@ -11889,6 +12141,7 @@ class BrowserController extends EventEmitter {
 
   async close() {
     this.cancelWaits();
+    this.abortRequested = false;
     this.canvaWatch = false;
     this.canvaBackgroundLock = false;
     this.interactiveVisible = false;

@@ -1099,9 +1099,12 @@ function showProjectPromptsLoadingStep(pageCount, mockupCount = 0) {
   elements.promptsLoadingTitle.textContent = `Generating ${pageCount} page prompts…`;
   elements.projectDialogTitle.textContent = 'Generating page prompts…';
   if (elements.promptsLoadingDetail) {
+    const batchNote = Number(pageCount) > 50
+      ? ` Watching Gemini in 50-page batches until all ${pageCount} prompts are drafted, continuing or shrinking the request if it lags.`
+      : ' Watching Gemini until the draft finishes, then saving the prompts.';
     elements.promptsLoadingDetail.textContent = mockupCount
-      ? `Attaching ${mockupCount} competitor listing mockup${mockupCount === 1 ? '' : 's'} so the model can see structure and style, then generating original page prompts.`
-      : 'Generating distinct single-line prompts for each page slot in the Content Gem conversation.';
+      ? `Attaching ${mockupCount} competitor listing mockup${mockupCount === 1 ? '' : 's'} so the model can see structure and style, then generating original page prompts.${batchNote}`
+      : `Generating distinct single-line prompts for each page slot in the Content Gem conversation.${batchNote}`;
   }
 }
 

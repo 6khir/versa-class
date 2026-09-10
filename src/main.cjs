@@ -2862,9 +2862,14 @@ function registerIpc() {
         theme: existingProject.theme,
         niche: existingProject.niche,
         productFormat: existingProject.productFormat || 'static',
-        seed: `${existingProject.id} | ${existingProject.name} | ${existingProject.theme} | ${existingProject.niche} | ${existingProject.productFormat || 'static'}`
+        seed: `${existingProject.id} | ${existingProject.name} | ${existingProject.theme} | ${existingProject.niche} | ${existingProject.productFormat || 'static'}`,
+        onBatch: ({ startPage, endPage, have, total, phase }) => {
+          console.log(`[analysis] Content Gem prompt batch: pages ${startPage}–${endPage} (${have}/${total} saved)${phase ? ` [${phase}]` : ''}.`);
+        }
       });
-      const prompts = parseGeneratedPrompts(result.rawText, pageCount);
+      const prompts = Array.isArray(result.prompts) && result.prompts.length
+        ? result.prompts
+        : parseGeneratedPrompts(result.rawText, pageCount);
       const generated = prompts.pages
         ? buildImportedJobs({
           pages: prompts.pages,
@@ -2907,7 +2912,9 @@ function registerIpc() {
       niche,
       seed: `${name} | ${theme} | ${niche} | ${pageCount}`
     });
-    const prompts = parseGeneratedPrompts(result.rawText, pageCount);
+    const prompts = Array.isArray(result.prompts) && result.prompts.length
+      ? result.prompts
+      : parseGeneratedPrompts(result.rawText, pageCount);
     const promptsText = prompts.join('\n');
 
     const newProjectId = randomUUID();
