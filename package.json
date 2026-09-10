@@ -8,6 +8,7 @@
   "scripts": {
     "start": "env -u ELECTRON_RUN_AS_NODE electron .",
     "test": "node --test tests/*.cjs",
+    "test:vision": "python3 tests/test_versa_text_inpaint.py",
     "test:layers": "node test-layers.js",
     "build": "node test-layers.js",
     "lint": "node -e \"console.log('No linter configured')\"",
@@ -30,6 +31,7 @@
       "src/**/*",
       "renderer/**/*",
       "backend/**/*",
+      "python/**/*",
       "assets/**/*",
       "node_modules/**/*",
       "package.json"

@@ -1,0 +1,6 @@
+# Optional vision extras for blank-master cleaning (PaddleOCR + LaMa).
+# Install on the machine that runs VERSA CLASS, not required for unit tests.
+numpy>=1.24
+opencv-python-headless>=4.8
+paddleocr>=2.7.0
+simple-lama-inpainting>=0.1.0
