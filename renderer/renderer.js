@@ -2397,12 +2397,15 @@ function renderEvents(project) {
     <article class="note-card log-row level-${escapeHtml(level)}">
       <span class="note-card__dot" aria-hidden="true"></span>
       <div class="note-card__copy">
-        <strong class="note-card__kicker">${titleFor(level)}</strong>
+        <div class="note-card__meta">
+          <strong class="note-card__app">VERSA CLASS</strong>
+          <strong class="note-card__kicker">${titleFor(level)}</strong>
+        </div>
         <p class="note-card__text">${escapeHtml(translateLegacyText(event.message))}</p>
       </div>
       <time class="note-card__time">${escapeHtml(formatTime(event.createdAt))}</time>
     </article>`;
-  }).join('') || '<div class="note-empty">Quiet</div>';
+  }).join('') || '<div class="note-empty">No notifications yet</div>';
 }
 
 function getMissingPublicationFields(listing) {

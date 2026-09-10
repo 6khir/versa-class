@@ -824,12 +824,28 @@ html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card__copy
   gap: 2px;
 }
 
-html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card__kicker {
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card__app {
   color: rgba(235, 235, 245, 0.55) !important;
   font-size: 11px !important;
   font-weight: 650 !important;
+  letter-spacing: 0.02em;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card__kicker {
+  color: rgba(235, 235, 245, 0.45) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
   letter-spacing: -0.01em !important;
   text-transform: none !important;
+  margin-left: auto;
 }
 
 html body.ui-redesign.versa-studio.pro-suite .apple-notify-list .note-card__text,
