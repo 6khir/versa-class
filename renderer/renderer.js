@@ -1668,9 +1668,10 @@ function renderAuth() {
 }
 
 const BRAND_MARKS = {
-  chatgpt: { className: 'auth-brand-logo brand-chatgpt', html: '<svg viewBox="0 0 24 24"><path fill="#fff" d="M12.4 3.2c.9-1.5 2.9-2 4.5-1.2 1.6.8 2.3 2.7 1.6 4.4 1.7.4 2.9 2 2.9 3.8 0 1.8-1.2 3.4-2.9 3.8.7 1.7 0 3.6-1.6 4.4-1.6.8-3.6.3-4.5-1.2-.9 1.5-2.9 2-4.5 1.2-1.6-.8-2.3-2.7-1.6-4.4-1.7-.4-2.9-2-2.9-3.8 0-1.8 1.2-3.4 2.9-3.8C5.6 6.7 6.3 4.8 7.9 4c1.6-.8 3.6-.3 4.5 1.2zm.1 2.3c-.3-.5-.9-.7-1.4-.4-.6.3-.8.9-.5 1.4l4.7 8.1c.3.5.9.7 1.4.4.6-.3.8-.9.5-1.4l-4.7-8.1z"/></svg>' },
-  gemini: { className: 'auth-brand-logo brand-gemini', html: '<svg viewBox="0 0 24 24"><defs><linearGradient id="geminiAuthLive" x1="4" y1="2" x2="20" y2="22" gradientUnits="userSpaceOnUse"><stop stop-color="#4285F4"/><stop offset=".45" stop-color="#9B72CB"/><stop offset=".75" stop-color="#D96570"/><stop offset="1" stop-color="#F2BD42"/></linearGradient></defs><path fill="url(#geminiAuthLive)" d="M12 2c.4 4.2 1.8 6.6 6 7-4.2.4-5.6 2.8-6 7-.4-4.2-1.8-6.6-6-7 4.2-.4 5.6-2.8 6-7z"/></svg>' },
-  meta: { className: 'auth-brand-logo brand-meta', html: '<svg viewBox="0 0 24 24"><path fill="#fff" d="M8.6 8.2c1.7 0 3.1 1.9 4.4 3.8 1.3-1.9 2.8-3.8 4.5-3.8 2.3 0 3.5 2.3 3.5 4.6 0 3.7-2.4 6.8-5.5 6.8-1.6 0-2.8-.8-3.9-2.1-1.1 1.3-2.3 2.1-3.9 2.1-3.1 0-5.5-3.1-5.5-6.8 0-2.3 1.2-4.6 3.4-4.6zm0 2.1c-.8 0-1.5 1.1-1.5 2.5 0 2 1.2 3.8 2.6 3.8.8 0 1.6-.5 2.6-1.8-1.4-2-2.4-4.5-3.7-4.5zm6.9 0c-1.3 0-2.3 2.5-3.7 4.5 1 1.3 1.8 1.8 2.6 1.8 1.4 0 2.6-1.8 2.6-3.8 0-1.4-.7-2.5-1.5-2.5z"/></svg>' }
+  chatgpt: { className: 'auth-brand-logo brand-chatgpt', html: '<img class="brand-mark" src="../assets/brand/chatgpt.png" alt="ChatGPT">' },
+  openai: { className: 'auth-brand-logo brand-openai', html: '<img class="brand-mark" src="../assets/brand/openai.png" alt="OpenAI">' },
+  gemini: { className: 'auth-brand-logo brand-gemini', html: '<img class="brand-mark" src="../assets/brand/gemini.png" alt="Gemini">' },
+  meta: { className: 'auth-brand-logo brand-meta', html: '<img class="brand-mark" src="../assets/brand/meta.png" alt="Meta">' }
 };
 
 function configureAuthDialog(target = 'gemini') {
@@ -1745,7 +1746,7 @@ function profileSessionLabel(profile = {}) {
 function sessionChipsHtml(profile = {}) {
   const chatgptOn = Boolean(profile.hasChatGptSession);
   const geminiOn = Boolean(profile.hasGoogleSession);
-  return `<span class="session-chip ${chatgptOn ? 'is-on' : 'is-off'}">ChatGPT</span><span class="session-chip ${geminiOn ? 'is-on' : 'is-off'}">Gemini</span>`;
+  return `<span class="session-chip ${chatgptOn ? 'is-on' : 'is-off'}"><img class="session-chip__mark" src="../assets/brand/chatgpt.png" alt="">ChatGPT</span><span class="session-chip ${geminiOn ? 'is-on' : 'is-off'}"><img class="session-chip__mark" src="../assets/brand/gemini.png" alt="">Gemini</span>`;
 }
 
 function resolveDisplayedProfile(profiles = [], selected = null) {
@@ -1762,7 +1763,7 @@ function renderSelectedProfileSessions(profiles = []) {
   if (elements.settingsSelectedProfileSessions) {
     elements.settingsSelectedProfileSessions.innerHTML = selected
       ? sessionChipsHtml(selected)
-      : '<span class="session-chip is-off">ChatGPT</span><span class="session-chip is-off">Gemini</span>';
+      : '<span class="session-chip is-off"><img class="session-chip__mark" src="../assets/brand/chatgpt.png" alt="">ChatGPT</span><span class="session-chip is-off"><img class="session-chip__mark" src="../assets/brand/gemini.png" alt="">Gemini</span>';
   }
   const chatgptCount = lastSystemProfiles.filter((item) => item.hasChatGptSession).length;
   const mockups = state?.integrations?.chatgptMockups ?? {};
@@ -1809,15 +1810,21 @@ function renderStudioList() {
     elements.settingsStudioList.innerHTML = '<p class="muted">Gems load after the app finishes starting.</p>';
     return;
   }
-  elements.settingsStudioList.innerHTML = rows.map((studio) => `
+  elements.settingsStudioList.innerHTML = rows.map((studio) => {
+    const gem = String(studio.group || '').startsWith('Gemini');
+    const mark = gem ? '../assets/brand/gemini.png' : '../assets/brand/chatgpt.png';
+    const markAlt = gem ? 'Gemini' : 'ChatGPT';
+    return `
     <div class="studio-row ${studio.connected ? 'is-ready' : 'is-waiting'}">
+      <img class="brand-mark studio-row__mark" src="${mark}" alt="${markAlt}">
       <div>
         <strong>${escapeHtml(studio.name)}</strong>
         <small>${escapeHtml(studio.group)}${studio.connected ? ' · ready' : ' · verify to open'}</small>
       </div>
       <button class="button button-ghost" data-action="settings-open-studio" data-studio="${escapeHtml(studio.id)}" type="button">Open</button>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function renderSettingsConnections() {

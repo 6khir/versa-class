@@ -1319,12 +1319,12 @@
                 <p class="field-hint">Gemini still writes analysis, blueprints, and prompts. Turn on ChatGPT, Gemini, or Meta only for interior page images.</p>
                 <div class="engine-toggle-row">
                   <button class="engine-toggle is-on" id="engine-chatgpt-toggle" data-action="set-ai-engine" data-engine="chatgpt" type="button">
-                    <span class="engine-toggle-brand brand-chatgpt" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/chatgpt.png" alt="ChatGPT" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></span>
+                    <span class="engine-toggle-brand brand-chatgpt" aria-hidden="true"><img class="brand-mark" src="../assets/brand/chatgpt.png" alt=""></span>
                     <span class="engine-toggle-name">ChatGPT</span>
                     <span class="engine-toggle-state" id="engine-chatgpt-state">On</span>
                   </button>
                   <button class="engine-toggle" id="engine-gemini-toggle" data-action="set-ai-engine" data-engine="gemini" type="button">
-                    <span class="engine-toggle-brand brand-gemini" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/gemini.png" alt="Gemini" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></span>
+                    <span class="engine-toggle-brand brand-gemini" aria-hidden="true"><img class="brand-mark" src="../assets/brand/gemini.png" alt=""></span>
                     <span class="engine-toggle-name">Gemini</span>
                     <span class="engine-toggle-state" id="engine-gemini-state">Off</span>
                   </button>
@@ -1338,7 +1338,10 @@
 
               <div class="integration-grid">
                 <article id="settings-mockups-card" class="integration-card">
-                  <div class="integration-icon brand-chatgpt" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/chatgpt.png" alt="ChatGPT" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></div>
+                  <div class="integration-icon brand-pair" aria-hidden="true">
+                    <img class="brand-mark" src="../assets/brand/chatgpt.png" alt="ChatGPT">
+                    <img class="brand-mark" src="../assets/brand/openai.png" alt="OpenAI">
+                  </div>
                   <div class="integration-copy">
                     <span class="settings-status-dot"></span>
                     <small id="settings-mockups-status">Checking ChatGPT session</small>
@@ -1354,7 +1357,7 @@
                   </div>
                 </article>
                 <article id="settings-chatgpt-card" class="integration-card">
-                  <div class="integration-icon brand-gemini" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/gemini.png" alt="Gemini" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></div>
+                  <div class="integration-icon brand-gemini" aria-hidden="true"><img class="brand-mark" src="../assets/brand/gemini.png" alt="Gemini"></div>
                   <div class="integration-copy">
                     <span class="settings-status-dot"></span>
                     <small id="settings-chatgpt-status">Not connected</small>
@@ -1399,7 +1402,10 @@
                   </div>
                 </article>
                 <article id="settings-gpt-card" class="integration-card studio-card">
-                  <div class="integration-icon integration-icon-gpt">G</div>
+                  <div class="integration-icon brand-pair" aria-hidden="true">
+                    <img class="brand-mark" src="../assets/brand/gemini.png" alt="Gemini">
+                    <img class="brand-mark" src="../assets/brand/chatgpt.png" alt="ChatGPT">
+                  </div>
                   <div class="integration-copy">
                     <span class="settings-status-dot"></span>
                     <small id="settings-gpt-status">Waiting for Gemini</small>
@@ -1621,7 +1627,7 @@
 
     <dialog id="auth-dialog" class="project-dialog auth-dialog">
       <div class="auth-dialog-content">
-        <div id="auth-brand-logo" class="auth-brand-logo brand-gemini" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/gemini.png" alt="Gemini" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></div>
+        <div id="auth-brand-logo" class="auth-brand-logo brand-gemini" aria-hidden="true"><img class="brand-mark" src="../assets/brand/gemini.png" alt="Gemini"></div>
         <p class="eyebrow" id="auth-eyebrow">FIRST-RUN LOGIN</p>
         <h2 id="auth-title">Connect Google Gemini</h2>
         <p id="auth-copy">Sign in once. Canary stays in the background after that — VERSA CLASS keeps the login until you sign out.</p>
