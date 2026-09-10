@@ -19,7 +19,7 @@ const { homedir, hostname, tmpdir } = require('node:os');
 const { basename, dirname, join, resolve } = require('node:path');
 const http = require('node:http');
 const { DatabaseSync } = require('node:sqlite');
-const { CdpActivationGuard } = require('./cdp-activation-guard.cjs');
+const { AccountPool, isQuotaError } = require('./account-pool.cjs');
 const { chromium } = require('playwright-core');
 const {
   buildAnalysisPrompt,
@@ -64,6 +64,7 @@ const {
   isBrowserEngine,
   getEngineHomeUrl,
   getJobStartUrl,
+  getProvider,
   withEngineImagePrefix,
   wantsGeminiImageMode,
   isChatGptPageUrl,
@@ -470,6 +471,9 @@ const RATE_LIMIT_PATTERNS = [
   /you(?:'|’)ve reached (?:the|your) (?:current )?(?:usage |image )?limit/i,
   /usage cap/i,
   /image generation limit/i,
+  /quota exceeded/i,
+  /you(?:'|’)ve reached your quota/i,
+  /free (?:plan )?limit/i,
   /limit resets?/i,
   /try again after/i,
   /try again in/i,
@@ -497,7 +501,7 @@ function classifyNoticeText(value) {
   if (RATE_LIMIT_PATTERNS.some((pattern) => pattern.test(text))) {
     return {
       code: 'RATE_LIMIT',
-      message: 'This ChatGPT account reached its usage limit. The queue paused without skipping the page.'
+      message: 'This AI account reached its usage limit. VERSA CLASS will swap to the next saved profile and resume the same page.'
     };
   }
   return null;
@@ -2185,6 +2189,8 @@ class BrowserController extends EventEmitter {
   constructor({ profileDir, downloadDir, getMetaConfig = null }) {
     super();
     this.profileDir = profileDir;
+    this.rootProfileDir = profileDir;
+    this.accountPool = new AccountPool({ rootDir: profileDir, accounts: [], enabled: false });
     this.downloadDir = downloadDir;
     this.getMetaConfig = typeof getMetaConfig === 'function' ? getMetaConfig : () => ({});
     this.context = null;
@@ -5521,59 +5527,104 @@ class BrowserController extends EventEmitter {
   setProfileRotation(profiles = [], currentIndex = 0) {
     this.profileRotationList = Array.isArray(profiles) ? [...profiles] : [];
     this.currentProfileIndex = Math.max(0, Math.min(currentIndex, Math.max(0, this.profileRotationList.length - 1)));
+    this.accountPool = AccountPool.fromRotation(this.profileRotationList, {
+      rootDir: this.rootProfileDir || this.profileDir,
+      currentIndex: this.currentProfileIndex,
+      enabled: this.enableProfileSwapping,
+      previousAccounts: this.accountPool?.accounts || []
+    });
     if (this.profileRotationList.length > 0 && !this.activeProfile) {
       this.activeProfile = this.profileRotationList[this.currentProfileIndex];
     }
+    const current = this.accountPool.current();
+    if (current) this.activeProfile = current;
+  }
+
+  setAccountPool(payload = {}) {
+    this.accountPool = new AccountPool({
+      rootDir: this.rootProfileDir || this.profileDir,
+      accounts: payload.accounts || payload.profiles || [],
+      currentIndex: payload.currentIndex || 0,
+      enabled: payload.enabled != null ? payload.enabled : this.enableProfileSwapping
+    });
+    this.enableProfileSwapping = Boolean(this.accountPool.enabled);
+    this.profileRotationList = this.accountPool.accounts;
+    this.currentProfileIndex = this.accountPool.currentIndex;
+    this.activeProfile = this.accountPool.current();
+    return this.getProfileRotation();
   }
 
   getProfileRotation() {
+    const current = this.accountPool?.current?.() || this.activeProfile;
     return {
-      profiles: this.profileRotationList,
-      currentIndex: this.currentProfileIndex,
-      activeProfile: this.profileRotationList[this.currentProfileIndex] || this.activeProfile,
-      enabled: Boolean(this.enableProfileSwapping)
+      profiles: this.accountPool?.accounts?.length ? this.accountPool.accounts : this.profileRotationList,
+      currentIndex: this.accountPool?.currentIndex ?? this.currentProfileIndex,
+      activeProfile: current || this.profileRotationList[this.currentProfileIndex] || this.activeProfile,
+      enabled: Boolean(this.enableProfileSwapping),
+      accountPool: this.accountPool ? this.accountPool.toJSON() : null
     };
   }
 
   canSwapProfile() {
+    if (this.accountPool && typeof this.accountPool.canFailover === 'function') {
+      this.accountPool.enabled = Boolean(this.enableProfileSwapping);
+      return this.accountPool.canFailover();
+    }
     return Boolean(this.enableProfileSwapping) && this.profileRotationList.length > 1;
   }
 
+  #applyAccountUserDataDir(account) {
+    if (!account?.userDataDir) return this.profileDir;
+    mkdirSync(account.userDataDir, { recursive: true });
+    this.profileDir = account.userDataDir;
+    return this.profileDir;
+  }
+
   async switchToNextProfile() {
-    if (!this.profileRotationList.length) {
+    if (!this.profileRotationList.length && !this.accountPool?.accounts?.length) {
       const detected = await this.getSystemProfiles();
-      if (detected.length > 1) {
-        this.profileRotationList = detected;
-      }
+      if (detected.length > 1) this.setProfileRotation(detected, this.currentProfileIndex);
     }
-    if (!this.profileRotationList.length) {
+    if (this.accountPool) this.accountPool.enabled = Boolean(this.enableProfileSwapping);
+    if (!this.canSwapProfile()) {
+      return { swapped: false, reason: 'NO_PROFILES_AVAILABLE' };
+    }
+
+    this.accountPool.markRateLimited();
+    const next = this.accountPool.nextAvailable();
+    if (!next?.account) {
       return { swapped: false, reason: 'NO_PROFILES_AVAILABLE' };
     }
 
     const previousIndex = this.currentProfileIndex;
-    this.currentProfileIndex = (this.currentProfileIndex + 1) % this.profileRotationList.length;
-    const nextProfile = this.profileRotationList[this.currentProfileIndex];
-    const profileKey = typeof nextProfile === 'string' ? nextProfile : nextProfile.profileKey;
-    const profileName = typeof nextProfile === 'string' ? nextProfile : (nextProfile.profileName || nextProfile.profileKey);
-    const browserLabel = typeof nextProfile === 'object' ? nextProfile.browser : null;
+    const nextProfile = next.account;
+    this.accountPool.activate(next.index);
+    this.currentProfileIndex = next.index;
+    this.activeProfile = nextProfile;
+    const profileKey = nextProfile.profileKey || 'Default';
+    const profileName = nextProfile.profileName || profileKey;
+    const browserLabel = nextProfile.browser || null;
 
-    console.log(`[browser] Rotating profile due to rate limit: index ${previousIndex} → ${this.currentProfileIndex} (${profileName})`);
+    console.log(`[browser] Quota failover: index ${previousIndex} → ${this.currentProfileIndex} (${profileName}) dir=${nextProfile.userDataDir}`);
 
     await this.close();
-
+    this.#applyAccountUserDataDir(nextProfile);
     await this.importSystemLoginSession({
       browser: browserLabel || this.browserLabel || 'Google Chrome Canary',
-      profileKey: profileKey || 'Default'
-    });
-
-    this.activeProfile = nextProfile;
+      profileKey
+    }).catch(() => {});
     await this.launch({ headless: true });
+    if (this.engine === 'gemini') {
+      const page = await this.ensurePage().catch(() => this.page);
+      if (page) await this.#ensureGeminiSession(page, { force: true, reason: 'account-swap' }).catch(() => {});
+    }
 
     this.emit('profile-swapped', {
       previousIndex,
       currentIndex: this.currentProfileIndex,
       profile: nextProfile,
-      profileName
+      profileName,
+      userDataDir: nextProfile.userDataDir
     });
 
     return {
@@ -5581,8 +5632,27 @@ class BrowserController extends EventEmitter {
       previousIndex,
       currentIndex: this.currentProfileIndex,
       profile: nextProfile,
-      profileName
+      profileName,
+      userDataDir: nextProfile.userDataDir
     };
+  }
+
+  async #resumeAfterQuotaSwap(label = 'resuming the same job') {
+    if (!this.canSwapProfile()) return false;
+    const swap = await this.switchToNextProfile();
+    if (!swap.swapped) return false;
+    console.log(`[browser] Quota failover to "${swap.profileName}"; ${label}.`);
+    this.beginWork();
+    return true;
+  }
+
+  async #withQuotaFailover(label, work) {
+    try {
+      return await work();
+    } catch (error) {
+      if (!isQuotaError(error) || !(await this.#resumeAfterQuotaSwap(label))) throw error;
+      return work();
+    }
   }
 
   /** Every usable file input on the page, best composer candidate first. */
@@ -6808,9 +6878,6 @@ class BrowserController extends EventEmitter {
   }
 
   async analyzeProductWithGpt(input = {}) {
-    if (this.engine !== 'gemini') {
-      return this.withEngine('gemini', () => this.analyzeProductWithGpt(input));
-    }
     this.beginWork();
     const listing = resolveListingAnalysisInput(input);
     let mockups = emptyMockupResult({
@@ -6852,12 +6919,14 @@ class BrowserController extends EventEmitter {
     await this.#launchForPromptWork();
     const page = await this.ensurePage();
     await this.#afterNavigate(page);
-    await this.#ensureGeminiSession(page);
+    if (this.engine === 'gemini') {
+      await this.#ensureGeminiSession(page);
+      await this.#ensureLiveGeminiStudio(page, gptUrl);
+    }
     if (gptUrl && jobPageNeedsNavigation(page.url(), gptUrl, false)) {
       await page.goto(gptUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
       await sleep(1_000);
     }
-    await this.#ensureLiveGeminiStudio(page, gptUrl);
     this.#writePromptReceipt({
       kind: 'analysis-first',
       stage: 'before-submit',
@@ -6867,14 +6936,23 @@ class BrowserController extends EventEmitter {
       attachmentCount: attachmentPaths.length
     });
     console.log(`[browser] first analysis prompt attaching ${attachmentPaths.length} competitor mockup(s)`);
-    const submission = await this.submitPrompt(prompt, {
-      gptUrl,
-      attachmentPaths,
-      requireAttachmentChips: attachmentPaths.length > 0,
-      attachBeforePrompt: attachmentPaths.length > 0,
-      promptKind: 'analysis-first'
-    });
-    const responseText = await this.waitForAssistantTextResponse(submission.baseline, 180_000, page);
+    const runAnalysisTurn = async () => {
+      const livePage = await this.ensurePage();
+      if (this.engine === 'gemini') {
+        await this.#ensureGeminiSession(livePage);
+        await this.#ensureLiveGeminiStudio(livePage, gptUrl);
+      }
+      const submission = await this.submitPrompt(prompt, {
+        gptUrl,
+        attachmentPaths,
+        requireAttachmentChips: attachmentPaths.length > 0,
+        attachBeforePrompt: attachmentPaths.length > 0,
+        promptKind: 'analysis-first'
+      });
+      const responseText = await this.waitForAssistantTextResponse(submission.baseline, 180_000, livePage);
+      return { submission, responseText };
+    };
+    const { submission, responseText } = await this.#withQuotaFailover('retrying analysis on the next account', runAnalysisTurn);
     return {
       rawText: responseText,
       conversationUrl: submission.conversationUrl,
@@ -6898,37 +6976,23 @@ class BrowserController extends EventEmitter {
     productFormat = 'static',
     onBatch = null
   }) {
-    if (this.engine !== 'gemini') {
-      return this.withEngine('gemini', () => this.generatePromptsWithGpt({
-        conversationUrl,
-        pageCount,
-        format,
-        orientation,
-        attachmentPaths,
-        gptUrl,
-        seed,
-        title,
-        theme,
-        niche,
-        visualTheme,
-        productFormat,
-        onBatch
-      }));
-    }
     this.beginWork();
-    if (conversationUrl && (!isGeminiPageUrl(conversationUrl) || isRetiredGeminiGemUrl(conversationUrl))) conversationUrl = null;
+    if (conversationUrl && !conversationMatchesEngine(conversationUrl, this.engine)) conversationUrl = null;
+    if (conversationUrl && isRetiredGeminiGemUrl(conversationUrl)) conversationUrl = null;
     const filesToAttach = [...new Set((Array.isArray(attachmentPaths) ? attachmentPaths : []).filter((filePath) => filePath && existsSync(filePath)))];
     const total = Math.max(1, Math.min(500, Number.parseInt(pageCount, 10) || 20));
     const seedValue = seed || [title, theme, niche, productFormat].filter(Boolean).join(' | ');
     await this.#launchForPromptWork();
-    const page = await this.ensurePage();
+    let page = await this.ensurePage();
     await this.#afterNavigate(page);
-    await this.#ensureGeminiSession(page);
+    if (this.engine === 'gemini') await this.#ensureGeminiSession(page);
     if (conversationUrl && jobPageNeedsNavigation(page.url(), conversationUrl, false)) {
       await page.goto(conversationUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
       await sleep(1_000);
-      await this.#ensureLiveGeminiStudio(page, gptUrl || getJobStartUrl({ kind: 'prompts' }, this.engine));
-      await this.#ensureGeminiSession(page);
+      if (this.engine === 'gemini') {
+        await this.#ensureLiveGeminiStudio(page, gptUrl || getJobStartUrl({ kind: 'prompts' }, this.engine));
+        await this.#ensureGeminiSession(page);
+      }
     }
 
     let slots = new Array(total).fill(null);
@@ -6964,36 +7028,49 @@ class BrowserController extends EventEmitter {
           endPage,
           alreadyHave: have
         });
-      const submission = await this.submitPrompt(prompt, {
-        conversationUrl: conversation,
-        gptUrl: gptUrl || getJobStartUrl({ kind: 'prompts' }, this.engine),
-        attachmentPaths: round === 0 ? filesToAttach : [],
-        requireAttachmentChips: round === 0 && filesToAttach.length > 0,
-        promptKind: 'generate-prompts',
-        reuseCurrentPage: round > 0
-      });
-      conversation = submission.conversationUrl || conversation;
-      const watched = await this.#waitForAssistantTextObservation(submission.baseline, 240_000, page, {
-        expectedCount: batchCount,
-        startPage: firstMissing,
-        endPage,
-        batchSize,
-        maxDraftMs: 10 * 60_000,
-        hardCapMs: 10 * 60_000,
-        onObservation: (obs) => {
-          if (typeof onBatch === 'function') {
-            onBatch({
-              startPage: firstMissing,
-              endPage,
-              have,
-              total,
-              phase: obs.phase,
-              reason: obs.reason,
-              parsedCount: obs.parsedCount
-            });
+      let submission;
+      let watched;
+      try {
+        submission = await this.submitPrompt(prompt, {
+          conversationUrl: conversation,
+          gptUrl: gptUrl || getJobStartUrl({ kind: 'prompts' }, this.engine),
+          attachmentPaths: round === 0 ? filesToAttach : [],
+          requireAttachmentChips: round === 0 && filesToAttach.length > 0,
+          promptKind: 'generate-prompts',
+          reuseCurrentPage: round > 0
+        });
+        conversation = submission.conversationUrl || conversation;
+        watched = await this.#waitForAssistantTextObservation(submission.baseline, 240_000, page, {
+          expectedCount: batchCount,
+          startPage: firstMissing,
+          endPage,
+          batchSize,
+          maxDraftMs: 10 * 60_000,
+          hardCapMs: 10 * 60_000,
+          onObservation: (obs) => {
+            if (typeof onBatch === 'function') {
+              onBatch({
+                startPage: firstMissing,
+                endPage,
+                have,
+                total,
+                phase: obs.phase,
+                reason: obs.reason,
+                parsedCount: obs.parsedCount
+              });
+            }
           }
+        });
+      } catch (error) {
+        if (isQuotaError(error) && await this.#resumeAfterQuotaSwap(`resuming prompts at page ${firstMissing}`)) {
+          conversation = null;
+          await this.#launchForPromptWork();
+          page = await this.ensurePage();
+          if (this.engine === 'gemini') await this.#ensureGeminiSession(page);
+          continue;
         }
-      });
+        throw error;
+      }
       rawParts.push(watched.text || '');
       let parsed = [];
       try {
@@ -7058,8 +7135,9 @@ class BrowserController extends EventEmitter {
   async generateTptListingWithGpt({ project, pdfPath, gptUrl = null }) {
     // Stolen from TPT Book Automation: attach finished product PDF → SEO/listing Gem → JSON draft,
     // then auto-correct taxonomy if subjects/tags are inventing outside TPT options.
-    if (this.engine === 'meta') {
-      return this.withEngine('gemini', () => this.generateTptListingWithGpt({ project, pdfPath, gptUrl }));
+    const listingRuntime = getProvider(this.engine).runtimeEngineFor('listing');
+    if (normalizeEngine(this.engine) !== listingRuntime) {
+      return this.withEngine(listingRuntime, () => this.generateTptListingWithGpt({ project, pdfPath, gptUrl }));
     }
     const jobId = `tpt-listing-${project.id}`;
     gptUrl = gptUrl || getJobStartUrl({ kind: 'listing' }, this.engine);
@@ -7069,31 +7147,33 @@ class BrowserController extends EventEmitter {
     this.#throwIfCancelled();
     let conversationUrl = null;
     try {
-      let submission = await this.submitPrompt(prompt, {
-        jobId,
-        isolatedPage: true,
-        attachmentPath: hasPdf ? pdfPath : null,
-        gptUrl,
-        promptKind: 'listing',
-        attachBeforePrompt: hasPdf,
-        requireAttachmentChips: hasPdf
-      });
-      conversationUrl = submission.conversationUrl;
-      let responseText = await this.waitForAssistantTextResponse(submission.baseline, 240_000, await this.#jobPage(jobId));
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const correctionPrompt = buildTptListingTaxonomyCorrectionPrompt(responseText);
-        if (!correctionPrompt) return { rawText: responseText, conversationUrl };
-        submission = await this.submitPrompt(correctionPrompt, { jobId, conversationUrl, promptKind: 'listing' });
-        conversationUrl = submission.conversationUrl;
-        responseText = await this.waitForAssistantTextResponse(submission.baseline, 240_000, await this.#jobPage(jobId));
-      }
-      const remainingCorrection = buildTptListingTaxonomyCorrectionPrompt(responseText);
-      if (remainingCorrection) {
-        throw Object.assign(new Error('The listing did not return selectable TPT subject areas and tags after automatic correction.'), {
-          code: 'TPT_LISTING_TAXONOMY_INVALID'
+      return await this.#withQuotaFailover('retrying listing on the next account', async () => {
+        let submission = await this.submitPrompt(prompt, {
+          jobId,
+          isolatedPage: true,
+          attachmentPath: hasPdf ? pdfPath : null,
+          gptUrl,
+          promptKind: 'listing',
+          attachBeforePrompt: hasPdf,
+          requireAttachmentChips: hasPdf
         });
-      }
-      return { rawText: responseText, conversationUrl };
+        conversationUrl = submission.conversationUrl;
+        let responseText = await this.waitForAssistantTextResponse(submission.baseline, 240_000, await this.#jobPage(jobId));
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const correctionPrompt = buildTptListingTaxonomyCorrectionPrompt(responseText);
+          if (!correctionPrompt) return { rawText: responseText, conversationUrl };
+          submission = await this.submitPrompt(correctionPrompt, { jobId, conversationUrl, promptKind: 'listing' });
+          conversationUrl = submission.conversationUrl;
+          responseText = await this.waitForAssistantTextResponse(submission.baseline, 240_000, await this.#jobPage(jobId));
+        }
+        const remainingCorrection = buildTptListingTaxonomyCorrectionPrompt(responseText);
+        if (remainingCorrection) {
+          throw Object.assign(new Error('The listing did not return selectable TPT subject areas and tags after automatic correction.'), {
+            code: 'TPT_LISTING_TAXONOMY_INVALID'
+          });
+        }
+        return { rawText: responseText, conversationUrl };
+      });
     } finally {
       await this.releaseJob(jobId).catch(() => {});
     }
@@ -7182,23 +7262,34 @@ class BrowserController extends EventEmitter {
         requireAttachmentChips: true
       };
 
-      let submission = await this.submitPrompt(prompt, submitOptions);
+      let submission;
       let image;
       try {
-        image = await this.waitForNewImage(submission.baseline, 600_000, { jobId, ...mockupWaitOpts });
+        submission = await this.submitPrompt(prompt, submitOptions);
+        try {
+          image = await this.waitForNewImage(submission.baseline, 600_000, { jobId, ...mockupWaitOpts });
+        } catch (error) {
+          if (isQuotaError(error)) throw error;
+          const retryable = ['GENERATION_ERROR', 'REFERENCE_REQUESTED_BY_GPT', 'IMAGE_TIMEOUT'].includes(error?.code);
+          if (!retryable) throw error;
+          // Same conversation: nudge Gemini/ChatGPT to draw instead of chatting.
+          const retryPrompt = withEngineImagePrefix(buildTptThumbnailRetryPrompt({ index }), this.engine, { purpose: 'thumbnail' });
+          submission = await this.submitPrompt(retryPrompt, {
+            jobId,
+            conversationUrl: submission.conversationUrl,
+            promptKind: 'thumbnail',
+            attachBeforePrompt: false,
+            requireAttachmentChips: false
+          });
+          image = await this.waitForNewImage(submission.baseline, 600_000, { jobId, ...mockupWaitOpts });
+        }
       } catch (error) {
-        const retryable = ['GENERATION_ERROR', 'REFERENCE_REQUESTED_BY_GPT', 'IMAGE_TIMEOUT'].includes(error?.code);
-        if (!retryable) throw error;
-        // Same conversation: nudge Gemini/ChatGPT to draw instead of chatting.
-        const retryPrompt = withEngineImagePrefix(buildTptThumbnailRetryPrompt({ index }), this.engine, { purpose: 'thumbnail' });
-        submission = await this.submitPrompt(retryPrompt, {
-          jobId,
-          conversationUrl: submission.conversationUrl,
-          promptKind: 'thumbnail',
-          attachBeforePrompt: false,
-          requireAttachmentChips: false
-        });
-        image = await this.waitForNewImage(submission.baseline, 600_000, { jobId, ...mockupWaitOpts });
+        if (isQuotaError(error) && await this.#resumeAfterQuotaSwap(`resuming mockup ${index + 1}`)) {
+          gptUrl = getJobStartUrl({ kind: 'thumbnail' }, this.engine);
+          index -= 1;
+          continue;
+        }
+        throw error;
       }
       const downloaded = await this.fetchImage(image.src, { jobId });
 
@@ -7260,8 +7351,9 @@ class BrowserController extends EventEmitter {
   }
 
   async regenerateTptListingFieldWithGpt({ project, pdfPath, listing, field }) {
-    if (this.engine === 'meta') {
-      return this.withEngine('gemini', () => this.regenerateTptListingFieldWithGpt({ project, pdfPath, listing, field }));
+    const listingRuntime = getProvider(this.engine).runtimeEngineFor('listing');
+    if (normalizeEngine(this.engine) !== listingRuntime) {
+      return this.withEngine(listingRuntime, () => this.regenerateTptListingFieldWithGpt({ project, pdfPath, listing, field }));
     }
     const jobId = `tpt-field-${project.id}-${field}`;
     const prompt = `Using the attached product PDF and listing draft below, regenerate ONLY ${field}. Return only the replacement value, without JSON, label, or commentary.\n${JSON.stringify(listing)}`;
@@ -7282,8 +7374,9 @@ class BrowserController extends EventEmitter {
   }
 
   async generateStorybookBlueprintWithGpt(input) {
-    if (this.engine !== 'gemini') {
-      return this.withEngine('gemini', () => this.generateStorybookBlueprintWithGpt(input));
+    const textRuntime = getProvider(this.engine).runtimeEngineFor('text');
+    if (normalizeEngine(this.engine) !== textRuntime) {
+      return this.withEngine(textRuntime, () => this.generateStorybookBlueprintWithGpt(input));
     }
     const {
       buildStorybookBlueprintPrompt,
@@ -7294,8 +7387,10 @@ class BrowserController extends EventEmitter {
     await this.launch({ headless: true });
     const page = await this.ensurePage();
     await this.#afterNavigate(page);
-    await page.goto(getJobStartUrl({ kind: 'blueprint' }, this.engine), { waitUntil: 'domcontentloaded', timeout: 120_000 });
+    const blueprintUrl = getJobStartUrl({ kind: 'blueprint' }, this.engine);
+    await page.goto(blueprintUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
     await sleep(1_000);
+    if (this.engine === 'gemini') await this.#ensureGeminiSession(page);
 
     // The original photo is deliberately not attached to the planning chat. It is
     // attached only to the first character's isolated image-generation chat.
@@ -7311,11 +7406,12 @@ class BrowserController extends EventEmitter {
   }
 
   async generateStorybookCharactersWithGpt({ input = {}, conversationUrl, reuseCurrentPage = false }) {
-    if (this.engine !== 'gemini') {
-      return this.withEngine('gemini', () => this.generateStorybookCharactersWithGpt({ input, conversationUrl, reuseCurrentPage }));
+    const textRuntime = getProvider(this.engine).runtimeEngineFor('text');
+    if (normalizeEngine(this.engine) !== textRuntime) {
+      return this.withEngine(textRuntime, () => this.generateStorybookCharactersWithGpt({ input, conversationUrl, reuseCurrentPage }));
     }
-    if (conversationUrl && !isGeminiPageUrl(conversationUrl)) {
-      throw Object.assign(new Error('Storybook planning now uses the Gemini custom gem. Start a new storybook so Gemini can write the prompts.'), {
+    if (conversationUrl && !conversationMatchesEngine(conversationUrl, this.engine)) {
+      throw Object.assign(new Error(`Storybook planning now uses ${engineDisplayName(this.engine)}. Start a new storybook so it can write the prompts.`), {
         code: 'GEMINI_PLANNING_REQUIRED'
       });
     }
@@ -7369,11 +7465,12 @@ class BrowserController extends EventEmitter {
   }
 
   async generateStorybookPagesWithGpt({ input = {}, conversationUrl, reuseCurrentPage = false }) {
-    if (this.engine !== 'gemini') {
-      return this.withEngine('gemini', () => this.generateStorybookPagesWithGpt({ input, conversationUrl, reuseCurrentPage }));
+    const textRuntime = getProvider(this.engine).runtimeEngineFor('text');
+    if (normalizeEngine(this.engine) !== textRuntime) {
+      return this.withEngine(textRuntime, () => this.generateStorybookPagesWithGpt({ input, conversationUrl, reuseCurrentPage }));
     }
-    if (conversationUrl && !isGeminiPageUrl(conversationUrl)) {
-      throw Object.assign(new Error('Storybook planning now uses the Gemini custom gem. Start a new storybook so Gemini can write the prompts.'), {
+    if (conversationUrl && !conversationMatchesEngine(conversationUrl, this.engine)) {
+      throw Object.assign(new Error(`Storybook planning now uses ${engineDisplayName(this.engine)}. Start a new storybook so it can write the prompts.`), {
         code: 'GEMINI_PLANNING_REQUIRED'
       });
     }

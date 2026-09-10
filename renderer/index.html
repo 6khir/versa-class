@@ -1225,8 +1225,8 @@
 
               <section class="chrome-profiles-panel">
                 <p class="eyebrow">BROWSER PROFILES</p>
-                <h4>Chrome profiles for Gemini and ChatGPT</h4>
-                <p class="field-hint">The selected Chrome profile must be signed into Google Gemini (listing and page text) and ChatGPT (mockups).</p>
+                <h4>Chrome profiles for Gemini, ChatGPT, and Meta AI</h4>
+                <p class="field-hint">Each selected account keeps its own persistent Chrome folder (cookies and login). Sign in once per account; later runs reuse that session.</p>
                 <div class="profile-select-container">
                   <label for="settings-chatgpt-profile-select">Active profile to sync</label>
                   <select id="settings-chatgpt-profile-select">
@@ -1237,9 +1237,9 @@
                 <div class="profile-rotation-container" id="profile-rotation-container">
                   <label class="checkbox-option" style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 6px;">
                     <input type="checkbox" id="settings-enable-profile-swapping" checked>
-                    <strong>Auto-swap Chrome profiles on Gemini rate limits</strong>
+                    <strong>Auto-swap accounts on quota or rate limits</strong>
                   </label>
-                  <p class="field-hint" style="font-size: 11px; opacity: 0.8; margin-bottom: 8px;">Select accounts to cycle. ChatGPT mockups use the same profile, so keep ChatGPT signed in on every selected account:</p>
+                  <p class="field-hint" style="font-size: 11px; opacity: 0.8; margin-bottom: 8px;">Select two or more accounts. If Gemini, ChatGPT, or Meta hits a quota, the app closes that profile, opens the next account’s persistent folder, and resumes the same page or prompt.</p>
                   <div id="settings-profile-rotation-list" class="profile-rotation-list" style="display: flex; flex-direction: column; gap: 6px;"></div>
                 </div>
               </section>
@@ -1247,7 +1247,7 @@
               <section class="chrome-profiles-panel engine-picker">
                 <p class="eyebrow">ACTIVE IMAGE ENGINE</p>
                 <h4>One engine at a time for page images</h4>
-                <p class="field-hint">Gemini still writes analysis, blueprints, and prompts. Turn on ChatGPT, Gemini, or Meta only for interior page images.</p>
+                <p class="field-hint">Pages and mockups use the engine you turn on here. Analysis, blueprints, and prompts default to Gemini, but the pipeline can run any supported provider for text, pages, or mockups. Preview video stays on the Veo gem.</p>
                 <div class="engine-toggle-row">
                   <button class="engine-toggle is-on" id="engine-chatgpt-toggle" data-action="set-ai-engine" data-engine="chatgpt" type="button">
                     <span class="engine-toggle-brand brand-chatgpt" aria-hidden="true" style="background:transparent;"><img src="../assets/brand/chatgpt.png" alt="ChatGPT" style="width:100%; height:100%; object-fit:contain; border-radius:22%;"></span>

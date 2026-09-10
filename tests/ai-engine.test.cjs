@@ -44,7 +44,7 @@ test('normalizeEngine is exclusive chatgpt, gemini, or meta', () => {
 });
 
 test('turning one engine on maps image jobs to that engine only', () => {
-  assert.equal(getJobStartUrl({ kind: 'analysis' }, 'chatgpt'), CONTENT_GEM_URL);
+  assert.equal(getJobStartUrl({ kind: 'analysis' }, 'chatgpt'), CONTENT_GPT_URL);
   assert.equal(getJobStartUrl({ kind: 'listing' }, 'chatgpt'), SEO_GPT_URL);
   assert.equal(getJobStartUrl({ kind: 'thumbnail' }, 'chatgpt'), MOCKUPS_GPT_URL);
   assert.equal(getJobStartUrl({ kind: 'page' }, 'chatgpt'), CONTENT_GPT_URL);
@@ -99,12 +99,16 @@ test('studio kind content follows the XOR image engine, not Gemini planning', ()
   assert.equal(getJobStartUrl({ kind: 'content' }, 'meta'), META_URL);
 });
 
-test('planning jobs always open the Gemini content gem', () => {
-  for (const engine of ['chatgpt', 'gemini', 'meta']) {
-    assert.equal(getJobStartUrl({ kind: 'analysis' }, engine), CONTENT_GEM_URL);
-    assert.equal(getJobStartUrl({ kind: 'blueprint' }, engine), CONTENT_GEM_URL);
-    assert.equal(getJobStartUrl({ kind: 'prompts' }, engine), CONTENT_GEM_URL);
-  }
+test('planning jobs follow the requested text provider; Meta text stays on Gemini', () => {
+  assert.equal(getJobStartUrl({ kind: 'analysis' }, 'gemini'), CONTENT_GEM_URL);
+  assert.equal(getJobStartUrl({ kind: 'blueprint' }, 'gemini'), CONTENT_GEM_URL);
+  assert.equal(getJobStartUrl({ kind: 'prompts' }, 'gemini'), CONTENT_GEM_URL);
+  assert.equal(getJobStartUrl({ kind: 'analysis' }, 'chatgpt'), CONTENT_GPT_URL);
+  assert.equal(getJobStartUrl({ kind: 'blueprint' }, 'chatgpt'), CONTENT_GPT_URL);
+  assert.equal(getJobStartUrl({ kind: 'prompts' }, 'chatgpt'), CONTENT_GPT_URL);
+  assert.equal(getJobStartUrl({ kind: 'analysis' }, 'meta'), CONTENT_GEM_URL);
+  assert.equal(getJobStartUrl({ kind: 'blueprint' }, 'meta'), CONTENT_GEM_URL);
+  assert.equal(getJobStartUrl({ kind: 'prompts' }, 'meta'), CONTENT_GEM_URL);
 });
 
 test('engine homes and conversation URL helpers accept both providers', () => {

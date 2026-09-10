@@ -117,21 +117,13 @@ function jobRouteKind(job = {}) {
 
 function getJobStartUrl(job = {}, engine = 'chatgpt') {
   const route = jobRouteKind(job);
-  if (route === 'preview') return PREVIEW_GEM_URL;
-  if (route === 'planning') return CONTENT_GEM_URL;
-  const norm = normalizeEngine(engine);
-  if (norm === 'meta') {
-    if (route === 'seo') return SEO_GEM_URL;
-    return META_URL;
-  }
-  if (norm === 'gemini') {
-    if (route === 'mockups') return MOCKUPS_GEM_URL;
-    if (route === 'seo') return SEO_GEM_URL;
-    return CONTENT_GEM_URL;
-  }
-  if (route === 'mockups') return MOCKUPS_GPT_URL;
-  if (route === 'seo') return SEO_GPT_URL;
-  return CONTENT_GPT_URL;
+  const { getProvider } = require('./ai-provider.cjs');
+  const provider = getProvider(engine);
+  if (route === 'preview') return provider.startUrlFor('preview');
+  if (route === 'planning') return provider.startUrlFor('text');
+  if (route === 'seo') return provider.startUrlFor('listing');
+  if (route === 'mockups') return provider.startUrlFor('mockups');
+  return provider.startUrlFor('pages');
 }
 
 const GEMINI_IMAGE_PROMPT_KINDS = new Set([
@@ -457,6 +449,9 @@ module.exports = {
   getEngineHomeUrl,
   jobRouteKind,
   getJobStartUrl,
+  getProvider: (...args) => require('./ai-provider.cjs').getProvider(...args),
+  resolveStageEngine: (...args) => require('./ai-provider.cjs').resolveStageEngine(...args),
+  defaultStageProviders: (...args) => require('./ai-provider.cjs').defaultStageProviders(...args),
   GEMINI_IMAGE_PROMPT_KINDS,
   wantsGeminiImageMode,
   isMetaLocalUrl,
