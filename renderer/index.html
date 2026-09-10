@@ -444,7 +444,7 @@
               <div class="workspace-track" id="workspace-track">
               <div class="workspace-pane is-active" data-workspace-pane="overview">
               <div class="overview-board" data-workspace-section="overview">
-              <section class="overview-stage-grid" aria-label="Product pipeline">
+              <section class="overview-stage-grid studio-pipeline-rail" aria-label="Product pipeline">
                 <article class="overview-stage-card overview-stage-overall" id="overview-overall-card" data-stage="overall" data-action="select-workspace-view" data-view-target="listing">
                   <div class="product-progress-copy">
                     <span class="overview-stage-label">Product progress</span>
@@ -458,56 +458,92 @@
                   <span class="stage-meter" aria-hidden="true"><i id="overview-overall-meter"></i></span>
                   <button class="stage-run-btn" data-action="start-full-automation" type="button">Start full automation</button>
                 </article>
-                <article class="overview-stage-card" data-stage="interior" data-action="select-workspace-view" data-view-target="interior">
-                  <span class="overview-stage-label">Interior</span>
-                  <span class="stage-state" id="overview-interior-state">Ready</span>
+
+                <div class="pipeline-rail-track" role="list">
+                <article class="overview-stage-card node" data-stage="interior" data-action="select-workspace-view" data-view-target="interior" role="listitem">
+                  <div class="n-top">
+                    <span class="n-idx">01</span>
+                    <span class="stage-state" id="overview-interior-state">Ready</span>
+                  </div>
+                  <span class="overview-stage-label">Pages Lab</span>
                   <strong><span id="stat-complete">0</span> / <span id="stat-total">0</span> pages</strong>
                   <small id="overview-interior-detail">0 remaining</small>
                   <span id="stat-remaining" hidden>0</span>
-                  <span class="stage-meter" aria-hidden="true"><i id="overview-interior-meter"></i></span>
+                  <span class="stage-meter n-bar" aria-hidden="true"><i id="overview-interior-meter"></i></span>
                   <button class="stage-run-btn" data-action="run-stage" data-stage="interior" type="button">Start pages</button>
                   <button class="stage-run-btn" data-action="regenerate-interior" data-stage="interior" type="button" hidden>Regenerate</button>
                 </article>
-                <article class="overview-stage-card" data-stage="editable" data-action="select-workspace-view" data-view-target="editable">
-                  <span class="overview-stage-label">Canva editable</span>
-                  <span class="stage-state" id="overview-editable-state">Ready</span>
-                  <strong id="overview-editable-status">Static print</strong>
-                  <small id="overview-editable-detail">Toggle Editable</small>
-                  <span class="stage-meter" aria-hidden="true"><i id="overview-editable-meter"></i></span>
-                  <button class="stage-run-btn" data-action="run-stage" data-stage="editable" type="button">Build Editable</button>
-                </article>
-                <article class="overview-stage-card" data-stage="thumbnails" data-action="select-workspace-view" data-view-target="thumbnails">
-                  <span class="overview-stage-label">Mockups</span>
-                  <span class="stage-state" id="overview-thumbnails-state">Ready</span>
-                  <strong id="overview-thumbnail-count">0 / 4 saved</strong>
-                  <small id="overview-thumbnail-detail">After pages finish</small>
-                  <span class="stage-meter" aria-hidden="true"><i id="overview-thumbnails-meter"></i></span>
-                  <button class="stage-run-btn" data-action="run-stage" data-stage="thumbnails" type="button">Start mockups</button>
-                </article>
-                <article class="overview-stage-card" data-stage="preview" data-action="select-workspace-view" data-view-target="preview">
-                  <span class="overview-stage-label">Preview</span>
-                  <span class="stage-state" id="overview-preview-state">Ready</span>
-                  <strong id="overview-preview-status">Not generated</strong>
-                  <small id="overview-preview-detail">After mockups</small>
-                  <span class="stage-meter" aria-hidden="true"><i id="overview-preview-meter"></i></span>
-                  <button class="stage-run-btn" data-action="run-stage" data-stage="preview" type="button">Start preview</button>
-                </article>
-                <article class="overview-stage-card" data-stage="export" data-action="select-workspace-view" data-view-target="export">
-                  <span class="overview-stage-label">Export</span>
-                  <span class="stage-state" id="overview-export-state">Ready</span>
-                  <strong id="overview-export-status">Book incomplete</strong>
-                  <small id="overview-export-detail">Finish pages</small>
-                  <span class="stage-meter" aria-hidden="true"><i id="overview-export-meter"></i></span>
-                  <button class="stage-run-btn" data-action="run-stage" data-stage="export" type="button">Start export</button>
-                </article>
-                <article class="overview-stage-card" data-stage="listing" data-action="select-workspace-view" data-view-target="listing">
-                  <span class="overview-stage-label">SEO</span>
-                  <span class="stage-state" id="overview-listing-state">Ready</span>
+
+                <div class="pipeline-link link" aria-hidden="true"></div>
+
+                <article class="overview-stage-card node" data-stage="listing" data-action="select-workspace-view" data-view-target="listing" role="listitem">
+                  <div class="n-top">
+                    <span class="n-idx">02</span>
+                    <span class="stage-state" id="overview-listing-state">Ready</span>
+                  </div>
+                  <span class="overview-stage-label">Text Lab</span>
                   <strong id="overview-listing-status">Not created</strong>
-                  <small id="overview-listing-detail">Last stage · title, description, tags</small>
-                  <span class="stage-meter" aria-hidden="true"><i id="overview-listing-meter"></i></span>
+                  <small id="overview-listing-detail">Title, description, tags</small>
+                  <span class="stage-meter n-bar" aria-hidden="true"><i id="overview-listing-meter"></i></span>
                   <button class="stage-run-btn" data-action="run-stage" data-stage="listing" type="button">Start SEO</button>
                 </article>
+
+                <div class="pipeline-link link" aria-hidden="true"></div>
+
+                <article class="overview-stage-card node" data-stage="editable" data-action="select-workspace-view" data-view-target="editable" role="listitem">
+                  <div class="n-top">
+                    <span class="n-idx">03</span>
+                    <span class="stage-state" id="overview-editable-state">Ready</span>
+                  </div>
+                  <span class="overview-stage-label">Editable Lab</span>
+                  <strong id="overview-editable-status">Static print</strong>
+                  <small id="overview-editable-detail">Toggle Editable</small>
+                  <span class="stage-meter n-bar" aria-hidden="true"><i id="overview-editable-meter"></i></span>
+                  <button class="stage-run-btn" data-action="run-stage" data-stage="editable" type="button">Build Editable</button>
+                </article>
+
+                <div class="pipeline-link link editable-only" aria-hidden="true"></div>
+
+                <article class="overview-stage-card node" data-stage="thumbnails" data-action="select-workspace-view" data-view-target="thumbnails" role="listitem">
+                  <div class="n-top">
+                    <span class="n-idx">04</span>
+                    <span class="stage-state" id="overview-thumbnails-state">Ready</span>
+                  </div>
+                  <span class="overview-stage-label">Mockups Lab</span>
+                  <strong id="overview-thumbnail-count">0 / 4 saved</strong>
+                  <small id="overview-thumbnail-detail">After pages finish</small>
+                  <span class="stage-meter n-bar" aria-hidden="true"><i id="overview-thumbnails-meter"></i></span>
+                  <button class="stage-run-btn" data-action="run-stage" data-stage="thumbnails" type="button">Start mockups</button>
+                </article>
+
+                <div class="pipeline-link link" aria-hidden="true"></div>
+
+                <article class="overview-stage-card node" data-stage="preview" data-action="select-workspace-view" data-view-target="preview" role="listitem">
+                  <div class="n-top">
+                    <span class="n-idx">05</span>
+                    <span class="stage-state" id="overview-preview-state">Ready</span>
+                  </div>
+                  <span class="overview-stage-label">Preview Lab</span>
+                  <strong id="overview-preview-status">Not generated</strong>
+                  <small id="overview-preview-detail">After mockups</small>
+                  <span class="stage-meter n-bar" aria-hidden="true"><i id="overview-preview-meter"></i></span>
+                  <button class="stage-run-btn" data-action="run-stage" data-stage="preview" type="button">Start preview</button>
+                </article>
+
+                <div class="pipeline-link link" aria-hidden="true"></div>
+
+                <article class="overview-stage-card node" data-stage="export" data-action="select-workspace-view" data-view-target="export" role="listitem">
+                  <div class="n-top">
+                    <span class="n-idx">06</span>
+                    <span class="stage-state" id="overview-export-state">Ready</span>
+                  </div>
+                  <span class="overview-stage-label">Export</span>
+                  <strong id="overview-export-status">Book incomplete</strong>
+                  <small id="overview-export-detail">Finish pages</small>
+                  <span class="stage-meter n-bar" aria-hidden="true"><i id="overview-export-meter"></i></span>
+                  <button class="stage-run-btn" data-action="run-stage" data-stage="export" type="button">Start export</button>
+                </article>
+                </div>
               </section>
               </div>
               </div>

@@ -358,19 +358,42 @@ html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite .ui-header.topba
 }
 
 /* ========== 4. STUDIO ENGINE PIPELINE RAIL ========== */
-html body.ui-redesign.versa-studio.pro-suite .overview-stages,
-html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail {
+html body.ui-redesign.versa-studio.pro-suite .overview-stage-grid.studio-pipeline-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vc-s-4);
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track {
   display: flex;
   align-items: stretch;
   gap: 0;
   width: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 
-html body.ui-redesign.versa-studio.pro-suite .overview-stage-card,
-html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .node {
+html body.ui-redesign.versa-studio.pro-suite .overview-stage-overall {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--vc-s-4);
+  padding: var(--vc-s-4) var(--vc-s-5);
+  border-radius: var(--vc-r-lg);
+  background: var(--vc-glass-fill);
+  border: 1px solid var(--vc-glass-brd);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .overview-stage-card.node {
   position: relative;
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--vc-s-3);
@@ -385,37 +408,135 @@ html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .node {
   cursor: pointer;
 }
 
-html body.ui-redesign.versa-studio.pro-suite .overview-stage-card:hover {
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .overview-stage-card.node:hover {
   transform: translateY(-6px);
   border-color: var(--vc-glass-brd-hi);
 }
 
-html body.ui-redesign.versa-studio.pro-suite .overview-stage-card.is-active,
-html body.ui-redesign.versa-studio.pro-suite .overview-stage-card.node.active,
-html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .node.active {
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .n-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vc-s-2);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .n-idx {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--vc-tx-lo);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .overview-stage-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--vc-tx-hi);
+  letter-spacing: -0.02em;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .stage-meter.n-bar,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .n-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  margin-top: auto;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .n-bar i,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .stage-meter i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--vc-sky-bright), var(--vc-royal));
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-link.link {
+  flex: 0 0 36px;
+  align-self: center;
+  height: 2px;
+  position: relative;
+  background: rgba(126, 178, 240, 0.15);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-link.link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--vc-sky-bright), transparent);
+  background-size: 200% 100%;
+  animation: vc-flow 2.4s linear infinite;
+}
+
+@keyframes vc-flow {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.done,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-done {
+  border-color: var(--vc-glass-brd-hi);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.active,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-live,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-progress {
   border-color: var(--vc-sky);
   box-shadow: var(--vc-glow-sky), 0 18px 44px rgba(0, 0, 0, 0.5);
 }
 
-html body.ui-redesign.versa-studio.pro-suite .overview-stage-card.is-done,
-html body.ui-redesign.versa-studio.pro-suite .overview-stage-card.node.done,
-html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .node.done {
-  border-color: var(--vc-glass-brd-hi);
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.active::before,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-live::before {
+  content: "WORKING";
+  position: absolute;
+  top: var(--vc-s-4);
+  right: var(--vc-s-4);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  font-weight: 700;
+  color: var(--vc-sky-bright);
 }
 
-html body.ui-redesign.versa-studio.pro-suite .overview-stage-card.is-pending,
-html body.ui-redesign.versa-studio.pro-suite .overview-stage-card.node.pending,
-html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .node.pending {
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.pending,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-waiting,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-blocked,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-skipped {
   opacity: 0.55;
 }
 
-/* Editable engine: 6-step channel (Pages → Text → Editable → Mockups → Preview → Export)
-   Non-editable: hide Editable Lab node via product format attribute. */
+/* Static engine: 5-step rail — drop Editable Lab + its connector */
 html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .overview-stage-card[data-stage="editable"],
 html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .workspace-tab[data-view-target="editable"],
 html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .overview-stage-card[data-stage="editable"],
-html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .workspace-tab[data-view-target="editable"] {
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .workspace-tab[data-view-target="editable"],
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .pipeline-link.editable-only,
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .pipeline-link.editable-only {
   display: none !important;
+}
+
+/* Renumber visible indices for static (CSS counters) */
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .pipeline-rail-track,
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .pipeline-rail-track {
+  counter-reset: vc-lab;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .pipeline-rail-track .overview-stage-card.node:not([hidden]),
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .pipeline-rail-track .overview-stage-card.node:not([hidden]) {
+  counter-increment: vc-lab;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .pipeline-rail-track .overview-stage-card.node:not([data-stage="editable"]) .n-idx,
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .pipeline-rail-track .overview-stage-card.node:not([data-stage="editable"]) .n-idx {
+  font-size: 0;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .pipeline-rail-track .overview-stage-card.node:not([data-stage="editable"]) .n-idx::before,
+html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .pipeline-rail-track .overview-stage-card.node:not([data-stage="editable"]) .n-idx::before {
+  content: counter(vc-lab, decimal-leading-zero);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--vc-tx-lo);
 }
 
 /* Right activity column stays status/logs only — Z-stack, no page scroll */

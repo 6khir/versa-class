@@ -261,6 +261,9 @@ function setStagePresentation(stageId, state, extraClass = {}) {
   const states = ['done', 'live', 'progress', 'waiting', 'blocked', 'skipped', 'error'];
   states.forEach((name) => card.classList.toggle(`is-${name}`, name === state));
   card.classList.toggle('is-filling', Boolean(extraClass.filling));
+  card.classList.toggle('done', state === 'done');
+  card.classList.toggle('active', state === 'live' || state === 'progress');
+  card.classList.toggle('pending', state === 'waiting' || state === 'blocked' || state === 'skipped');
   const chip = card.querySelector('.stage-state');
   if (chip) chip.textContent = STAGE_STATE_LABELS[state] || 'Waiting';
 }
