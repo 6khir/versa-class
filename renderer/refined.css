@@ -1639,7 +1639,7 @@ html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-sta
   filter: brightness(1.06);
 }
 
-/* ========== 9. PROVIDER LOGOS (ChatGPT / Gemini / OpenAI) ========== */
+/* ========== 9. PROVIDER LOGOS (ChatGPT / Gemini / Meta AI) ========== */
 html body.ui-redesign.versa-studio.pro-suite .brand-mark {
   display: block;
   width: 100%;
@@ -1653,8 +1653,7 @@ html body.ui-redesign.versa-studio.pro-suite .brand-mark {
 
 html body.ui-redesign.versa-studio.pro-suite .brand-chatgpt,
 html body.ui-redesign.versa-studio.pro-suite .brand-gemini,
-html body.ui-redesign.versa-studio.pro-suite .brand-openai,
-html body.ui-redesign.versa-studio.pro-suite .integration-icon.brand-pair {
+html body.ui-redesign.versa-studio.pro-suite .brand-meta {
   background: #050609 !important;
   border: 1px solid rgba(126, 178, 240, 0.12) !important;
   box-shadow: inset 0 0 18px rgba(78, 169, 240, 0.08);
@@ -1680,6 +1679,8 @@ html body.ui-redesign.versa-studio.pro-suite .integration-icon.brand-pair {
   grid-template-columns: 1fr 1fr;
   gap: 2px;
   padding: 4px;
+  background: #050609 !important;
+  border: 1px solid rgba(126, 178, 240, 0.12) !important;
 }
 
 html body.ui-redesign.versa-studio.pro-suite .auth-brand-logo {

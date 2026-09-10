@@ -1669,9 +1669,8 @@ function renderAuth() {
 
 const BRAND_MARKS = {
   chatgpt: { className: 'auth-brand-logo brand-chatgpt', html: '<img class="brand-mark" src="../assets/brand/chatgpt.png" alt="ChatGPT">' },
-  openai: { className: 'auth-brand-logo brand-openai', html: '<img class="brand-mark" src="../assets/brand/openai.png" alt="OpenAI">' },
   gemini: { className: 'auth-brand-logo brand-gemini', html: '<img class="brand-mark" src="../assets/brand/gemini.png" alt="Gemini">' },
-  meta: { className: 'auth-brand-logo brand-meta', html: '<img class="brand-mark" src="../assets/brand/meta.png" alt="Meta">' }
+  meta: { className: 'auth-brand-logo brand-meta', html: '<img class="brand-mark" src="../assets/brand/meta.png" alt="Meta AI">' }
 };
 
 function configureAuthDialog(target = 'gemini') {
@@ -1689,7 +1688,7 @@ function configureAuthDialog(target = 'gemini') {
   if (elements.authTitle) {
     elements.authTitle.textContent = chatgpt
       ? 'Connect ChatGPT'
-      : (meta ? 'Connect Meta' : 'Connect Google Gemini');
+      : (meta ? 'Connect Meta AI' : 'Connect Google Gemini');
   }
   const geminiConnected = Boolean(state?.integrations?.gemini?.connected);
   const geminiEmail = String(state?.integrations?.gemini?.profile?.email || '').trim();
@@ -1710,7 +1709,7 @@ function configureAuthDialog(target = 'gemini') {
   if (elements.authVerifyButton) {
     elements.authVerifyButton.textContent = chatgpt
       ? 'Verify ChatGPT'
-      : (meta ? 'Verify Meta' : 'Verify Gemini');
+      : (meta ? 'Verify Meta AI' : 'Verify Gemini');
   }
 }
 
