@@ -1099,9 +1099,12 @@ function showProjectPromptsLoadingStep(pageCount, mockupCount = 0) {
   elements.promptsLoadingTitle.textContent = `Generating ${pageCount} page prompts…`;
   elements.projectDialogTitle.textContent = 'Generating page prompts…';
   if (elements.promptsLoadingDetail) {
+    const batchNote = Number(pageCount) > 50
+      ? ` Watching Gemini in 50-page batches until all ${pageCount} prompts are drafted, keeping the signed-in tab and continuing or shrinking if it lags.`
+      : ' Watching Gemini until the draft finishes, then saving the prompts.';
     elements.promptsLoadingDetail.textContent = mockupCount
-      ? `Attaching ${mockupCount} competitor listing mockup${mockupCount === 1 ? '' : 's'} so the model can see structure and style, then generating original page prompts.`
-      : 'Generating distinct single-line prompts for each page slot in the Content Gem conversation.';
+      ? `Attaching ${mockupCount} competitor listing mockup${mockupCount === 1 ? '' : 's'} so the model can see structure and style, then generating original page prompts.${batchNote}`
+      : `Generating distinct single-line prompts for each page slot in the Content Gem conversation.${batchNote}`;
   }
 }
 
@@ -1684,17 +1687,21 @@ function configureAuthDialog(target = 'gemini') {
       ? 'Connect ChatGPT'
       : (meta ? 'Connect Meta' : 'Connect Google Gemini');
   }
+  const geminiConnected = Boolean(state?.integrations?.gemini?.connected);
+  const geminiEmail = String(state?.integrations?.gemini?.profile?.email || '').trim();
   if (elements.authCopy) {
     elements.authCopy.textContent = chatgpt
       ? 'Sign in to ChatGPT once. After that Canary stays in the background and VERSA CLASS keeps the login. This does not verify Gemini.'
       : (meta
         ? 'Sign in on meta.ai once. After that Canary stays in the background. ChatGPT and Gemini stay signed in separately.'
-        : 'Sign in to Google Gemini once. After that Canary stays in the background and VERSA CLASS keeps the login. This does not verify ChatGPT.');
+        : (geminiConnected
+          ? `Your Google account${geminiEmail ? ` (${geminiEmail})` : ''} is already verified in Settings. Click Sign in and VERSA CLASS restores that profile in the live Gemini tab — it will not open a guest tab.`
+          : 'Sign in to Google Gemini once. After that Canary stays in the background and VERSA CLASS keeps the login. This does not verify ChatGPT.'));
   }
   if (elements.authOpenButton) {
     elements.authOpenButton.textContent = chatgpt
       ? 'Sign in to ChatGPT'
-      : (meta ? 'Sign in to Meta' : 'Sign in to Gemini');
+      : (meta ? 'Sign in to Meta' : (geminiConnected ? 'Sign in with saved profile' : 'Sign in to Gemini'));
   }
   if (elements.authVerifyButton) {
     elements.authVerifyButton.textContent = chatgpt
@@ -1714,7 +1721,7 @@ function openAuthManager(target = 'gemini') {
       ? 'Sign in to ChatGPT in Google Chrome Canary, then import and verify that session for mockups.'
       : (target === 'meta'
         ? 'Sign in on meta.ai in Google Chrome Canary, then import and verify that session for page images.'
-        : 'Your imported Gemini session is saved. Reopen Google Chrome Canary and import it again whenever needed.'));
+        : 'Your Gemini profile is verified. Click Sign in to restore that Google account in the live tab.'));
   if (!elements.authDialog.open) elements.authDialog.showModal();
 }
 
@@ -1844,7 +1851,7 @@ function renderSettingsConnections() {
   
   elements.settingsChatgptProfile.textContent = connected
     ? (detectedIdentity || 'The Gemini session is valid. Add your preferred name and email above if Gemini does not expose them.')
-    : 'Sign in to Gemini in the Chrome profile above, then verify the local session.';
+    : 'Sign in to Gemini in the Chrome profile above, then verify. After that, Sign in is one click on the saved Google account.';
   const verifiedParts = [
     detected.sourceBrowser && `${detected.sourceBrowser} / ${detected.sourceProfile || 'profile'}`,
     detected.verifiedAt && `verified ${new Date(detected.verifiedAt).toLocaleString()}`
@@ -5034,16 +5041,23 @@ elements.editPageForm.addEventListener('submit', async (event) => {
 elements.authOpenButton.addEventListener('click', async () => {
   const chatgpt = authTarget === 'chatgpt';
   const meta = authTarget === 'meta';
+  const geminiReady = Boolean(state?.integrations?.gemini?.connected);
   elements.authStatusText.textContent = chatgpt
     ? 'Opening ChatGPT in Google Chrome Canary…'
-    : (meta ? 'Opening Meta in Google Chrome Canary…' : 'Opening Gemini in Google Chrome Canary…');
+    : (meta
+      ? 'Opening Meta in Google Chrome Canary…'
+      : (geminiReady
+        ? 'Signing in with the Google account saved in Settings…'
+        : 'Opening Gemini in Google Chrome Canary…'));
   try {
     const result = await invoke(() => openLoginSession({ target: authTarget }), { refresh: false });
     elements.authStatusText.textContent = chatgpt
       ? `${result?.browserLabel || 'Google Chrome Canary'} is ready for ChatGPT sign-in. Finish login, then click Verify ChatGPT. The window hides after that.`
       : (meta
         ? `${result?.browserLabel || 'Google Chrome Canary'} is ready for Meta sign-in. Finish login, then click Verify Meta.`
-        : `${result?.browserLabel || 'Google Chrome Canary'} is ready for Gemini sign-in. Finish login, then click Verify Gemini. The window hides after that.`);
+        : (result?.signedIn
+          ? 'Gemini signed in with your saved Google profile. Click Verify Gemini if the status is not green yet.'
+          : `${result?.browserLabel || 'Google Chrome Canary'} is on Gemini. Click Sign in if the guest page is showing — your saved Google account is already listed.`));
   } catch (error) {
     elements.authStatusText.textContent = `Could not open the browser: ${errorMessage(error)}`;
   }

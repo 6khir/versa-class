@@ -983,11 +983,54 @@ function resolvePixelDimensions(format, orientation) {
   }
 }
 
+const PROMPT_BATCH_SIZE = 50;
+
+function clampPromptPageCount(pageCount, fallback = 20) {
+  const parsed = Number.parseInt(pageCount, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return Math.max(1, Math.min(500, fallback));
+  return Math.max(1, Math.min(500, parsed));
+}
+
+function promptPageBatches(pageCount, batchSize = PROMPT_BATCH_SIZE) {
+  const total = clampPromptPageCount(pageCount);
+  const size = clampPromptPageCount(batchSize, PROMPT_BATCH_SIZE);
+  const batches = [];
+  for (let startPage = 1; startPage <= total; startPage += size) {
+    batches.push({
+      startPage,
+      endPage: Math.min(total, startPage + size - 1)
+    });
+  }
+  return { total, batchSize: size, batches };
+}
+
+function resolvePromptPageRange(pageCount, options = {}) {
+  const total = clampPromptPageCount(pageCount);
+  const startRaw = Number.parseInt(options.startPage, 10);
+  const endRaw = Number.parseInt(options.endPage, 10);
+  const startPage = Number.isFinite(startRaw) && startRaw > 0 ? Math.min(total, startRaw) : 1;
+  const endPage = Number.isFinite(endRaw) && endRaw > 0
+    ? Math.min(total, Math.max(startPage, endRaw))
+    : total;
+  return {
+    total,
+    startPage,
+    endPage,
+    batchCount: endPage - startPage + 1,
+    isPartial: startPage !== 1 || endPage !== total
+  };
+}
+
 function buildPromptsGenerationRequest(pageCount, format, orientation, options = {}) {
-  const count = Math.max(1, Math.min(500, Number.parseInt(pageCount, 10) || 20));
+  const count = clampPromptPageCount(pageCount);
   const pageSizeStr = resolvePixelDimensions(format, orientation);
   const hasCompetitorMockups = Boolean(options.hasCompetitorMockups);
   const visionLines = competitorMockupPromptLines(hasCompetitorMockups);
+  const range = resolvePromptPageRange(count, options);
+  const alreadyHave = Math.max(
+    0,
+    Number.parseInt(options.alreadyHave, 10) || (range.startPage > 1 ? range.startPage - 1 : 0)
+  );
 
   if (count === 1) {
     return [
@@ -1027,24 +1070,50 @@ function buildPromptsGenerationRequest(pageCount, format, orientation, options =
     ].join('\n');
   }
 
+  const batchLines = range.isPartial
+    ? [
+      `THIS BATCH: write pages ${range.startPage}–${range.endPage} only (${range.batchCount} prompts).`,
+      alreadyHave > 0
+        ? `You already wrote pages 1–${alreadyHave}. Do not repeat those pages. Continue from Page ${range.startPage}.`
+        : `Write Page ${range.startPage} through Page ${range.endPage} now. Remaining pages will be requested in later batches.`,
+      ''
+    ]
+    : [];
+  const countDirective = range.isPartial
+    ? `* Create exactly ${range.batchCount} prompts for pages ${range.startPage} through ${range.endPage} of the ${count}-page product. Do not add extra pages beyond page ${range.endPage} in this response.`
+    : `* Create exactly ${count} pages. Do not add extra pages beyond that exact count.`;
+  const distributionDirective = range.isPartial
+    ? `* Keep the product identity consistent with the ${count}-page plan. Never exceed ${range.batchCount} prompts in this batch.`
+    : `* Decide the best distribution of the content across exactly ${count} pages. Never exceed ${count} prompts.`;
+  const exampleCount = Math.min(range.batchCount, 3);
+  const stopLine = range.isPartial
+    ? `Stop after Page ${range.endPage}. Do not rewrite pages before ${range.startPage} and do not continue past page ${range.endPage}.`
+    : (count > 3
+      ? `Continue until you have exactly ${count} pages and then stop. Do not add a cover, activity, or final page beyond page ${count}.`
+      : `Stop after Page ${count}. Do not add a cover, activity, or final page beyond page ${count}.`);
+  const importantLine = range.isPartial
+    ? `Return exactly ${range.batchCount} prompt lines for pages ${range.startPage}–${range.endPage}. Never omit the @image prefix. Each line must contain one complete prompt that can be copied and used independently in an AI image generator. Do not write explanations, introductions, summaries, tables, or additional commentary outside the prompts.`
+    : `Return exactly ${count} prompt lines. Never omit the @image prefix. Each line must contain one complete prompt that can be copied and used independently in an AI image generator. Do not write explanations, introductions, summaries, tables, or additional commentary outside the prompts.`;
+
   return [
     'Using the TPT product idea you created above, turn the concept into a complete page-by-page image prompt plan.',
     '',
     `NUMBER OF PAGES: ${count}`,
     '',
+    ...batchLines,
     `PAGE SIZE: ${pageSizeStr}`,
     '',
     'REQUIREMENTS:',
     '',
     ...visionLines,
-    `* Create exactly ${count} pages. Do not add extra pages beyond that exact count.`,
+    countDirective,
     '* Do not generate images in this step. Return prompt text only.',
     '* Every prompt MUST strictly begin with the prefix "@image " (e.g., "@image A flawless, high-resolution digital illustration of...").',
     '* Never omit the @image prefix. The @image prefix is mandatory to trigger the image tool directly.',
     '* Include the front cover as Page 1 only if it fits inside the exact requested count.',
     '* Include all necessary educational/activity/content pages within the exact requested count.',
     '* Include an appropriate final page only if it still fits inside the exact requested count, such as an answer key, completion page, credits page, or back cover.',
-    `* Decide the best distribution of the content across exactly ${count} pages. Never exceed ${count} prompts.`,
+    distributionDirective,
     '* Every page must have its own complete, standalone image-generation prompt.',
     `* Every prompt must explicitly include the exact requested dimensions: ${pageSizeStr}.`,
     '* Keep the same visual style, illustration style, typography direction, color palette, line style, layout quality, and overall product identity across ALL pages.',
@@ -1072,20 +1141,18 @@ function buildPromptsGenerationRequest(pageCount, format, orientation, options =
     '',
     'Use this exact structure:',
     '',
-    ...Array.from({ length: Math.min(count, 3) }, (_, index) => {
-      const pageNumber = index + 1;
+    ...Array.from({ length: exampleCount }, (_, index) => {
+      const pageNumber = range.startPage + index;
       const label = pageNumber === 1
         ? `Page 1 — Cover: @image [complete visual description including ${pageSizeStr}]`
         : `Page ${pageNumber}: @image [complete visual description including ${pageSizeStr}]`;
       return label;
     }).flatMap((line, index, lines) => (index === lines.length - 1 ? [line] : [line, ''])),
     '',
-    count > 3
-      ? `Continue until you have exactly ${count} pages and then stop. Do not add a cover, activity, or final page beyond page ${count}.`
-      : `Stop after Page ${count}. Do not add a cover, activity, or final page beyond page ${count}.`,
+    stopLine,
     '',
     'IMPORTANT:',
-    `Return exactly ${count} prompt lines. Never omit the @image prefix. Each line must contain one complete prompt that can be copied and used independently in an AI image generator. Do not write explanations, introductions, summaries, tables, or additional commentary outside the prompts.`
+    importantLine
   ].join('\n');
 }
 
@@ -1102,9 +1169,194 @@ function looksLikePageImagePrompt(prompt) {
   return true;
 }
 
-function parseEditablePageBlueprint(rawText, expectedCount = 20) {
+function extractGeneratedPromptLine(line) {
+  let raw = String(line ?? '').trim();
+  if (!raw) return null;
+  let pageNumber = null;
+  const pageMatch = raw.match(/^(?:\*|-|\s)*page\s*(\d+)\s*(?:[—–-]\s*cover)?\s*[:.-]\s*(.*)$/i);
+  if (pageMatch) {
+    pageNumber = Number(pageMatch[1]);
+    raw = pageMatch[2];
+  } else {
+    const promptMatch = raw.match(/^(?:\*|-|\s)*prompt\s*(\d+)\s*[:.-]\s*(.*)$/i);
+    if (promptMatch) {
+      pageNumber = Number(promptMatch[1]);
+      raw = promptMatch[2];
+    }
+  }
+  let result = raw.replace(/^(?:\*|-|\s)*\d+\s*[:.-]\s*/, '');
+  let previous;
+  do {
+    previous = result;
+    result = result
+      .replace(/^(?:\d+|page\s*\d*|prompt\s*\d*|\*|-)+[\s.:#-]+/i, '')
+      .replace(/^"(.*)"$/, '$1')
+      .trim();
+  } while (result !== previous);
+  if (!result) return null;
+  return {
+    pageNumber: Number.isFinite(pageNumber) && pageNumber > 0 ? pageNumber : null,
+    text: result
+  };
+}
+
+function collectGeneratedPromptRecords(rawText, options = {}) {
+  const startRaw = Number.parseInt(options.startPage, 10);
+  const endRaw = Number.parseInt(options.endPage, 10);
+  const hasRange = Number.isFinite(startRaw) && startRaw > 0 && Number.isFinite(endRaw) && endRaw >= startRaw;
+  const rangeStart = hasRange ? startRaw : 1;
+  const rangeEnd = hasRange ? endRaw : Number.POSITIVE_INFINITY;
+  const records = [];
+  const text = String(rawText ?? '').replace(/\r\n/g, '\n');
+  for (const line of text.split('\n')) {
+    const extracted = extractGeneratedPromptLine(line);
+    if (!extracted) continue;
+    const imagePrompt = ensureImagePrefix(extracted.text);
+    if (!looksLikePageImagePrompt(imagePrompt)) continue;
+    records.push({
+      pageNumber: extracted.pageNumber,
+      imagePrompt,
+      textOverlays: []
+    });
+  }
+  const assigned = [];
+  let nextUnlabeled = rangeStart;
+  for (const record of records) {
+    const pageNumber = Number.isFinite(record.pageNumber) ? record.pageNumber : nextUnlabeled;
+    if (pageNumber < rangeStart || pageNumber > rangeEnd) continue;
+    assigned.push({ ...record, pageNumber });
+    if (!Number.isFinite(record.pageNumber)) nextUnlabeled += 1;
+  }
+  const byPage = new Map();
+  for (const record of assigned) {
+    if (!byPage.has(record.pageNumber)) byPage.set(record.pageNumber, record);
+  }
+  return [...byPage.values()].sort((left, right) => left.pageNumber - right.pageNumber);
+}
+
+function estimatePromptProgressFromSample(sample = {}, options = {}) {
+  const startPage = Math.max(1, Number.parseInt(options.startPage, 10) || 1);
+  const endPage = Math.max(startPage, Number.parseInt(options.endPage, 10) || startPage);
+  const expectedCount = Math.max(
+    1,
+    Number.parseInt(options.expectedCount ?? options.batchCount, 10) || (endPage - startPage + 1)
+  );
+  const lastParsedCount = Math.max(0, Number.parseInt(options.lastParsedCount, 10) || 0);
+  const suffix = String(sample.suffix || sample.text || '');
+  const length = Number(sample.length) || suffix.length;
+  let highestPage = 0;
+  for (const match of suffix.matchAll(/Page\s+(\d+)\s*:/gi)) {
+    const pageNumber = Number(match[1]);
+    if (pageNumber >= startPage && pageNumber <= endPage) {
+      highestPage = Math.max(highestPage, pageNumber);
+    }
+  }
+  const fromSuffix = highestPage >= startPage ? highestPage - startPage + 1 : 0;
+  const parsedCount = Math.min(expectedCount, Math.max(lastParsedCount, fromSuffix));
+  return {
+    parsedCount,
+    highestPage: highestPage || (parsedCount ? startPage + parsedCount - 1 : 0),
+    complete: parsedCount >= expectedCount,
+    length
+  };
+}
+
+function inspectGeneratedPromptProgress(rawText, options = {}) {
+  const startPage = Math.max(1, Number.parseInt(options.startPage, 10) || 1);
+  const endPage = Math.max(startPage, Number.parseInt(options.endPage, 10) || startPage);
+  const expectedCount = Math.max(
+    1,
+    Number.parseInt(options.expectedCount ?? options.batchCount, 10) || (endPage - startPage + 1)
+  );
+  try {
+    const parsed = parseGeneratedPrompts(rawText, expectedCount, {
+      startPage,
+      endPage,
+      allowEmpty: true
+    });
+    const pageNumbers = Array.isArray(parsed.pageNumbers)
+      ? parsed.pageNumbers
+      : parsed.map((_, index) => startPage + index);
+    const highestPage = pageNumbers.length ? Math.max(...pageNumbers) : 0;
+    return {
+      parsedCount: parsed.length,
+      pageNumbers,
+      highestPage,
+      complete: parsed.length >= expectedCount
+    };
+  } catch {
+    return {
+      parsedCount: 0,
+      pageNumbers: [],
+      highestPage: 0,
+      complete: false
+    };
+  }
+}
+
+function mergeGeneratedPromptSlots(slots, parsed, { startPage = 1, total = 0 } = {}) {
+  const size = Math.max(
+    Array.isArray(slots) ? slots.length : 0,
+    Number.parseInt(total, 10) || 0,
+    1
+  );
+  const next = Array.isArray(slots) ? slots.slice() : new Array(size).fill(null);
+  while (next.length < size) next.push(null);
+  const items = Array.isArray(parsed) ? parsed : [];
+  const numbers = parsed?.pageNumbers;
+  const pages = Array.isArray(parsed?.pages) ? parsed.pages : null;
+  if (pages?.length) {
+    for (const page of pages) {
+      const pageNumber = Number(page.pageNumber);
+      if (!Number.isFinite(pageNumber) || pageNumber < 1 || pageNumber > next.length) continue;
+      if (!next[pageNumber - 1]) next[pageNumber - 1] = page.imagePrompt || page.prompt;
+    }
+    return next;
+  }
+  items.forEach((prompt, index) => {
+    const pageNumber = Number(numbers?.[index]) || (startPage + index);
+    if (pageNumber < 1 || pageNumber > next.length) return;
+    if (!next[pageNumber - 1]) next[pageNumber - 1] = prompt;
+  });
+  return next;
+}
+
+function densePromptPrefix(slots = []) {
+  const prefix = [];
+  for (const item of slots) {
+    if (!item) break;
+    prefix.push(item);
+  }
+  return prefix;
+}
+
+function buildPromptsContinuationRequest(pageCount, format, orientation, options = {}) {
+  const count = clampPromptPageCount(pageCount);
+  const range = resolvePromptPageRange(count, options);
+  const pageSizeStr = resolvePixelDimensions(format, orientation);
+  const alreadyHave = Math.max(
+    0,
+    Number.parseInt(options.alreadyHave, 10) || Math.max(0, range.startPage - 1)
+  );
+  return [
+    'Continue the same Teachers Pay Teachers page-by-page image prompt plan from this conversation.',
+    `The finished product has exactly ${count} pages.`,
+    alreadyHave > 0 ? `You already wrote pages 1–${alreadyHave}. Do not repeat those pages.` : '',
+    `Write pages ${range.startPage} through ${range.endPage} now (${range.batchCount} prompts). Then stop.`,
+    'Do not generate images. Return prompt text only.',
+    'One prompt per line. Every line MUST start with the page label then @image.',
+    `Use this structure: Page ${range.startPage}: @image [complete visual description including ${pageSizeStr}]`,
+    'Keep the same visual style, dimensions, and original educational content as the earlier pages.',
+    `Return exactly ${range.batchCount} prompt lines and nothing else.`
+  ].filter(Boolean).join('\n');
+}
+
+function parseEditablePageBlueprint(rawText, expectedCount = 20, options = {}) {
   const { normalizeTextOverlays } = require('./text-overlay-layout.cjs');
   expectedCount = Math.max(1, Number.parseInt(expectedCount, 10) || 20);
+  const startRaw = Number.parseInt(options.startPage, 10);
+  const endRaw = Number.parseInt(options.endPage, 10);
+  const hasRange = Number.isFinite(startRaw) && startRaw > 0 && Number.isFinite(endRaw) && endRaw >= startRaw;
   const text = String(rawText ?? '').replace(/\r\n/g, '\n').trim();
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
   const candidates = [
@@ -1126,6 +1378,11 @@ function parseEditablePageBlueprint(rawText, expectedCount = 20) {
         return { pageNumber, imagePrompt, textOverlays };
       }).filter((page) => page.imagePrompt && looksLikePageImagePrompt(page.imagePrompt));
       if (!pages.length) continue;
+      if (hasRange) {
+        const filtered = pages.filter((page) => page.pageNumber >= startRaw && page.pageNumber <= endRaw);
+        if (!filtered.length) continue;
+        return filtered;
+      }
       return pages.slice(0, expectedCount);
     } catch {
       // try next candidate
@@ -1134,44 +1391,36 @@ function parseEditablePageBlueprint(rawText, expectedCount = 20) {
   return null;
 }
 
-function parseGeneratedPrompts(rawText, expectedCount = 20) {
+function parseGeneratedPrompts(rawText, expectedCount = 20, options = {}) {
+  if (expectedCount && typeof expectedCount === 'object') {
+    options = expectedCount;
+    expectedCount = options.expectedCount || options.batchCount || 20;
+  }
   expectedCount = Math.max(1, Number.parseInt(expectedCount, 10) || 20);
-  const blueprint = parseEditablePageBlueprint(rawText, expectedCount);
+  const startRaw = Number.parseInt(options.startPage, 10);
+  const endRaw = Number.parseInt(options.endPage, 10);
+  const hasRange = Number.isFinite(startRaw) && startRaw > 0 && Number.isFinite(endRaw) && endRaw >= startRaw;
+  const allowEmpty = Boolean(options.allowEmpty);
+  const blueprint = parseEditablePageBlueprint(rawText, expectedCount, options);
   if (blueprint?.length) {
-    // Line-compatible list for older callers + full page records on .pages
     const prompts = blueprint.map((page) => page.imagePrompt);
     prompts.pages = blueprint;
     prompts.blueprint = true;
+    prompts.pageNumbers = blueprint.map((page) => page.pageNumber);
     return prompts;
   }
 
-  const text = String(rawText ?? '').replace(/\r\n/g, '\n');
-  const rawLines = text.split('\n').map((line) => line.trim()).filter(Boolean);
-  const cleaned = rawLines.map((line) => {
-    let result = line;
-    // Strip prefixes like "Page 1 — Cover: ", "Page 1 - Cover: ", "Page 2: ", "* Page 3: "
-    result = result.replace(/^(?:\*|-|\s)*page\s*\d+\s*(?:[—–-]\s*cover)?\s*[:.-]\s*/i, '');
-    result = result.replace(/^(?:\*|-|\s)*prompt\s*\d+\s*[:.-]\s*/i, '');
-    result = result.replace(/^(?:\*|-|\s)*\d+\s*[:.-]\s*/i, '');
-
-    let previous;
-    do {
-      previous = result;
-      result = result
-        .replace(/^(?:\d+|page\s*\d*|prompt\s*\d*|\*|-)+[\s.:#-]+/i, '')
-        .replace(/^"(.*)"$/, '$1')
-        .trim();
-    } while (result !== previous);
-    return result;
-  }).filter(Boolean).filter(looksLikePageImagePrompt).map((prompt) => ensureImagePrefix(prompt));
-
-  const finalPrompts = cleaned.slice(0, Math.max(1, expectedCount));
-  if (!finalPrompts.length) {
+  const records = collectGeneratedPromptRecords(rawText, hasRange ? { startPage: startRaw, endPage: endRaw } : {});
+  const limited = hasRange ? records : records.slice(0, expectedCount);
+  const prompts = limited.map((record) => record.imagePrompt);
+  prompts.pageNumbers = limited.map((record) => record.pageNumber);
+  if (!prompts.length) {
+    if (allowEmpty) return prompts;
     throw Object.assign(new Error('The Content Gem returned JSON or commentary instead of page image prompts. Generate prompts again.'), {
       code: 'PROMPTS_NOT_PARSED'
     });
   }
-  return finalPrompts;
+  return prompts;
 }
 
 function buildStorybookPrompt(input) {
@@ -2024,9 +2273,18 @@ module.exports = {
   buildAnalysisPrompt,
   parseAnalysisResponse,
   inferProductFormat,
+  PROMPT_BATCH_SIZE,
+  promptPageBatches,
+  resolvePromptPageRange,
   buildPromptsGenerationRequest,
+  buildPromptsContinuationRequest,
   parseGeneratedPrompts,
   parseEditablePageBlueprint,
+  inspectGeneratedPromptProgress,
+  estimatePromptProgressFromSample,
+  mergeGeneratedPromptSlots,
+  densePromptPrefix,
+  extractGeneratedPromptLine,
   looksLikePageImagePrompt,
   buildBookJobs,
   buildImportedJobs,
