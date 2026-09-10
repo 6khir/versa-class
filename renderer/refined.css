@@ -357,85 +357,191 @@ html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite .ui-header.topba
   border-bottom-color: transparent !important;
 }
 
-/* ========== 4. STUDIO ENGINE PIPELINE RAIL ========== */
-html body.ui-redesign.versa-studio.pro-suite .overview-stage-grid.studio-pipeline-rail {
+/* ========== 4. LIVING EDITABLE PIPELINE RAIL ========== */
+html body.ui-redesign.versa-studio.pro-suite .overview-board {
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--vc-s-4);
-  width: 100%;
-  min-height: 0;
+  padding: 12px 16px 16px;
   overflow: hidden;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .overview-stage-grid.studio-pipeline-rail {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 18px !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  margin: 0 !important;
+  padding: 18px !important;
+  border-radius: 28px !important;
+  border: 1px solid rgba(126, 178, 240, 0.16) !important;
+  background:
+    linear-gradient(165deg, rgba(20, 28, 42, 0.72), rgba(8, 11, 18, 0.55)) !important;
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  box-shadow:
+    0 28px 80px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+  overflow: hidden !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 20px !important;
+  min-height: 0 !important;
+  border-radius: 20px !important;
+  border: 1px solid rgba(126, 178, 240, 0.18) !important;
+  background: linear-gradient(120deg, rgba(78, 169, 240, 0.12), rgba(14, 18, 26, 0.55)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall .product-progress-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .studio-pipeline-rail .overview-stage-overall .overview-stage-label {
+  font-size: 11px !important;
+  letter-spacing: 0.22em !important;
+  text-transform: uppercase !important;
+  color: var(--vc-sky) !important;
+  font-weight: 700 !important;
 }
 
 html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track {
-  display: flex;
+  display: flex !important;
+  flex-direction: row !important;
   align-items: stretch;
   gap: 0;
+  flex: 1 1 auto;
+  min-height: 220px;
   width: 100%;
-  min-height: 0;
   overflow: hidden;
-}
-
-html body.ui-redesign.versa-studio.pro-suite .overview-stage-overall {
-  flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: var(--vc-s-4);
-  padding: var(--vc-s-4) var(--vc-s-5);
-  border-radius: var(--vc-r-lg);
-  background: var(--vc-glass-fill);
-  border: 1px solid var(--vc-glass-brd);
-  backdrop-filter: blur(24px) saturate(150%);
-  -webkit-backdrop-filter: blur(24px) saturate(150%);
 }
 
 html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .overview-stage-card.node {
   position: relative;
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--vc-s-3);
-  padding: var(--vc-s-5);
-  border-radius: var(--vc-r-lg);
-  background: var(--vc-glass-fill-2);
-  backdrop-filter: blur(24px) saturate(150%);
-  -webkit-backdrop-filter: blur(24px) saturate(150%);
-  border: 1px solid var(--vc-glass-brd);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px;
+  padding: 18px 16px 16px !important;
+  border-radius: 22px !important;
+  background: rgba(14, 18, 26, 0.55) !important;
+  border: 1px solid rgba(126, 178, 240, 0.14) !important;
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03) !important;
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
   cursor: pointer;
+  overflow: hidden;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .overview-stage-card.node::after {
+  content: "";
+  position: absolute;
+  inset: auto -20% -40% -20%;
+  height: 55%;
+  background: radial-gradient(circle at 50% 0%, rgba(78, 169, 240, 0.16), transparent 70%);
+  pointer-events: none;
+  opacity: 0.7;
 }
 
 html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .overview-stage-card.node:hover {
-  transform: translateY(-6px);
-  border-color: var(--vc-glass-brd-hi);
+  transform: translateY(-8px);
+  background: rgba(20, 28, 40, 0.72) !important;
+  border-color: rgba(126, 178, 240, 0.34) !important;
 }
 
 html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .n-top {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--vc-s-2);
+  gap: 8px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .n-ico {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: rgba(126, 178, 240, 0.08);
+  border: 1px solid rgba(126, 178, 240, 0.16);
+  color: var(--vc-tx-mid);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .n-ico svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.8;
 }
 
 html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .n-idx {
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   color: var(--vc-tx-lo);
 }
 
 html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .overview-stage-label {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--vc-tx-hi);
-  letter-spacing: -0.02em;
+  position: relative;
+  z-index: 1;
+  font-size: 15px !important;
+  font-weight: 750 !important;
+  color: var(--vc-tx-hi) !important;
+  letter-spacing: -0.02em !important;
+  text-transform: none !important;
 }
 
-html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .stage-meter.n-bar,
-html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .n-bar {
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .stage-state {
+  position: relative;
+  z-index: 1;
+  width: fit-content;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vc-tx-mid);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(126, 178, 240, 0.12);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node strong,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node small {
+  position: relative;
+  z-index: 1;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node strong {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--vc-tx-hi);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node small {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--vc-tx-mid);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .stage-meter.n-bar {
+  position: relative;
+  z-index: 1;
   height: 4px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.06);
@@ -443,7 +549,6 @@ html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .n-bar {
   margin-top: auto;
 }
 
-html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .n-bar i,
 html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .stage-meter i {
   display: block;
   height: 100%;
@@ -451,12 +556,32 @@ html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .stage-meter i
   background: linear-gradient(90deg, var(--vc-sky-bright), var(--vc-royal));
 }
 
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .stage-run-btn {
+  position: relative;
+  z-index: 1;
+  margin-top: 4px;
+  align-self: stretch;
+  min-height: 34px;
+  border-radius: 999px !important;
+  border: 1px solid rgba(126, 178, 240, 0.22) !important;
+  background: rgba(78, 169, 240, 0.08) !important;
+  color: var(--vc-tx-hi) !important;
+  font-size: 12px !important;
+  font-weight: 650 !important;
+  box-shadow: none !important;
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .stage-run-btn:not(:disabled):hover {
+  background: rgba(78, 169, 240, 0.18) !important;
+  border-color: rgba(124, 196, 255, 0.45) !important;
+}
+
 html body.ui-redesign.versa-studio.pro-suite .pipeline-link.link {
-  flex: 0 0 36px;
+  flex: 0 0 22px;
   align-self: center;
   height: 2px;
   position: relative;
-  background: rgba(126, 178, 240, 0.15);
+  background: rgba(126, 178, 240, 0.12);
 }
 
 html body.ui-redesign.versa-studio.pro-suite .pipeline-link.link::after {
@@ -473,38 +598,42 @@ html body.ui-redesign.versa-studio.pro-suite .pipeline-link.link::after {
   100% { background-position: -200% 0; }
 }
 
-html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.done,
-html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-done {
-  border-color: var(--vc-glass-brd-hi);
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.done .n-ico,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-done .n-ico {
+  background: rgba(78, 169, 240, 0.16);
+  color: var(--vc-sky-bright);
+  border-color: rgba(126, 178, 240, 0.32);
 }
 
 html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.active,
 html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-live,
 html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-progress {
-  border-color: var(--vc-sky);
-  box-shadow: var(--vc-glow-sky), 0 18px 44px rgba(0, 0, 0, 0.5);
+  border-color: rgba(78, 169, 240, 0.7) !important;
+  box-shadow: var(--vc-glow-sky), 0 18px 44px rgba(0, 0, 0, 0.45) !important;
 }
 
-html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.active::before,
-html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-live::before {
-  content: "WORKING";
-  position: absolute;
-  top: var(--vc-s-4);
-  right: var(--vc-s-4);
-  font-size: 9px;
-  letter-spacing: 0.16em;
-  font-weight: 700;
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.active .n-ico,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-live .n-ico {
+  background: linear-gradient(135deg, var(--vc-sky-bright), var(--vc-royal));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 0 20px rgba(78, 169, 240, 0.55);
+}
+
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.active .stage-state,
+html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-live .stage-state {
   color: var(--vc-sky-bright);
+  border-color: rgba(78, 169, 240, 0.35);
+  background: rgba(78, 169, 240, 0.12);
 }
 
 html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.pending,
 html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-waiting,
 html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-blocked,
 html body.ui-redesign.versa-studio.pro-suite .pipeline-rail-track .node.is-skipped {
-  opacity: 0.55;
+  opacity: 0.58;
 }
 
-/* Static engine: 5-step rail — drop Editable Lab + its connector */
 html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .overview-stage-card[data-stage="editable"],
 html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .workspace-tab[data-view-target="editable"],
 html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .overview-stage-card[data-stage="editable"],
@@ -514,7 +643,6 @@ html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .pipeline-lin
   display: none !important;
 }
 
-/* Renumber visible indices for static (CSS counters) */
 html body.ui-redesign.versa-studio.pro-suite[data-product-format="static"] .pipeline-rail-track,
 html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .pipeline-rail-track {
   counter-reset: vc-lab;
@@ -535,19 +663,10 @@ html body.ui-redesign.versa-studio.pro-suite[data-engine="static"] .pipeline-rai
   content: counter(vc-lab, decimal-leading-zero);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   color: var(--vc-tx-lo);
 }
 
-/* Right activity column stays status/logs only — Z-stack, no page scroll */
-html body.ui-redesign.versa-studio.pro-suite .activity-rail,
-html body.ui-redesign.versa-studio.pro-suite #activity-panel,
-html body.ui-redesign.versa-studio.pro-suite .studio-right-rail {
-  overflow: hidden;
-  min-height: 0;
-}
-
-/* Inner panes may scroll locally; body/shell never do */
 html body.ui-redesign.versa-studio.pro-suite .workspace-pane,
 html body.ui-redesign.versa-studio.pro-suite #ui-primary-canvas,
 html body.ui-redesign.versa-studio.pro-suite .project-list,

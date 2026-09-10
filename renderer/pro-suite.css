@@ -1081,32 +1081,33 @@ html body.ui-redesign.versa-studio.pro-suite[data-mode="studio"] #progress-perce
 }
 
 html body.ui-redesign.versa-studio.pro-suite .overview-stage-grid {
-  gap: 0 !important;
-  border: 1px solid var(--line) !important;
-  border-radius: 16px !important;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--bg) 45%, var(--s1)) !important;
-  margin: 16px;
-  box-shadow: var(--elevate-1);
+  /* Legacy stacked list retired — living rail owns this surface via refined.css */
+  gap: unset !important;
+  border: none !important;
+  border-radius: unset !important;
+  overflow: visible !important;
+  background: transparent !important;
+  margin: 0 !important;
+  box-shadow: none !important;
 }
 
 html body.ui-redesign.versa-studio.pro-suite .overview-stage-card,
 html body.ui-redesign.versa-studio.pro-suite .overview-stage-overall {
-  background: transparent !important;
-  border: 0 !important;
-  border-bottom: 1px solid var(--line) !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  min-height: 56px;
-  padding: 14px 16px !important;
+  background: unset !important;
+  border: unset !important;
+  border-bottom: unset !important;
+  border-radius: unset !important;
+  box-shadow: unset !important;
+  min-height: unset;
+  padding: unset !important;
 }
 
 html body.ui-redesign.versa-studio.pro-suite .overview-stage-card:last-child {
-  border-bottom: 0 !important;
+  border-bottom: unset !important;
 }
 
 html body.ui-redesign.versa-studio.pro-suite .overview-stage-card:hover {
-  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+  background: unset !important;
 }
 
 html body.ui-redesign.versa-studio.pro-suite[data-layer="spine"] .stage-run-btn,
