@@ -315,11 +315,11 @@
   const STAGE_NAMES = {
     overview: 'Overview',
     characters: 'Characters',
-    interior: 'Interior',
-    editable: 'Canva',
-    listing: 'SEO',
-    thumbnails: 'Thumbnails',
-    preview: 'Preview',
+    interior: 'Pages Lab',
+    editable: 'Editable Lab',
+    listing: 'Text Lab',
+    thumbnails: 'Mockups Lab',
+    preview: 'Preview Lab',
     export: 'Export'
   };
 

@@ -341,12 +341,12 @@
             <div id="project-standard-view">
               <nav class="project-workspace-nav" aria-label="Project journey">
                 <button class="workspace-tab is-active" data-action="select-workspace-view" data-view-target="overview" type="button">Overview</button>
-                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="interior" type="button">Interior <i class="tab-mark" data-tab-mark="interior"></i></button>
-                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="editable" type="button">Editable PPT <i class="tab-mark" data-tab-mark="editable"></i></button>
-                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="thumbnails" type="button">Thumbnails <i class="tab-mark" data-tab-mark="thumbnails"></i></button>
-                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="preview" type="button">Preview <i class="tab-mark" data-tab-mark="preview"></i></button>
+                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="interior" type="button">Pages Lab <i class="tab-mark" data-tab-mark="interior"></i></button>
+                <button class="workspace-tab text-lab-only" data-action="select-workspace-view" data-view-target="listing" type="button">Text Lab <i class="tab-mark" data-tab-mark="listing"></i></button>
+                <button class="workspace-tab editable-only" data-action="select-workspace-view" data-view-target="editable" type="button">Editable Lab <i class="tab-mark" data-tab-mark="editable"></i></button>
+                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="thumbnails" type="button">Mockups Lab <i class="tab-mark" data-tab-mark="thumbnails"></i></button>
+                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="preview" type="button">Preview Lab <i class="tab-mark" data-tab-mark="preview"></i></button>
                 <button class="workspace-tab" data-action="select-workspace-view" data-view-target="export" type="button">Export <i class="tab-mark" data-tab-mark="export"></i></button>
-                <button class="workspace-tab" data-action="select-workspace-view" data-view-target="listing" type="button">SEO <i class="tab-mark" data-tab-mark="listing"></i></button>
               </nav>
 
               <header class="studio-scale-page" id="studio-scale-page">
@@ -408,11 +408,11 @@
                 </div>
               </section>
 
-              <div class="studio-now-column">
+              <div class="studio-now-column" id="studio-activity-rail">
               <section class="live-dock glass-panel" id="live-dock">
                 <div class="progress-header">
                   <div>
-                    <span class="eyebrow">Now</span>
+                    <span class="eyebrow">Status</span>
                     <strong id="current-job-label">Ready</strong>
                   </div>
                   <div class="live-dock-aside">
@@ -430,13 +430,14 @@
                 <p id="heartbeat-text" class="muted"></p>
               </section>
 
-              <div class="logs-panel glass-panel studio-now-log">
-                  <div class="section-header compact">
+              <div class="logs-panel glass-panel studio-now-log apple-notify-stack">
+                  <div class="section-header compact apple-notify-head">
                     <div>
-                    <p class="eyebrow">Activity</p>
+                    <p class="eyebrow">Notifications</p>
+                    <strong class="apple-notify-title">Activity</strong>
                     </div>
                   </div>
-                  <div id="event-log" class="event-log"></div>
+                  <div id="event-log" class="event-log apple-notify-list"></div>
               </div>
               </div>
 
@@ -479,7 +480,7 @@
 
                 <div class="pipeline-link link" aria-hidden="true"></div>
 
-                <article class="overview-stage-card node" data-stage="listing" data-action="select-workspace-view" data-view-target="listing" role="listitem">
+                <article class="overview-stage-card node text-lab-only" data-stage="listing" data-action="select-workspace-view" data-view-target="listing" role="listitem">
                   <div class="n-top">
                     <span class="n-ico" aria-hidden="true">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
@@ -494,9 +495,9 @@
                   <button class="stage-run-btn" data-action="run-stage" data-stage="listing" type="button">Start SEO</button>
                 </article>
 
-                <div class="pipeline-link link" aria-hidden="true"></div>
+                <div class="pipeline-link link text-lab-only" aria-hidden="true"></div>
 
-                <article class="overview-stage-card node" data-stage="editable" data-action="select-workspace-view" data-view-target="editable" role="listitem">
+                <article class="overview-stage-card node editable-only" data-stage="editable" data-action="select-workspace-view" data-view-target="editable" role="listitem">
                   <div class="n-top">
                     <span class="n-ico" aria-hidden="true">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
