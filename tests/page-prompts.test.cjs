@@ -8,6 +8,7 @@ const {
   promptPageBatches,
   PROMPT_BATCH_SIZE,
   inspectGeneratedPromptProgress,
+  estimatePromptProgressFromSample,
   mergeGeneratedPromptSlots
 } = require('../src/prompt-builder.cjs');
 
@@ -90,5 +91,15 @@ test('inspect and merge recover a truncated 21-page Gemini draft into later batc
   const slots = mergeGeneratedPromptSlots(new Array(50).fill(null), parseGeneratedPrompts(draft, 50, { startPage: 1, endPage: 50 }), { startPage: 1, total: 50 });
   assert.equal(slots.filter(Boolean).length, 21);
   assert.equal(slots[0] && slots[20] && !slots[21], true);
+});
+
+test('suffix samples estimate the current page without parsing the whole draft', () => {
+  const progress = estimatePromptProgressFromSample(
+    { suffix: 'Page 261: @image A cute cartoon lizard. Clear traceable fonts.\n', length: 180_000 },
+    { startPage: 251, endPage: 300, expectedCount: 50, lastParsedCount: 8 }
+  );
+  assert.equal(progress.parsedCount, 11);
+  assert.equal(progress.highestPage, 261);
+  assert.equal(progress.complete, false);
 });
 

@@ -208,6 +208,31 @@ function applyActiveEngineToBrowser() {
   if (browser && typeof browser.setEngine === 'function') {
     browser.setEngine(getActiveEngine());
   }
+  syncBrowserVerifiedAccounts();
+}
+
+function syncBrowserVerifiedAccounts() {
+  if (!browser || typeof browser.setVerifiedAccounts !== 'function' || !store) return;
+  const gemini = store.getSetting('geminiAccountProfile', null) || {};
+  const chatgpt = store.getSetting('chatgptAccountProfile', null) || {};
+  const meta = store.getSetting('metaAccountProfile', null) || {};
+  browser.setVerifiedAccounts({
+    gemini: {
+      confirmed: Boolean(store.getSetting('geminiLoginConfirmed', false)),
+      email: gemini.email || '',
+      name: gemini.name || ''
+    },
+    chatgpt: {
+      confirmed: Boolean(store.getSetting('chatgptLoginConfirmed', false)),
+      email: chatgpt.email || '',
+      name: chatgpt.name || ''
+    },
+    meta: {
+      confirmed: Boolean(store.getSetting('metaLoginConfirmed', false)),
+      email: meta.email || '',
+      name: meta.name || ''
+    }
+  });
 }
 
 function restoreSavedServiceLogins() {
@@ -249,6 +274,7 @@ function requireGeminiForPreview(actionLabel) {
 }
 
 function requireGeminiForPlanning(actionLabel) {
+  syncBrowserVerifiedAccounts();
   if (isEngineConfirmed('gemini')) return 'gemini';
   throw Object.assign(
     new Error(`Connect Gemini before ${actionLabel}. Gemini always writes analysis, blueprints, and prompts. ChatGPT and Meta stay signed in and unused for this stage.`),

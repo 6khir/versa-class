@@ -43,3 +43,25 @@ test('main keeps parsed batch prompts instead of re-slicing a truncated transcri
   assert.match(mainSource, /Array\.isArray\(result\.prompts\) && result\.prompts\.length/);
   assert.match(mainSource, /Content Gem prompt batch: pages/);
 });
+
+test('Gemini waits sample length and suffix instead of re-parsing the full transcript every poll', () => {
+  assert.match(browserSource, /estimatePromptProgressFromSample/);
+  assert.match(browserSource, /shouldReadFullGeminiTranscript/);
+  assert.match(browserSource, /fullText: Boolean\(wantFull\)/);
+  assert.match(browserSource, /BLOCKER_CHECK_MS/);
+  assert.match(browserSource, /#persistLoginStateThrottled/);
+});
+
+test('the controller reuses a signed-in Gemini tab and one-click restores the saved Google profile', () => {
+  assert.match(browserSource, /#ensureGeminiSession/);
+  assert.match(browserSource, /#preferExistingGeminiPage/);
+  assert.match(browserSource, /#clickVisibleGeminiSignIn/);
+  assert.match(browserSource, /#clickSavedGoogleAccount/);
+  assert.match(browserSource, /setVerifiedAccounts/);
+  assert.match(browserSource, /fresh: false, url: conversationUrl/);
+  assert.match(browserSource, /force: true, reason: 'sign-in-click'/);
+  assert.doesNotMatch(
+    browserSource,
+    /else if \(conversationUrl\) \{\s*page = await this\.#jobPage\(jobId, \{ fresh: true, url: conversationUrl \}\);/
+  );
+});

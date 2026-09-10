@@ -1234,6 +1234,33 @@ function collectGeneratedPromptRecords(rawText, options = {}) {
   return [...byPage.values()].sort((left, right) => left.pageNumber - right.pageNumber);
 }
 
+function estimatePromptProgressFromSample(sample = {}, options = {}) {
+  const startPage = Math.max(1, Number.parseInt(options.startPage, 10) || 1);
+  const endPage = Math.max(startPage, Number.parseInt(options.endPage, 10) || startPage);
+  const expectedCount = Math.max(
+    1,
+    Number.parseInt(options.expectedCount ?? options.batchCount, 10) || (endPage - startPage + 1)
+  );
+  const lastParsedCount = Math.max(0, Number.parseInt(options.lastParsedCount, 10) || 0);
+  const suffix = String(sample.suffix || sample.text || '');
+  const length = Number(sample.length) || suffix.length;
+  let highestPage = 0;
+  for (const match of suffix.matchAll(/Page\s+(\d+)\s*:/gi)) {
+    const pageNumber = Number(match[1]);
+    if (pageNumber >= startPage && pageNumber <= endPage) {
+      highestPage = Math.max(highestPage, pageNumber);
+    }
+  }
+  const fromSuffix = highestPage >= startPage ? highestPage - startPage + 1 : 0;
+  const parsedCount = Math.min(expectedCount, Math.max(lastParsedCount, fromSuffix));
+  return {
+    parsedCount,
+    highestPage: highestPage || (parsedCount ? startPage + parsedCount - 1 : 0),
+    complete: parsedCount >= expectedCount,
+    length
+  };
+}
+
 function inspectGeneratedPromptProgress(rawText, options = {}) {
   const startPage = Math.max(1, Number.parseInt(options.startPage, 10) || 1);
   const endPage = Math.max(startPage, Number.parseInt(options.endPage, 10) || startPage);
@@ -2254,6 +2281,7 @@ module.exports = {
   parseGeneratedPrompts,
   parseEditablePageBlueprint,
   inspectGeneratedPromptProgress,
+  estimatePromptProgressFromSample,
   mergeGeneratedPromptSlots,
   densePromptPrefix,
   extractGeneratedPromptLine,

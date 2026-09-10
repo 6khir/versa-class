@@ -7,6 +7,11 @@ const PARTIAL_LAG_ACCEPT_MS = 40_000;
 const EMPTY_LAG_SHRINK_MS = 55_000;
 const EMPTY_WAIT_MS = 45_000;
 const MIN_PROMPT_BATCH_SIZE = 10;
+const DRAFTING_POLL_MS = 700;
+const WAITING_POLL_MS = 500;
+const LAGGING_POLL_MS = 800;
+const BLOCKER_CHECK_MS = 4_000;
+const FULL_TEXT_STALL_MS = 8_000;
 
 const GEMINI_TEXT_PHASE = {
   WAITING: 'waiting',
@@ -18,8 +23,24 @@ const GEMINI_TEXT_PHASE = {
   FAILED: 'failed'
 };
 
-function textGrew(text, previousText) {
+function sampleLength(sample = {}, fallbackText = '') {
+  const length = Number(sample.textLength);
+  if (Number.isFinite(length) && length >= 0) return length;
+  return String(fallbackText || sample.text || '').length;
+}
+
+function textGrew(text, previousText, sample = {}) {
+  if (sample && (Number.isFinite(Number(sample.textLength)) || Number.isFinite(Number(sample.previousLength)))) {
+    return sampleLength(sample, text) > sampleLength({ textLength: sample.previousLength }, previousText);
+  }
   return String(text || '').length > String(previousText || '').length;
+}
+
+function shouldReadFullGeminiTranscript(sample = {}) {
+  if (!sample.inProgress) return true;
+  if (sample.collapsedVisible) return true;
+  const sinceGrowth = Math.max(0, Number(sample.sinceGrowth) || 0);
+  return sinceGrowth >= FULL_TEXT_STALL_MS;
 }
 
 function looksLikeRefusal(text) {
@@ -41,8 +62,8 @@ function classifyGeminiTextObservation(sample = {}) {
   const lastGrowthAt = Number(sample.lastGrowthAt) || 0;
   const elapsed = Math.max(0, now - startedAt);
   const sinceGrowth = lastGrowthAt ? Math.max(0, now - lastGrowthAt) : elapsed;
-  const grew = textGrew(text, previousText);
-  const hasText = text.trim().length > 0;
+  const grew = textGrew(text, previousText, sample);
+  const hasText = sampleLength(sample, text) > 0 || text.trim().length > 0;
   const enough = expectedCount > 0 ? parsedCount >= expectedCount : hasText;
   const short = expectedCount > 0 && parsedCount > 0 && parsedCount < expectedCount;
 
@@ -105,13 +126,13 @@ function decideGeminiTextAction(observation = {}, options = {}) {
   if (phase === GEMINI_TEXT_PHASE.DRAFTING || phase === GEMINI_TEXT_PHASE.WAITING) {
     return {
       action: 'wait',
-      pollMs: phase === GEMINI_TEXT_PHASE.DRAFTING ? 150 : 300,
+      pollMs: phase === GEMINI_TEXT_PHASE.DRAFTING ? DRAFTING_POLL_MS : WAITING_POLL_MS,
       reason: observation.reason || phase
     };
   }
 
   if (phase === GEMINI_TEXT_PHASE.COLLAPSED) {
-    return { action: 'expand', pollMs: 200, reason: observation.reason };
+    return { action: 'expand', pollMs: 280, reason: observation.reason };
   }
 
   if (phase === GEMINI_TEXT_PHASE.FINISHED) {
@@ -137,7 +158,7 @@ function decideGeminiTextAction(observation = {}, options = {}) {
         reason: 'heavy-request-no-draft'
       };
     }
-    return { action: 'wait', pollMs: 400, reason: observation.reason || 'lag-keep-waiting' };
+    return { action: 'wait', pollMs: LAGGING_POLL_MS, reason: observation.reason || 'lag-keep-waiting' };
   }
 
   if (phase === GEMINI_TEXT_PHASE.FAILED) {
@@ -153,7 +174,7 @@ function decideGeminiTextAction(observation = {}, options = {}) {
     return { action: 'retry', pollMs: 0, reason: observation.reason || 'failed' };
   }
 
-  return { action: 'wait', pollMs: 300, reason: 'default-wait' };
+  return { action: 'wait', pollMs: WAITING_POLL_MS, reason: 'default-wait' };
 }
 
 module.exports = {
@@ -165,8 +186,15 @@ module.exports = {
   EMPTY_LAG_SHRINK_MS,
   EMPTY_WAIT_MS,
   MIN_PROMPT_BATCH_SIZE,
+  DRAFTING_POLL_MS,
+  WAITING_POLL_MS,
+  LAGGING_POLL_MS,
+  BLOCKER_CHECK_MS,
+  FULL_TEXT_STALL_MS,
   textGrew,
+  sampleLength,
   looksLikeRefusal,
+  shouldReadFullGeminiTranscript,
   classifyGeminiTextObservation,
   decideGeminiTextAction,
   nextPromptBatchSize

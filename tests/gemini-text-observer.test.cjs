@@ -9,7 +9,8 @@ const {
   PARTIAL_LAG_ACCEPT_MS,
   classifyGeminiTextObservation,
   decideGeminiTextAction,
-  nextPromptBatchSize
+  nextPromptBatchSize,
+  shouldReadFullGeminiTranscript
 } = require('../src/gemini-text-observer.cjs');
 
 const now = 1_000_000;
@@ -28,7 +29,7 @@ test('Gemini still drafting while the stop button is up and text is growing', ()
   assert.equal(observation.phase, GEMINI_TEXT_PHASE.DRAFTING);
   const decision = decideGeminiTextAction(observation, { batchSize: 50 });
   assert.equal(decision.action, 'wait');
-  assert.equal(decision.pollMs, 150);
+  assert.equal(decision.pollMs, 700);
 });
 
 test('Gemini lag on a heavy request is distinct from a finished draft', () => {
@@ -130,4 +131,28 @@ test('batch size halves until the 10-page floor', () => {
   assert.equal(nextPromptBatchSize(25), 13);
   assert.equal(nextPromptBatchSize(13), 10);
   assert.equal(nextPromptBatchSize(10), 10);
+});
+
+test('drafting growth can be detected from length without re-reading the full transcript', () => {
+  const observation = classifyGeminiTextObservation({
+    inProgress: true,
+    text: 'Page 40: @image …',
+    previousText: 'Page 40: @image …',
+    textLength: 48_000,
+    previousLength: 40_000,
+    expectedCount: 50,
+    parsedCount: 12,
+    now,
+    startedAt: now - 20_000,
+    lastGrowthAt: now
+  });
+  assert.equal(observation.phase, GEMINI_TEXT_PHASE.DRAFTING);
+  assert.equal(observation.grew, true);
+});
+
+test('full transcript reads wait until Gemini is idle or the draft stalls', () => {
+  assert.equal(shouldReadFullGeminiTranscript({ inProgress: true, sinceGrowth: 1_000 }), false);
+  assert.equal(shouldReadFullGeminiTranscript({ inProgress: true, sinceGrowth: 9_000 }), true);
+  assert.equal(shouldReadFullGeminiTranscript({ inProgress: false }), true);
+  assert.equal(shouldReadFullGeminiTranscript({ inProgress: true, collapsedVisible: true }), true);
 });

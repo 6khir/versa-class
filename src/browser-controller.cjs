@@ -27,6 +27,7 @@ const {
   buildPromptsContinuationRequest,
   parseGeneratedPrompts,
   inspectGeneratedPromptProgress,
+  estimatePromptProgressFromSample,
   mergeGeneratedPromptSlots,
   densePromptPrefix,
   PROMPT_BATCH_SIZE,
@@ -36,7 +37,21 @@ const {
   buildTptThumbnailRetryPrompt,
   buildTptPreviewVideoPrompt
 } = require('./prompt-builder.cjs');
-const { classifyGeminiTextObservation, decideGeminiTextAction, nextPromptBatchSize, GEMINI_TEXT_PHASE } = require('./gemini-text-observer.cjs');
+const {
+  classifyGeminiTextObservation,
+  decideGeminiTextAction,
+  nextPromptBatchSize,
+  GEMINI_TEXT_PHASE,
+  shouldReadFullGeminiTranscript,
+  BLOCKER_CHECK_MS
+} = require('./gemini-text-observer.cjs');
+const {
+  classifyGeminiTabSession,
+  shouldOneClickGeminiSignIn,
+  pickPreferredGeminiPage,
+  googleAccountLocatorHints,
+  isGoogleAccountChooserNoise
+} = require('./gemini-session.cjs');
 const {
   CHATGPT_URL,
   GEMINI_URL,
@@ -2226,6 +2241,28 @@ class BrowserController extends EventEmitter {
     this._parking = false;
     this._returnedAppFocus = false;
     this._watchersBound = null;
+    this.verifiedAccounts = {
+      gemini: { confirmed: false, email: '', name: '' },
+      chatgpt: { confirmed: false, email: '', name: '' },
+      meta: { confirmed: false, email: '', name: '' }
+    };
+    this._lastLoginPersistAt = new Map();
+    this._geminiRestoreFailedAt = 0;
+    this._geminiAutoSignInBusy = false;
+  }
+
+  setVerifiedAccounts(accounts = {}) {
+    const next = { ...this.verifiedAccounts };
+    for (const key of ['gemini', 'chatgpt', 'meta']) {
+      if (!accounts[key] || typeof accounts[key] !== 'object') continue;
+      next[key] = {
+        confirmed: Boolean(accounts[key].confirmed),
+        email: String(accounts[key].email || ''),
+        name: String(accounts[key].name || '')
+      };
+    }
+    this.verifiedAccounts = next;
+    return this.verifiedAccounts;
   }
 
   setEngine(engine) {
@@ -2262,9 +2299,16 @@ class BrowserController extends EventEmitter {
       if (!Array.isArray(state?.cookies) || !state.cookies.length) return;
       mkdirSync(join(this.profileDir, 'saved-logins'), { recursive: true });
       writeFileSync(savedLoginStatePath(this.profileDir, engine), JSON.stringify(state));
+      this._lastLoginPersistAt.set(engine, Date.now());
     } catch {
       // Cookie snapshot is best-effort; the persistent Chrome profile is the source of truth.
     }
+  }
+
+  async #persistLoginStateThrottled(engine, minMs = 60_000) {
+    const last = this._lastLoginPersistAt.get(engine) || 0;
+    if (Date.now() - last < Math.max(5_000, Number(minMs) || 60_000)) return;
+    await this.#persistLoginState(engine);
   }
 
   async #restorePersistedLoginCookies() {
@@ -2602,15 +2646,25 @@ class BrowserController extends EventEmitter {
     this.browserLabel = candidate.label;
     this.canvaBackgroundLock = false;
     this.#loginProgress('opening_window', `Opening ${canva ? 'Canva' : this.#serviceName()} for sign-in…`);
+    let signedIn = false;
     try {
       await this.launch({ interactive: true, forceBrowser: true, skipHome: true });
-      await this.#openVerifyPage(engine);
+      const page = await this.#openVerifyPage(engine);
+      if (engine === 'gemini') {
+        const restored = await this.#ensureGeminiSession(page, { force: true, reason: 'sign-in-click' });
+        signedIn = Boolean(restored.signedIn);
+        if (signedIn) {
+          this.#loginProgress('signed_in', 'Gemini signed in with the Google account saved in Settings.');
+        } else {
+          this.#loginProgress('awaiting_click', 'Gemini is open on your saved profile. The Sign in control should restore that Google account with one click.');
+        }
+      }
     } finally {
       this.loginPending = false;
     }
     const status = await this.status();
     this.emit('status', status);
-    return status;
+    return { ...status, signedIn, oneClick: signedIn };
   }
 
   async closeLoginBrowser() {
@@ -2870,12 +2924,39 @@ class BrowserController extends EventEmitter {
   }
 
   #firstLivePage() {
-    const pages = (this.context?.pages() || []).filter((item) => item && !item.isClosed());
+    const pages = this.#livePages();
+    if (this.engine === 'gemini') {
+      const gemini = pages.find((item) => isGeminiPageUrl(item.url()) && !isRetiredGeminiGemUrl(item.url()));
+      if (gemini) return gemini;
+    }
     if (this.page && !this.page.isClosed()) return this.page;
     return pages.find((item) => item.url() === 'about:blank') || pages[0] || null;
   }
 
+  #livePages() {
+    return (this.context?.pages() || []).filter((item) => item && !item.isClosed());
+  }
+
+  async #preferExistingGeminiPage() {
+    const snapshots = [];
+    for (const page of this.#livePages()) {
+      const url = page.url();
+      const isGemini = isGeminiPageUrl(url) && !isRetiredGeminiGemUrl(url);
+      const signedIn = isGemini ? await this.#geminiLooksSignedIn(page) : false;
+      snapshots.push({ page, url, isGemini, signedIn });
+    }
+    return pickPreferredGeminiPage(snapshots)?.page || null;
+  }
+
   async #ensureBackgroundPage() {
+    if (this.engine === 'gemini') {
+      const preferred = await this.#preferExistingGeminiPage();
+      if (preferred) {
+        this.page = preferred;
+        this.#silencePageActivation(preferred);
+        return preferred;
+      }
+    }
     const existing = this.#firstLivePage();
     if (existing) {
       this.page = this.page && !this.page.isClosed() ? this.page : existing;
@@ -3027,7 +3108,13 @@ class BrowserController extends EventEmitter {
   }
 
   async #freshEnginePage() {
-    const pages = (this.context?.pages() || []).filter((item) => item && !item.isClosed());
+    if (this.engine === 'gemini') {
+      const existing = await this.#preferExistingGeminiPage();
+      if (existing) return existing;
+      const gemini = this.#livePages().find((item) => isGeminiPageUrl(item.url()));
+      if (gemini) return gemini;
+    }
+    const pages = this.#livePages();
     const blank = pages.find((item) => {
       const url = String(item.url() || '');
       return url === 'about:blank' || url === 'chrome://newtab/' || url === 'chrome://new-tab-page/';
@@ -3037,17 +3124,36 @@ class BrowserController extends EventEmitter {
   }
 
   async #findOrCreateChatPage() {
-    const pages = this.context.pages();
     const home = this.engine === 'gemini' ? CONTENT_GEM_URL : this.#engineHome();
     const matchesEngine = (url) => {
       if (this.engine === 'gemini') return isGeminiPageUrl(url) && !isRetiredGeminiGemUrl(url);
       if (this.engine === 'meta') return isMetaPageUrl(url);
       return isChatGptPageUrl(url);
     };
-    let page = pages.find((item) => matchesEngine(item.url()));
+    let page = this.engine === 'gemini'
+      ? await this.#preferExistingGeminiPage()
+      : this.context.pages().find((item) => matchesEngine(item.url()));
     if (!page) {
-      page = pages.find((item) => this.engine === 'gemini' && isGeminiPageUrl(item.url()))
+      page = this.#livePages().find((item) => this.engine === 'gemini' && isGeminiPageUrl(item.url()))
         || await this.#freshEnginePage();
+    }
+    this.page = page;
+    if (this.engine === 'gemini') {
+      if (!matchesEngine(page.url()) && !isServiceSignInUrl(page.url(), 'gemini')) {
+        try {
+          await page.goto(home, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+        } catch (error) {
+          if (matchesEngine(page.url()) || isServiceSignInUrl(page.url(), 'gemini')) {
+            await this.#ensureGeminiSession(page);
+            return page;
+          }
+          throw error;
+        }
+      }
+      await this.#ensureGeminiSession(page);
+      await this.#ensureLiveGeminiStudio(page, home);
+      await this.#afterNavigate(page);
+      return page;
     }
     if (!matchesEngine(page.url())) {
       try {
@@ -3057,7 +3163,6 @@ class BrowserController extends EventEmitter {
         throw error;
       }
     }
-    if (this.engine === 'gemini') await this.#ensureLiveGeminiStudio(page, home);
     await this.#afterNavigate(page);
     return page;
   }
@@ -4029,17 +4134,32 @@ class BrowserController extends EventEmitter {
     const target = url && isMetaLocalUrl(url) ? META_URL : url;
     await this.launch({ headless: true });
     const existing = this.jobPages.get(jobId);
-    if (existing && !existing.isClosed() && !fresh) return existing;
+    if (this.engine !== 'gemini' && existing && !existing.isClosed() && !fresh) return existing;
     const reusedExisting = Boolean(existing && !existing.isClosed());
-    const page = (existing && !existing.isClosed() ? existing : null) || await this.#ensureBackgroundPage();
+    let page = reusedExisting ? existing : null;
+    if (this.engine === 'gemini') {
+      const preferred = await this.#preferExistingGeminiPage();
+      if (preferred) page = preferred;
+    }
+    if (!page) page = await this.#ensureBackgroundPage();
     this.jobPages.set(jobId, page);
     this.page = this.page && !this.page.isClosed() ? this.page : page;
     await this.#afterNavigate(page);
+    if (this.engine === 'gemini') await this.#ensureGeminiSession(page);
     const beforeUrl = page.url();
     const targetUrl = target || (this.engine === 'gemini' ? CONTENT_GEM_URL : this.#engineHome());
-    const willNavigate = jobPageNeedsNavigation(page.url(), targetUrl, fresh) || isRetiredGeminiGemUrl(page.url());
+    const alreadyOnTarget = !jobPageNeedsNavigation(page.url(), targetUrl, false);
+    const stayOnSignedInGemini = this.engine === 'gemini'
+      && alreadyOnTarget
+      && await this.#geminiLooksSignedIn(page);
+    const willNavigate = !stayOnSignedInGemini
+      && (
+        jobPageNeedsNavigation(page.url(), targetUrl, this.engine === 'gemini' ? false : fresh)
+        || isRetiredGeminiGemUrl(page.url())
+      );
     if (willNavigate) {
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
+      if (this.engine === 'gemini') await this.#ensureGeminiSession(page);
     }
     if (this.engine === 'gemini') await this.#ensureLiveGeminiStudio(page, targetUrl);
     await this.#afterNavigate(page);
@@ -4315,29 +4435,103 @@ class BrowserController extends EventEmitter {
     }).catch(() => 0);
   }
 
-  async #observeGeminiAssistant(baselineCount, page = null) {
+  async #observeGeminiAssistant(baselineCount, page = null, options = {}) {
     page ??= await this.ensurePage();
     const kind = this.#pageKind(page);
-    const stopButton = await this.#findVisible(this.#stopSelectors(page), 80, page);
-    const busySelectors = kind === 'gemini' ? GEMINI_BUSY_SELECTORS : (kind === 'meta' ? META_BUSY_SELECTORS : []);
-    const busyVisible = busySelectors.length
-      ? await page.locator(busySelectors.join(', ')).first().isVisible().catch(() => false)
-      : false;
-    const collapsedVisible = kind === 'gemini' ? await this.#collapsedAssistantVisible(page) : false;
-    const text = await this.#newAssistantText(baselineCount, page);
-    const progressText = kind === 'gemini'
-      ? await page.locator(GEMINI_ASSISTANT_TEXT_SELECTOR).last().evaluate((element) => String(element.textContent || '')).catch(() => '')
-      : text;
-    const inProgress = Boolean(stopButton)
-      || Boolean(busyVisible)
-      || GENERATION_PROGRESS_PATTERNS.some((pattern) => pattern.test(progressText || text));
-    return {
-      inProgress,
-      stopVisible: Boolean(stopButton),
-      busyVisible: Boolean(busyVisible),
-      collapsedVisible: Boolean(collapsedVisible),
-      text: String(text || '')
-    };
+    if (kind !== 'gemini') {
+      const stopButton = await this.#findVisible(this.#stopSelectors(page), 80, page);
+      const busySelectors = kind === 'meta' ? META_BUSY_SELECTORS : [];
+      const busyVisible = busySelectors.length
+        ? await page.locator(busySelectors.join(', ')).first().isVisible().catch(() => false)
+        : false;
+      const text = await this.#newAssistantText(baselineCount, page);
+      return {
+        inProgress: Boolean(stopButton) || Boolean(busyVisible),
+        stopVisible: Boolean(stopButton),
+        busyVisible: Boolean(busyVisible),
+        collapsedVisible: false,
+        text: String(text || ''),
+        length: String(text || '').length,
+        suffix: String(text || '').slice(-1200)
+      };
+    }
+    const wantFull = Boolean(options.fullText);
+    const wantCollapsed = Boolean(options.checkCollapsed);
+    return page.evaluate(({
+      stopSelectors,
+      busySelectors,
+      messageSelector,
+      textSelector,
+      baselineCount,
+      wantFull,
+      wantCollapsed
+    }) => {
+      const visible = (element) => {
+        if (!element) return false;
+        const style = getComputedStyle(element);
+        const box = element.getBoundingClientRect();
+        return box.width > 1 && box.height > 1 && style.visibility !== 'hidden' && style.display !== 'none';
+      };
+      const firstVisible = (selectors) => {
+        for (const selector of selectors) {
+          const matches = document.querySelectorAll(selector);
+          for (const element of matches) {
+            if (visible(element)) return true;
+          }
+        }
+        return false;
+      };
+      const stopVisible = firstVisible(stopSelectors);
+      const busyVisible = firstVisible(busySelectors);
+      const messages = document.querySelectorAll(messageSelector);
+      const count = messages.length;
+      let text = '';
+      let length = 0;
+      let suffix = '';
+      if (count > baselineCount) {
+        const textNodes = document.querySelectorAll(textSelector);
+        const last = textNodes[textNodes.length - 1] || messages[messages.length - 1];
+        const raw = String(last?.textContent || '');
+        length = raw.length;
+        suffix = raw.slice(-1200);
+        text = wantFull ? raw : suffix;
+      }
+      let collapsedVisible = false;
+      if (wantCollapsed) {
+        const labels = /show more|see more|view more|show full|expand/i;
+        const root = document.querySelector('model-response:last-of-type, response-container:last-of-type') || document;
+        collapsedVisible = [...root.querySelectorAll('button, [role="button"], a')].some((element) => {
+          const label = `${element.getAttribute('aria-label') || ''} ${element.textContent || ''}`;
+          return labels.test(label) && visible(element);
+        });
+      }
+      return {
+        inProgress: stopVisible || busyVisible,
+        stopVisible,
+        busyVisible,
+        collapsedVisible,
+        text,
+        length,
+        suffix,
+        count
+      };
+    }, {
+      stopSelectors: GEMINI_STOP_SELECTORS,
+      busySelectors: GEMINI_BUSY_SELECTORS,
+      messageSelector: GEMINI_ASSISTANT_MESSAGE_SELECTOR,
+      textSelector: GEMINI_ASSISTANT_TEXT_SELECTOR,
+      baselineCount,
+      wantFull,
+      wantCollapsed
+    }).catch(() => ({
+      inProgress: false,
+      stopVisible: false,
+      busyVisible: false,
+      collapsedVisible: false,
+      text: '',
+      length: 0,
+      suffix: ''
+    }));
   }
 
   async #activeNoticeText(page = null) {
@@ -4385,7 +4579,9 @@ class BrowserController extends EventEmitter {
       return { code: 'AUTH_REQUIRED', message: 'The ChatGPT session is not valid in the background browser. Import the login session again.' };
     }
     if (geminiAuth) {
-      return { code: 'AUTH_REQUIRED', message: 'The Gemini session is not valid in the background browser. Import the Google login session again.' };
+      const restored = await this.#ensureGeminiSession(page, { reason: 'blocker' });
+      if (restored.signedIn || restored.busy) return null;
+      return { code: 'AUTH_REQUIRED', message: 'The Gemini session is not valid in the background browser. Click Sign in in Settings — your saved Google profile will restore it.' };
     }
     if (metaAuth && this.engine === 'meta') {
       return { code: 'AUTH_REQUIRED', message: 'The Meta AI session is not valid in the background browser. Sign in on meta.ai, then import the session again.' };
@@ -4405,10 +4601,177 @@ class BrowserController extends EventEmitter {
 
   async #geminiLooksSignedIn(page) {
     if (!page || page.isClosed()) return false;
-    const profile = await page.locator('user-profile-picture img:not([src*="default-user="]), user-profile-picture').first().isVisible().catch(() => false);
-    if (profile) return true;
-    const composer = await this.#findVisible(GEMINI_INPUT_SELECTORS, 250, page);
-    return Boolean(composer);
+    return page.evaluate(() => {
+      const visible = (element) => {
+        if (!element) return false;
+        const style = getComputedStyle(element);
+        const box = element.getBoundingClientRect();
+        return box.width > 2 && box.height > 2 && style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0';
+      };
+      const profile = document.querySelector('user-profile-picture img:not([src*="default-user="]), user-profile-picture img[src], button[aria-label*="Google Account" i]');
+      if (visible(profile)) return true;
+      const signIn = [...document.querySelectorAll('a, button, [role="link"], [role="button"]')].some((element) => {
+        const label = `${element.getAttribute('aria-label') || ''} ${(element.textContent || '')}`.replace(/\s+/g, ' ').trim();
+        return /^(sign in|log in)$/i.test(label) && visible(element);
+      });
+      if (signIn) return false;
+      const composer = document.querySelector('rich-textarea .ql-editor[contenteditable="true"], [role="textbox"][aria-label*="Enter a prompt" i], [role="textbox"][aria-label*="Gemini" i]');
+      return visible(composer);
+    }).catch(() => false);
+  }
+
+  #geminiAccountHint() {
+    const hint = this.verifiedAccounts?.gemini || {};
+    return {
+      confirmed: Boolean(hint.confirmed),
+      email: String(hint.email || ''),
+      name: String(hint.name || ''),
+      hasSavedCookies: savedLoginFileHasCookies(this.profileDir, 'gemini')
+    };
+  }
+
+  async #clickVisibleGeminiSignIn(page) {
+    if (!page || page.isClosed()) return false;
+    return page.evaluate(() => {
+      const visible = (element) => {
+        if (!element) return false;
+        const style = getComputedStyle(element);
+        const box = element.getBoundingClientRect();
+        return box.width > 2 && box.height > 2 && style.visibility !== 'hidden' && style.display !== 'none';
+      };
+      const labelOf = (element) => `${element.getAttribute('aria-label') || ''} ${(element.innerText || element.textContent || '')}`.replace(/\s+/g, ' ').trim();
+      const nodes = [...document.querySelectorAll('a, button, [role="link"], [role="button"]')];
+      const match = nodes.find((element) => {
+        if (!visible(element)) return false;
+        const label = labelOf(element);
+        if (/^(sign in|log in)$/i.test(label)) return true;
+        if (/continue with google/i.test(label)) return true;
+        const href = String(element.getAttribute('href') || '');
+        return /accounts\.google\.com/i.test(href) && /sign.?in|ServiceLogin/i.test(label + href);
+      });
+      if (!match) return false;
+      match.click();
+      return true;
+    }).catch(() => false);
+  }
+
+  async #clickSavedGoogleAccount(page, email = '') {
+    if (!page || page.isClosed()) return '';
+    const clicked = await page.evaluate((wanted) => {
+      const visible = (element) => {
+        if (!element) return false;
+        const style = getComputedStyle(element);
+        const box = element.getBoundingClientRect();
+        return box.width > 2 && box.height > 2 && style.visibility !== 'hidden' && style.display !== 'none';
+      };
+      const noise = /use another account|add account|create account|remove an account/i;
+      const wantedLower = String(wanted || '').trim().toLowerCase();
+      const accounts = [...document.querySelectorAll('[data-identifier], [data-email], [data-authuser]')];
+      const byEmail = wantedLower
+        ? accounts.find((element) => {
+          const identifier = String(element.getAttribute('data-identifier') || element.getAttribute('data-email') || '').toLowerCase();
+          return identifier === wantedLower && visible(element) && !noise.test(element.textContent || '');
+        })
+        : null;
+      if (byEmail) {
+        byEmail.click();
+        return 'email';
+      }
+      if (wantedLower) {
+        const textHit = [...document.querySelectorAll('div, span, li, [role="link"]')].find((element) => {
+          const text = String(element.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          return text === wantedLower && visible(element);
+        });
+        if (textHit) {
+          (textHit.closest('[data-identifier], [role="link"], li, button') || textHit).click();
+          return 'email-text';
+        }
+      }
+      const first = accounts.find((element) => {
+        const identifier = String(element.getAttribute('data-identifier') || '');
+        return identifier && visible(element) && !noise.test(element.textContent || '');
+      });
+      if (first) {
+        first.click();
+        return 'first';
+      }
+      return '';
+    }, String(email || '')).catch(() => '');
+    if (clicked) return clicked;
+    for (const selector of googleAccountLocatorHints(email)) {
+      const locator = page.locator(selector).first();
+      if (!(await locator.isVisible().catch(() => false))) continue;
+      const label = await locator.innerText().catch(() => '');
+      if (isGoogleAccountChooserNoise(label)) continue;
+      await locator.click().catch(() => {});
+      return 'locator';
+    }
+    return '';
+  }
+
+  async #ensureGeminiSession(page = null, { timeoutMs = 18_000, reason = 'restore', force = false } = {}) {
+    page ??= this.page;
+    if (!page || page.isClosed()) return { signedIn: false, restored: false };
+    const url = page.url();
+    const onGemini = isGeminiPageUrl(url) || isServiceSignInUrl(url, 'gemini');
+    if (!onGemini && this.engine !== 'gemini') return { signedIn: false, skipped: true };
+    if (await this.#geminiLooksSignedIn(page)) {
+      await this.#persistLoginStateThrottled('gemini');
+      this._geminiRestoreFailedAt = 0;
+      return { signedIn: true, restored: false };
+    }
+
+    const hint = this.#geminiAccountHint();
+    if (!force && !hint.confirmed && !hint.hasSavedCookies) {
+      return { signedIn: false, restored: false };
+    }
+    if (this._geminiAutoSignInBusy) return { signedIn: false, restored: false, busy: true };
+    if (Date.now() - this._geminiRestoreFailedAt < 12_000 && reason === 'blocker') {
+      return { signedIn: false, restored: false, skipped: true };
+    }
+
+    this._geminiAutoSignInBusy = true;
+    try {
+      this.#loginProgress('restoring_gemini', 'Signing in with the Google account saved in Settings…');
+      console.log(`[browser] Gemini one-click sign-in (${reason}) state=${classifyGeminiTabSession({
+        url: page.url(),
+        signedIn: false,
+        hasSignInControl: true
+      })} email=${hint.email ? 'saved' : 'none'}`);
+      await this.#restorePersistedLoginCookies();
+      if (isServiceSignInUrl(page.url(), 'gemini')) {
+        await this.#clickSavedGoogleAccount(page, hint.email);
+      } else if (!isPersistedConversationUrl(page.url())) {
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 60_000 }).catch(() => {});
+        await sleep(700);
+      }
+      if (await this.#geminiLooksSignedIn(page)) {
+        await this.#persistLoginState('gemini');
+        this._geminiRestoreFailedAt = 0;
+        return { signedIn: true, restored: true, clicked: false };
+      }
+      const clickedSignIn = await this.#clickVisibleGeminiSignIn(page);
+      if (clickedSignIn) await sleep(900);
+      const clickedAccount = await this.#clickSavedGoogleAccount(page, hint.email);
+      const deadline = Date.now() + Math.max(4_000, Number(timeoutMs) || 18_000);
+      while (Date.now() < deadline) {
+        if (await this.#geminiLooksSignedIn(page)) {
+          await this.#persistLoginState('gemini');
+          this._geminiRestoreFailedAt = 0;
+          return { signedIn: true, restored: true, clicked: Boolean(clickedSignIn || clickedAccount) };
+        }
+        if (isServiceSignInUrl(page.url(), 'gemini')) {
+          await this.#clickSavedGoogleAccount(page, hint.email);
+        } else {
+          await this.#clickVisibleGeminiSignIn(page);
+        }
+        await sleep(450);
+      }
+      this._geminiRestoreFailedAt = Date.now();
+      return { signedIn: false, restored: false, clicked: Boolean(clickedSignIn || clickedAccount) };
+    } finally {
+      this._geminiAutoSignInBusy = false;
+    }
   }
 
   async #hasVisibleLoginControl(page) {
@@ -4934,8 +5297,10 @@ class BrowserController extends EventEmitter {
       return isGeminiPageUrl(url) || /accounts\.google\.com/i.test(String(url || ''));
     };
     const pages = this.context.pages().filter((item) => item && !item.isClosed());
-    const page = pages.find((item) => matches(item.url()))
-      || await this.#freshEnginePage();
+    let page = engine === 'gemini'
+      ? await this.#preferExistingGeminiPage()
+      : pages.find((item) => matches(item.url()));
+    page = page || pages.find((item) => matches(item.url())) || await this.#freshEnginePage();
     this.page = page;
     return page;
   }
@@ -4997,6 +5362,9 @@ class BrowserController extends EventEmitter {
     const keepVisible = this.interactiveVisible;
     await this.launch({ skipHome: true, forceBrowser: true, interactive: keepVisible });
     const page = await this.#openVerifyPage(engine);
+    if (engine === 'gemini') {
+      await this.#ensureGeminiSession(page, { force: Boolean(alreadySaved), reason: 'verify' });
+    }
     const requestedTimeout = Math.max(0, Number(timeoutMs) || 0);
     const effectiveTimeout = Math.max(requestedTimeout || 45_000, alreadySaved ? 20_000 : 90_000);
     const deadline = Date.now() + effectiveTimeout;
@@ -5693,7 +6061,7 @@ class BrowserController extends EventEmitter {
         ? await this.#jobPage(jobId, { fresh: false, url: conversationUrl })
         : await this.ensurePage();
     } else if (conversationUrl) {
-      page = await this.#jobPage(jobId, { fresh: true, url: conversationUrl });
+      page = await this.#jobPage(jobId, { fresh: false, url: conversationUrl });
     } else if (jobId) {
       page = await this.#jobPage(jobId, {
         fresh: !canReusePreparedPage,
@@ -5702,13 +6070,16 @@ class BrowserController extends EventEmitter {
       });
     } else {
       page = await this.ensurePage();
-      if (!reuseCurrentPage && startUrl && jobPageNeedsNavigation(page.url(), startUrl, true)) {
+      if (!reuseCurrentPage && startUrl && jobPageNeedsNavigation(page.url(), startUrl, false)) {
         await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
         await sleep(1_000);
       }
     }
     await this.#afterNavigate(page);
-    if (this.engine === 'gemini') await this.#ensureLiveGeminiStudio(page, gptUrl || startUrl);
+    if (this.engine === 'gemini') {
+      await this.#ensureGeminiSession(page);
+      await this.#ensureLiveGeminiStudio(page, gptUrl || startUrl);
+    }
     // #region agent log
     this.#debugGeminiHp('E', 'browser-controller.cjs:submitPrompt', 'page ready before fill', {
       jobId: String(jobId || '').slice(0, 12),
@@ -6205,11 +6576,14 @@ class BrowserController extends EventEmitter {
     const startedAt = Date.now();
     let previousText = '';
     let lastText = '';
+    let lastLength = 0;
+    let lastParsedCount = 0;
     let lastGrowthAt = startedAt;
     let lastPhase = '';
+    let lastBlockerAt = 0;
     let expandAttempts = 0;
     let observation = null;
-    let decision = { action: 'wait', pollMs: 300 };
+    let decision = { action: 'wait', pollMs: 500 };
 
     const cancelVersion = this.cancelVersion;
     while (Date.now() - startedAt < hardCapMs) {
@@ -6221,21 +6595,50 @@ class BrowserController extends EventEmitter {
           code: 'BROWSER_CONTEXT_CLOSED'
         });
       }
-      const blocker = await this.detectBlocker(page);
-      if (blocker) throw Object.assign(new Error(blocker.message), { code: blocker.code });
-
-      const snapshot = await this.#observeGeminiAssistant(assistantBaselineCount, page);
       const now = Date.now();
-      if (String(snapshot.text || '').length > previousText.length) lastGrowthAt = now;
-      const progress = expectedCount
-        ? inspectGeneratedPromptProgress(snapshot.text, { startPage, endPage, expectedCount })
-        : { parsedCount: snapshot.text ? 1 : 0, complete: Boolean(snapshot.text) };
+      if (now - lastBlockerAt >= BLOCKER_CHECK_MS) {
+        lastBlockerAt = now;
+        const blocker = await this.detectBlocker(page);
+        if (blocker) throw Object.assign(new Error(blocker.message), { code: blocker.code });
+      }
+
+      const wantFull = observation
+        ? shouldReadFullGeminiTranscript({
+          inProgress: observation.phase === GEMINI_TEXT_PHASE.DRAFTING || observation.phase === GEMINI_TEXT_PHASE.WAITING,
+          collapsedVisible: observation.phase === GEMINI_TEXT_PHASE.COLLAPSED,
+          sinceGrowth: now - lastGrowthAt
+        })
+        : false;
+      const snapshot = await this.#observeGeminiAssistant(assistantBaselineCount, page, {
+        fullText: Boolean(wantFull),
+        checkCollapsed: !observation || observation.phase !== GEMINI_TEXT_PHASE.DRAFTING
+      });
+      const currentLength = Number(snapshot.length) || String(snapshot.text || snapshot.suffix || '').length;
+      if (currentLength > lastLength) lastGrowthAt = now;
+      let progress = { parsedCount: lastParsedCount, complete: false };
+      if (expectedCount) {
+        if (wantFull && snapshot.text) {
+          progress = inspectGeneratedPromptProgress(snapshot.text, { startPage, endPage, expectedCount });
+        } else {
+          progress = estimatePromptProgressFromSample(snapshot, {
+            startPage,
+            endPage,
+            expectedCount,
+            lastParsedCount
+          });
+        }
+      } else {
+        progress = { parsedCount: currentLength ? 1 : 0, complete: currentLength > 0 };
+      }
+      lastParsedCount = Math.max(lastParsedCount, progress.parsedCount);
       observation = classifyGeminiTextObservation({
         inProgress: snapshot.inProgress,
-        text: snapshot.text,
+        text: snapshot.text || snapshot.suffix,
         previousText,
+        textLength: currentLength,
+        previousLength: lastLength,
         expectedCount,
-        parsedCount: progress.parsedCount,
+        parsedCount: lastParsedCount,
         collapsedVisible: snapshot.collapsedVisible,
         now,
         startedAt,
@@ -6244,13 +6647,15 @@ class BrowserController extends EventEmitter {
       decision = decideGeminiTextAction(observation, { batchSize });
       if (observation.phase !== lastPhase) {
         lastPhase = observation.phase;
-        console.log(`[browser] Gemini text watch: ${observation.phase} (${observation.reason}) pages=${progress.parsedCount}/${expectedCount || 'n'} busy=${snapshot.inProgress} stop=${snapshot.stopVisible}`);
+        console.log(`[browser] Gemini text watch: ${observation.phase} (${observation.reason}) pages=${lastParsedCount}/${expectedCount || 'n'} busy=${snapshot.inProgress} stop=${snapshot.stopVisible} chars=${currentLength}`);
         if (typeof options.onObservation === 'function') {
-          try { options.onObservation({ ...observation, ...snapshot, parsedCount: progress.parsedCount, expectedCount, decision }); } catch {}
+          try { options.onObservation({ ...observation, ...snapshot, parsedCount: lastParsedCount, expectedCount, decision }); } catch {}
         }
       }
-      previousText = snapshot.text;
-      if (snapshot.text) lastText = snapshot.text;
+      previousText = snapshot.text || snapshot.suffix || previousText;
+      lastLength = currentLength;
+      if (snapshot.text && snapshot.text.length >= lastText.length) lastText = snapshot.text;
+      else if (snapshot.suffix && !lastText) lastText = snapshot.suffix;
 
       if (decision.action === 'expand' && expandAttempts < 4) {
         expandAttempts += 1;
@@ -6260,22 +6665,31 @@ class BrowserController extends EventEmitter {
       }
       if (decision.action === 'accept' || decision.action === 'accept-partial' || decision.action === 'continue') {
         if (snapshot.collapsedVisible) await this.#expandCollapsedAssistant(page);
-        const finalText = snapshot.text || lastText;
-        return { text: finalText, observation, decision, parsedCount: progress.parsedCount };
+        const finalSnap = await this.#observeGeminiAssistant(assistantBaselineCount, page, { fullText: true, checkCollapsed: true });
+        if (finalSnap.collapsedVisible) {
+          await this.#expandCollapsedAssistant(page);
+        }
+        const finalText = finalSnap.text || snapshot.text || lastText;
+        const finalProgress = expectedCount
+          ? inspectGeneratedPromptProgress(finalText, { startPage, endPage, expectedCount })
+          : { parsedCount: finalText ? 1 : lastParsedCount };
+        return { text: finalText, observation, decision, parsedCount: finalProgress.parsedCount };
       }
       if (decision.action === 'shrink' || decision.action === 'retry') {
-        return { text: lastText, observation, decision, parsedCount: progress.parsedCount };
+        return { text: lastText, observation, decision, parsedCount: lastParsedCount };
       }
-      await this.#sleepOrPause(decision.pollMs || 300);
+      await this.#sleepOrPause(decision.pollMs || 500);
     }
 
     if (lastText) {
+      const finalSnap = await this.#observeGeminiAssistant(assistantBaselineCount, page, { fullText: true, checkCollapsed: true }).catch(() => null);
+      const finalText = finalSnap?.text || lastText;
       const progress = expectedCount
-        ? inspectGeneratedPromptProgress(lastText, { startPage, endPage, expectedCount })
+        ? inspectGeneratedPromptProgress(finalText, { startPage, endPage, expectedCount })
         : { parsedCount: 1 };
       observation = observation || { phase: GEMINI_TEXT_PHASE.LAGGING, reason: 'hard-cap', parsedCount: progress.parsedCount, expectedCount };
       return {
-        text: lastText,
+        text: finalText,
         observation,
         decision: { action: progress.parsedCount ? 'accept-partial' : 'retry', reason: 'hard-cap' },
         parsedCount: progress.parsedCount
@@ -6438,7 +6852,8 @@ class BrowserController extends EventEmitter {
     await this.#launchForPromptWork();
     const page = await this.ensurePage();
     await this.#afterNavigate(page);
-    if (gptUrl && jobPageNeedsNavigation(page.url(), gptUrl, true)) {
+    await this.#ensureGeminiSession(page);
+    if (gptUrl && jobPageNeedsNavigation(page.url(), gptUrl, false)) {
       await page.goto(gptUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
       await sleep(1_000);
     }
@@ -6508,10 +6923,12 @@ class BrowserController extends EventEmitter {
     await this.#launchForPromptWork();
     const page = await this.ensurePage();
     await this.#afterNavigate(page);
-    if (conversationUrl) {
+    await this.#ensureGeminiSession(page);
+    if (conversationUrl && jobPageNeedsNavigation(page.url(), conversationUrl, false)) {
       await page.goto(conversationUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
       await sleep(1_000);
       await this.#ensureLiveGeminiStudio(page, gptUrl || getJobStartUrl({ kind: 'prompts' }, this.engine));
+      await this.#ensureGeminiSession(page);
     }
 
     let slots = new Array(total).fill(null);
@@ -6613,6 +7030,7 @@ class BrowserController extends EventEmitter {
         if (emptyRounds >= 3 && batchSize <= 10) break;
       } else {
         emptyRounds = 0;
+        await this.#persistLoginStateThrottled('gemini', 45_000);
         if (after - have >= batchCount && batchSize < PROMPT_BATCH_SIZE) {
           batchSize = Math.min(PROMPT_BATCH_SIZE, batchSize * 2);
         }
