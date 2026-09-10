@@ -1,7 +1,45 @@
 /* VERSA CLASS — OLED glass design tokens (from V0 Gate reference)
    Presentation only. Do not remap IPC or production IDs here. */
 
+/* Match v0-gate-reference.html: Inter + system stack */
+@font-face {
+  font-family: Inter;
+  src: url("../assets/fonts/Inter-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Inter;
+  src: url("../assets/fonts/Inter-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Inter;
+  src: url("../assets/fonts/Inter-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Inter;
+  src: url("../assets/fonts/Inter-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: Inter;
+  src: url("../assets/fonts/Inter-ExtraBold.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
+  --vc-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --vc-white: #ffffff;
   --vc-sky: #4ea9f0;
   --vc-sky-bright: #7cc4ff;
@@ -44,6 +82,15 @@
 
   --vc-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --vc-rise: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+html body.ui-redesign.versa-studio.pro-suite {
+  --studio-sans: var(--vc-font);
+  --studio-work: var(--vc-font);
+  --ui-font: var(--vc-font);
+  font-family: var(--vc-font);
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
 }
 
 html[data-theme="dark"] body.ui-redesign.versa-studio.pro-suite {
