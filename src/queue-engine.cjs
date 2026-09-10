@@ -651,6 +651,16 @@ class QueueEngine extends EventEmitter {
       orientation: project.orientation
     });
     let outputPath = saved.outputPath;
+    if (Array.isArray(job.textOverlays) && job.textOverlays.length && outputPath && existsSync(outputPath)) {
+      const { cleanBlankMaster } = require('./text-inpaint-bridge.cjs');
+      this.store.updateJob(job.id, { status: 'validating' });
+      this.#log({
+        projectId: project.id,
+        jobId: job.id,
+        message: `OCR/LaMa is cleaning baked text on page ${job.pageNumber} before assembly.`
+      });
+      await cleanBlankMaster(outputPath);
+    }
     // Blank template + textOverlays: stamp showcase PNG for Mockup GPT after each blank master saves.
     if (Array.isArray(job.textOverlays) && job.textOverlays.length && outputPath && existsSync(outputPath)) {
       try {
@@ -1035,6 +1045,13 @@ class QueueEngine extends EventEmitter {
       this.store.updateProject(project.id, { status: 'paused' });
       this.#log({ projectId: project.id, jobId: job.id, level: 'warn', message: error.message });
       this.emit('auth-required');
+      this.#changed();
+      return 'pause';
+    }
+    if (code === 'TEXT_INPAINT_DEPS_MISSING' || code === 'LAMA_REQUIRED' || code === 'PADDLE_OCR_MISSING') {
+      this.store.updateJob(job.id, { status: 'needs_user_action', lastError: error.message, lastErrorCode: code });
+      this.store.updateProject(project.id, { status: 'paused' });
+      this.#log({ projectId: project.id, jobId: job.id, level: 'error', message: error.message, details: { code } });
       this.#changed();
       return 'pause';
     }

@@ -67,6 +67,11 @@ async function assembleEditablePptx(project, { fileName = null } = {}) {
         pageNumber: job.pageNumber
       });
     }
+    const overlays = normalizeTextOverlays(job.textOverlays);
+    if (overlays.length) {
+      const { assertBlankMasterClean } = require('./text-inpaint-bridge.cjs');
+      await assertBlankMasterClean(blankPath, job);
+    }
     const pngBuffer = await pageImageAsPngBuffer(blankPath);
     const slide = pres.addSlide();
     slide.addImage({
@@ -76,8 +81,6 @@ async function assembleEditablePptx(project, { fileName = null } = {}) {
       w: widthInches,
       h: heightInches
     });
-
-    const overlays = normalizeTextOverlays(job.textOverlays);
     for (const overlay of overlays) {
       const box = overlayToPptxBox(overlay, widthInches, heightInches);
       slide.addText(box.text, {

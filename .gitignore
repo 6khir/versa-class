@@ -7,6 +7,8 @@ release/*.zip
 *.log
 .env
 env
+__pycache__/
+*.pyc
 .cursor/
 .tmp-canva-spec/
 .tmp-ui-ref/
