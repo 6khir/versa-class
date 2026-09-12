@@ -1,0 +1,35 @@
+{
+  "theme_id": "construction-paper",
+  "page_type": "interior",
+  "canvas": { "width": 2480, "height": 3508 },
+  "zones": [
+    {
+      "id": "title",
+      "shape": "rect",
+      "bbox": [160, 100, 2320, 320],
+      "align": "center",
+      "role": "heading"
+    },
+    {
+      "id": "instruction",
+      "shape": "rect",
+      "bbox": [160, 340, 2320, 560],
+      "align": "left",
+      "role": "body"
+    },
+    {
+      "id": "body",
+      "shape": "rect",
+      "bbox": [160, 600, 2320, 3080],
+      "align": "left",
+      "role": "activity"
+    },
+    {
+      "id": "footer",
+      "shape": "rect",
+      "bbox": [160, 3140, 2320, 3420],
+      "align": "left",
+      "role": "caption"
+    }
+  ]
+}

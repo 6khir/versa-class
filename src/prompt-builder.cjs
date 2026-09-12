@@ -1,11 +1,6 @@
 const { randomUUID } = require('node:crypto');
-const {
-  TPT_SUBJECT_AREA_OPTIONS,
-  TPT_TAG_OPTIONS,
-  canonicalizeTptTaxonomyValues,
-  inspectTptListingTaxonomy
-} = require('./tpt-taxonomy.cjs');
 const { resolveListingAnalysisInput } = require('./tpt-listing-mockups.cjs');
+const { DEFAULT_LINKS, resolvePromptText } = require('./customization.cjs');
 
 const ACTIVITIES = [
   'trace and write worksheet with large guide lines and simple icons',
@@ -81,17 +76,6 @@ function ensureImagePrefix(prompt) {
   return `@image ${text}`;
 }
 
-function parseJsonObject(rawText, label) {
-  const text = String(rawText ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start < 0 || end < start) throw Object.assign(new Error(`${label} response was not valid JSON.`), { code: 'TPT_LISTING_PARSE_FAILED' });
-  try { return JSON.parse(text.slice(start, end + 1)); } catch {
-    throw Object.assign(new Error(`${label} response was not valid JSON.`), { code: 'TPT_LISTING_PARSE_FAILED' });
-  }
-}
-
-const SEO_PROMPT_LEAD = 'Draft full strong best seller SEO for this product.';
 
 /** Literal stubs left by skipped Extra Fields / incomplete listing drafts — not real SEO. */
 function isSeoSkipStub(value) {
@@ -178,125 +162,6 @@ function parseSeoBundleText(rawText = '') {
     description: blocks.slice(1, -1).join('\n\n').trim(),
     tags: tagsBlock
   };
-}
-
-function buildTptListingPrompt(project = {}) {
-  // Stolen from TPT Book Automation (TPT_SourceCode): attach the finished product PDF,
-  // ask for one JSON listing draft with controlled TPT taxonomy — Gemini reads the PDF.
-  const planningContext = project.projectType === 'storybook'
-    ? `PLANNING CHAT CONTEXT\nStory idea: ${cleanText(project.storyInput?.approvedStoryIdea || project.description)}\nBlueprint: ${cleanText(project.storyBlueprint)}\nCharacters: ${(project.highlights?.characters ?? []).map((item) => `${item.name}: ${item.prompt}`).join(' | ')}\nApproved story text: ${(project.storyExactText ?? []).map((item) => `Page ${item.pageNumber}: ${item.storyText}`).join(' | ')}`
-    : '';
-  const prompt = [
-    SEO_PROMPT_LEAD,
-    'Read the attached finished educational product PDF and create a Teachers Pay Teachers digital-download listing draft.',
-    'Write best-seller Teachers Pay Teachers SEO from what the PDF actually contains: a search-winning title, a persuasive educator-facing description, and exact TPT tags.',
-    'Return ONLY one JSON object; do not generate images, markdown, or commentary.',
-    'Use only claims clearly supported by the PDF. Do not invent standards, tax code, price, copyright details, custom categories, or endorsements.',
-    'Schema: {"title":"","description":"educator-facing HTML-free description","highlights":[""],"tags":[""],"grades":[""],"subjects":[""],"formats":[""],"customCategories":[""],"pageCount":0,"teachingDuration":"","answerKey":"","standards":{"ccss":[""],"ngss":[""],"teks":[""],"vaSol":[""]},"isFreeResource":false,"suggestedPrice":"","multipleLicensePrice":"","bundleDiscountPrice":"","taxCode":"","copyrightDeclaration":"","publicationStatus":"draft","thumbnailMode":"manual","thumbnailBriefs":["","","",""]}.',
-    'Use at most 6 tags, 4 grades, 3 subjects, 3 formats, and 4 thumbnail briefs.',
-    'CONTROLLED TAXONOMY RULE: subjects and tags are required. Copy every subjects value exactly from TPT SUBJECT AREA OPTIONS and every tags value exactly from TPT TAG OPTIONS below. Never invent, paraphrase, combine, or move a Supports value into subjects. In particular, Special Education and Life Skills are tags/supports, not subject areas. Choose only values clearly related to this product.',
-    `TPT SUBJECT AREA OPTIONS: ${JSON.stringify(TPT_SUBJECT_AREA_OPTIONS)}.`,
-    `TPT TAG OPTIONS: ${JSON.stringify(TPT_TAG_OPTIONS)}.`,
-    'Leave unknown commercial, tax, standards, copyright, and custom-category values empty. Never decide that a paid product is free. publicationStatus must be draft and thumbnailMode must be manual.',
-    `Project context: title=${cleanText(project.name)}; format=${cleanText(project.format)}; orientation=${cleanText(project.orientation)}; target age=${cleanText(project.targetAge)}; theme=${cleanText(project.theme)}.`,
-    project.productFormat === 'editable'
-      ? `This product is sold as an editable Canva resource. Mention that teachers receive an editable Canva template with movable layers. ${project.canvaTemplateLink ? `Canva template link: ${cleanText(project.canvaTemplateLink)}.` : 'The Canva template link will be attached after the Magic Layer template is ready.'}`
-      : '',
-    planningContext
-  ].filter(Boolean).join('\n');
-  // #region agent log
-  try {
-    const fs = require('fs');
-    const path = require('path');
-    const logPath = path.join(__dirname, '..', '.cursor', 'debug-1c3662.log');
-    fs.mkdirSync(path.dirname(logPath), { recursive: true });
-    fs.appendFileSync(logPath, `${JSON.stringify({
-      sessionId: '1c3662',
-      runId: 'seo-stage',
-      hypothesisId: 'SEO',
-      location: 'prompt-builder.cjs:buildTptListingPrompt',
-      message: 'seo prompt built',
-      data: {
-        projectId: project?.id || null,
-        startsWithSeoLead: prompt.startsWith(SEO_PROMPT_LEAD),
-        mentionsPdf: /product PDF/i.test(prompt),
-        promptLen: prompt.length,
-        promptHead: prompt.slice(0, 90)
-      },
-      timestamp: Date.now()
-    })}\n`);
-  } catch { /* ignore */ }
-  // #endregion
-  return prompt;
-}
-
-function buildTptListingTaxonomyCorrectionPrompt(rawText) {
-  const result = parseJsonObject(rawText, 'TPT listing');
-  const issues = inspectTptListingTaxonomy(result);
-  if (issues.valid) return '';
-  return [
-    'CORRECT THE PREVIOUS TPT LISTING JSON. Return the complete JSON object again and nothing else.',
-    `Invalid subject values: ${issues.invalidSubjects.join(', ') || (Array.isArray(result.subjects) && result.subjects.length ? 'none' : 'subjects is empty')}.`,
-    `Invalid tag values: ${issues.invalidTags.join(', ') || (Array.isArray(result.tags) && result.tags.length ? 'none' : 'tags is empty')}.`,
-    'subjects must contain 1-3 exact values copied from TPT SUBJECT AREA OPTIONS. tags must contain 1-6 exact values copied from TPT TAG OPTIONS. Keep them relevant to the attached product. Special Education and Life Skills belong only in tags, never in subjects.',
-    `TPT SUBJECT AREA OPTIONS: ${JSON.stringify(TPT_SUBJECT_AREA_OPTIONS)}.`,
-    `TPT TAG OPTIONS: ${JSON.stringify(TPT_TAG_OPTIONS)}.`
-  ].join('\n');
-}
-
-function parseTptListingResponse(rawText) {
-  const result = parseJsonObject(rawText, 'TPT listing');
-  const compactList = (value, limit) => (Array.isArray(value) ? value : []).map((entry) => cleanText(entry)).filter(Boolean).slice(0, limit);
-  const standards = result.standards && typeof result.standards === 'object' ? result.standards : {};
-  const rawSubjects = compactList(result.subjects, 3);
-  const rawTags = compactList(result.tags, 6);
-  const subjects = canonicalizeTptTaxonomyValues(rawSubjects, TPT_SUBJECT_AREA_OPTIONS, 3);
-  const misplacedSupportTags = canonicalizeTptTaxonomyValues(rawSubjects, TPT_TAG_OPTIONS, 3);
-  const tags = canonicalizeTptTaxonomyValues([...rawTags, ...misplacedSupportTags], TPT_TAG_OPTIONS, 6);
-  const parsed = sanitizeSeoListingFields({
-    title: cleanText(result.title), description: cleanText(result.description), highlights: compactList(result.highlights, 8),
-    tags, grades: compactList(result.grades, 4), subjects, formats: compactList(result.formats, 3),
-    customCategories: compactList(result.customCategories, 8),
-    pageCount: Math.max(0, Number.parseInt(result.pageCount, 10) || 0), teachingDuration: cleanText(result.teachingDuration), answerKey: cleanText(result.answerKey),
-    standards: {
-      ccss: compactList(standards.ccss, 50),
-      ngss: compactList(standards.ngss, 50),
-      teks: compactList(standards.teks, 50),
-      vaSol: compactList(standards.vaSol, 50)
-    },
-    isFreeResource: false,
-    suggestedPrice: cleanText(result.suggestedPrice),
-    multipleLicensePrice: cleanText(result.multipleLicensePrice),
-    bundleDiscountPrice: cleanText(result.bundleDiscountPrice),
-    taxCode: cleanText(result.taxCode),
-    copyrightDeclaration: ['original', 'licensed'].includes(cleanText(result.copyrightDeclaration)) ? cleanText(result.copyrightDeclaration) : '',
-    publicationStatus: 'draft',
-    thumbnailMode: 'manual',
-    thumbnailBriefs: compactList(result.thumbnailBriefs, 4)
-  });
-  parsed.seoText = formatSeoBundleText(parsed);
-  // #region agent log
-  try {
-    const fs = require('fs');
-    const path = require('path');
-    fs.appendFileSync(path.join(__dirname, '..', '.cursor', 'debug-1c3662.log'), `${JSON.stringify({
-      sessionId: '1c3662',
-      runId: 'seo-skip-stubs',
-      hypothesisId: 'A',
-      location: 'prompt-builder.cjs:parseTptListingResponse',
-      message: 'listing parsed and sanitized',
-      data: {
-        titleLen: String(parsed.title || '').length,
-        descriptionLen: String(parsed.description || '').length,
-        tagCount: Array.isArray(parsed.tags) ? parsed.tags.length : 0,
-        hadSkipStubDescription: isSeoSkipStub(result.description),
-        hadSkipStubTags: (Array.isArray(result.tags) ? result.tags : [result.tags]).some((entry) => isSeoSkipStub(entry))
-      },
-      timestamp: Date.now()
-    })}\n`);
-  } catch { /* ignore */ }
-  // #endregion
-  return parsed;
 }
 
 function slugify(value, fallback = 'tpt-book') {
@@ -423,9 +288,7 @@ function buildBookJobs(input) {
   const includeCover = isSingleRequestedPage
     ? isExplicitlyRequested(input.includeCover)
     : !isExplicitlyRequested(input.skipCover);
-  const includeThankYou = isSingleRequestedPage
-    ? isExplicitlyRequested(input.includeThankYou) || isExplicitlyRequested(input.includeFinalPage)
-    : !isExplicitlyRequested(input.skipThankYou) && !isExplicitlyRequested(input.skipFinalPage);
+  const includeThankYou = false; // VERSA editable-brain: thank-you page permanently removed
   const base = sharedStyle({ theme, niche, format, orientation, style });
   const projectToken = cleanText(input.projectToken, randomUUID().split('-')[0]).toUpperCase();
   const jobs = [];
@@ -497,13 +360,13 @@ function buildBookJobs(input) {
 }
 
 const STANDARD_GEMINI_URL = 'https://gemini.google.com/app';
-const SEO_GEM_URL = 'https://gemini.google.com/gem/b44e0aed9a86';
-const CONTENT_PLANNING_GEM_URL = 'https://gemini.google.com/gem/a825fb54b4cf';
-const MOCKUPS_GEM_URL = 'https://gemini.google.com/gem/6d30d7350cbc?mode=image_creator';
-const CONTENT_GEM_URL = CONTENT_PLANNING_GEM_URL;
-const CONTENT_GPT_URL = 'https://chatgpt.com/g/g-6a7edaa37a388191b56980c770c7a1ef-versa-tpt-book-creation';
-const MOCKUPS_GPT_URL = 'https://chatgpt.com/g/g-6a6f85e57f8c8191b0c05fcdad501783-tpt-winner-mockups-by-versa-class';
-const SEO_GPT_URL = 'https://chatgpt.com/g/g-678147a6a908819191c940b4dba2c6ec-tpt-title-seo-friendly';
+const SEO_GEM_URL = DEFAULT_LINKS.geminiSeo;
+const CONTENT_PLANNING_GEM_URL = DEFAULT_LINKS.geminiPlanning;
+const MOCKUPS_GEM_URL = DEFAULT_LINKS.geminiMockups;
+const CONTENT_GEM_URL = DEFAULT_LINKS.geminiPages;
+const CONTENT_GPT_URL = DEFAULT_LINKS.chatgptContent;
+const MOCKUPS_GPT_URL = DEFAULT_LINKS.chatgptMockups;
+const SEO_GPT_URL = DEFAULT_LINKS.chatgptSeo;
 
 const IMAGE_JOB_KINDS = new Set([
   'page',
@@ -528,40 +391,6 @@ const PLANNING_JOB_KINDS = new Set([
   'prompts'
 ]);
 const SEO_JOB_KINDS = new Set(['listing', 'tpt_listing', 'seo', 'title', 'description']);
-
-function getGemUrlForJob(job = {}) {
-  const kind = String(job.kind || job.jobKind || '').toLowerCase();
-  const purpose = String(job.purpose || '').toLowerCase();
-
-  if (
-    MOCKUP_JOB_KINDS.has(kind)
-    || purpose === 'mockup'
-    || purpose === 'mockups'
-    || purpose === 'thumbnail'
-  ) {
-    return MOCKUPS_GEM_URL;
-  }
-  if (
-    IMAGE_JOB_KINDS.has(kind)
-    || purpose === 'image'
-    || purpose === 'images'
-  ) {
-    return MOCKUPS_GEM_URL;
-  }
-  if (
-    purpose === 'seo'
-    || purpose === 'listing'
-    || purpose === 'title'
-    || purpose === 'description'
-    || SEO_JOB_KINDS.has(kind)
-  ) {
-    return SEO_GEM_URL;
-  }
-  if (PLANNING_JOB_KINDS.has(kind) || purpose === 'content' || purpose === 'planning' || purpose === 'analysis') {
-    return CONTENT_PLANNING_GEM_URL;
-  }
-  return CONTENT_PLANNING_GEM_URL;
-}
 
 function buildMockupJobs(input = {}) {
   const theme = cleanText(input.theme, 'Preschool learning');
@@ -643,11 +472,27 @@ function buildAnalysisPrompt(input = {}) {
     const pageCountDirective = hasScrapedCount
       ? `The competitor product listing indicates exactly ${scrapedPageCount} page(s). You MUST set "pageCount" to ${scrapedPageCount}.`
       : 'Analyze the competitor product URL, title, descriptions, and mockups carefully to determine the ACTUAL total number of printable/activity pages (for example: 1 page worksheet, 5 pages, 10 pages, 15 pages, 25 pages, 50 pages). Set "pageCount" to match the competitor product\'s true page count. DO NOT default to 20 if the competitor has a different page count.';
+    const scrapedTitle = cleanText(input.listingTitle || listing.title || listing.concept, '');
+    const scrapedDescription = cleanText(input.listingDescription || listing.description, '');
+    const scrapedGrade = cleanText(input.listingGrade || listing.grade || listing.targetAge, '');
+    const scrapedFacts = [
+      scrapedTitle ? `Scraped listing title: ${scrapedTitle}` : '',
+      scrapedDescription ? `Scraped listing description: ${scrapedDescription}` : '',
+      scrapedGrade ? `Scraped grade / age band: ${scrapedGrade}` : ''
+    ].filter(Boolean);
 
-    return [
+    return resolvePromptText('analysisUrl', {
+      productUrl: cleanText(listing.productUrl),
+      scrapedFacts: scrapedFacts.join('\n'),
+      visionLines: visionLines.filter(Boolean).join('\n'),
+      pageCountDirective,
+      pageCount: hasScrapedCount ? scrapedPageCount : 1
+    }, () => [
       'Analyze the following competitor product URL and provide a comprehensive product concept analysis.',
       `Product URL to analyze: ${cleanText(listing.productUrl)}`,
       '',
+      ...scrapedFacts,
+      scrapedFacts.length ? '' : '',
       ...visionLines,
       pageCountDirective,
       '',
@@ -659,9 +504,9 @@ function buildAnalysisPrompt(input = {}) {
       '  "targetAge": "Target age group or grade level (e.g. Preschool / Pre-K - Kindergarten)",',
       '  "keyHighlights": ["Highlight 1", "Highlight 2", "Highlight 3", "Highlight 4"],',
       `  "pageCount": ${hasScrapedCount ? scrapedPageCount : 1},`,
-      '  "productFormat": "editable" or "static" — "editable" ONLY if the competitor listing is explicitly sold as an editable/customizable resource (Canva template, editable PowerPoint, editable Google Slides, fillable/typable fields). Otherwise "static".',
+      '  "productFormat": "maze", "editable", or "static" — "maze" if the listing is a maze/labyrinth book or the title/keyword contains maze. "editable" ONLY if it is explicitly sold as an editable/customizable resource (editable PowerPoint, editable Google Slides, fillable/typable fields). Otherwise "static".',
       '}'
-    ].join('\n');
+    ].join('\n'));
   }
 
   // ── Builder mode: full TPT PRODUCT IDEA GENERATOR master prompt ───────
@@ -691,7 +536,7 @@ function buildAnalysisPrompt(input = {}) {
     ? `# USER SELECTIONS\n\nThe following Category → Options data controls the product concept.\n\n${allSelections}\n\nContinue reading additional Category → Options pairs if provided.\n\nGenerate ONE final TPT product concept using all relevant selections.`
     : '# USER SELECTIONS\n\nNo specific selections provided. Create a strong general TPT product concept for preschool / kindergarten learners.';
 
-  return [
+  return resolvePromptText('analysisIdea', { userSelections: userSelectionsSection }, () => [
     '# TPT PRODUCT IDEA GENERATOR — MASTER PROMPT',
     '',
     'You are an expert Teachers Pay Teachers (TPT) product strategist, curriculum resource designer, and educational product developer.',
@@ -884,17 +729,26 @@ function buildAnalysisPrompt(input = {}) {
     '',
     'Do not generate images, mockups, or visual pages. Return text only.',
     'After the full product concept, output ONE JSON object and nothing after it:',
-    '{"title":"Final product title","description":"Short product concept summary","targetAge":"Target age or grade","keyHighlights":["Highlight 1","Highlight 2","Highlight 3"],"pageCount":12,"productFormat":"editable or static"}',
+    '{"title":"Final product title","description":"Short product concept summary","targetAge":"Target age or grade","keyHighlights":["Highlight 1","Highlight 2","Highlight 3"],"pageCount":12,"productFormat":"maze or editable or static"}',
     'pageCount must be the exact number of printable pages for this product. Do not inflate it with extra covers or closing pages unless they are part of that exact count.',
-    '"productFormat" must be "editable" ONLY if the competitor listing is explicitly sold as an editable/customizable resource (Canva template, editable PowerPoint, editable Google Slides, fillable/typable fields). Otherwise "static".'
-  ].join('\n');
+    '"productFormat" must be "maze" if the listing is a maze/labyrinth book or the title/keyword contains maze. "editable" ONLY if it is explicitly sold as an editable/customizable resource (editable PowerPoint, editable Google Slides, fillable/typable fields). Otherwise "static".'
+  ].join('\n'));
 }
 
-const EDITABLE_PRODUCT_SIGNAL = /editable|customi[sz]able|canva template|google slides|powerpoint template|fillable|type[- ]?your[- ]?own/i;
+const EDITABLE_PRODUCT_SIGNAL = /editable|customi[sz]able|google slides|powerpoint template|fillable|type[- ]?your[- ]?own/i;
+const MAZE_PRODUCT_SIGNAL = /\bmazes?\b|\blabyrinths?\b/i;
 
 function inferProductFormat(text, modelValue) {
-  if (EDITABLE_PRODUCT_SIGNAL.test(String(text || ''))) return 'editable';
-  return String(modelValue || '').trim().toLowerCase() === 'editable' ? 'editable' : 'static';
+  const raw = String(modelValue || '').trim().toLowerCase();
+  const inferred = MAZE_PRODUCT_SIGNAL.test(String(text || '')) || raw === 'maze'
+    ? 'maze'
+    : EDITABLE_PRODUCT_SIGNAL.test(String(text || ''))
+      ? 'editable'
+      : raw === 'editable' ? 'editable' : 'static';
+  // #region agent log
+  fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'pre-fix',hypothesisId:'H1',location:'src/prompt-builder.cjs:inferProductFormat',message:'inferProductFormat collapsed gem value',data:{rawModelValue:raw,inferred,textHasMaze:/\bmazes?\b/i.test(String(text||'')),textPreview:String(text||'').slice(0,160)},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  return inferred;
 }
 
 function normalizeAnalysisResult(parsed = {}, fallbackText = '', fallbackPageCount = null) {
@@ -934,34 +788,9 @@ function firstMarkdownHeadingValue(text, headingPattern) {
 
 function parseAnalysisResponse(rawText, fallbackPageCount = null) {
   const text = String(rawText ?? '').trim();
-  const candidates = [
-    ...(text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1] ? [text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)[1].trim()] : []),
-    ...jsonObjectCandidates(text)
-  ];
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate);
-      if (parsed && typeof parsed === 'object' && (parsed.title || parsed.description || parsed.pageCount)) {
-        return normalizeAnalysisResult(parsed, text, fallbackPageCount);
-      }
-    } catch {
-      // Try the next candidate or fall back to markdown extraction.
-    }
-  }
-
-  const pageCountMatch = text.match(/total\s*page\s*count[\s:*|-]*(\d+)/i)
-    || text.match(/(?:page count|number of pages|عدد الصفحات)[\s:=*|-]*(\d+)/i);
-  return normalizeAnalysisResult({
-    title: firstMarkdownHeadingValue(text, 'product title')
-      || firstMarkdownHeadingValue(text, 'seo-friendly product title')
-      || cleanText(text.match(/(?:title|اسم المنتوج)[\s:=]*["']?([^"'\n]+)/i)?.[1], ''),
-    description: firstMarkdownHeadingValue(text, 'core product concept')
-      || firstMarkdownHeadingValue(text, 'final product summary')
-      || '',
-    targetAge: firstMarkdownHeadingValue(text, 'target learner')
-      || cleanText(text.match(/(?:target age|grade level|age range)[\s:=]*([^\n]+)/i)?.[1], ''),
-    pageCount: pageCountMatch ? pageCountMatch[1] : (fallbackPageCount || '')
-  }, text, fallbackPageCount);
+  const parsed = tryParseAnalysisObject(text);
+  if (parsed) return normalizeAnalysisResult(parsed, text, fallbackPageCount);
+  throw new Error('Analysis extraction failed: The AI did not return a valid JSON object containing the book details.');
 }
 
 function resolvePixelDimensions(format, orientation) {
@@ -983,14 +812,60 @@ function resolvePixelDimensions(format, orientation) {
   }
 }
 
+const PROMPT_BATCH_SIZE = 50;
+
+function clampPromptPageCount(pageCount, fallback = 20) {
+  const parsed = Number.parseInt(pageCount, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return Math.max(1, Math.min(500, fallback));
+  return Math.max(1, Math.min(500, parsed));
+}
+
+function promptPageBatches(pageCount, batchSize = PROMPT_BATCH_SIZE) {
+  const total = clampPromptPageCount(pageCount);
+  const size = clampPromptPageCount(batchSize, PROMPT_BATCH_SIZE);
+  const batches = [];
+  for (let startPage = 1; startPage <= total; startPage += size) {
+    batches.push({
+      startPage,
+      endPage: Math.min(total, startPage + size - 1)
+    });
+  }
+  return { total, batchSize: size, batches };
+}
+
+function resolvePromptPageRange(pageCount, options = {}) {
+  const total = clampPromptPageCount(pageCount);
+  const startRaw = Number.parseInt(options.startPage, 10);
+  const endRaw = Number.parseInt(options.endPage, 10);
+  const startPage = Number.isFinite(startRaw) && startRaw > 0 ? Math.min(total, startRaw) : 1;
+  const endPage = Number.isFinite(endRaw) && endRaw > 0
+    ? Math.min(total, Math.max(startPage, endRaw))
+    : total;
+  return {
+    total,
+    startPage,
+    endPage,
+    batchCount: endPage - startPage + 1,
+    isPartial: startPage !== 1 || endPage !== total
+  };
+}
+
 function buildPromptsGenerationRequest(pageCount, format, orientation, options = {}) {
-  const count = Math.max(1, Math.min(500, Number.parseInt(pageCount, 10) || 20));
+  const count = clampPromptPageCount(pageCount);
   const pageSizeStr = resolvePixelDimensions(format, orientation);
   const hasCompetitorMockups = Boolean(options.hasCompetitorMockups);
   const visionLines = competitorMockupPromptLines(hasCompetitorMockups);
+  const range = resolvePromptPageRange(count, options);
+  const alreadyHave = Math.max(
+    0,
+    Number.parseInt(options.alreadyHave, 10) || (range.startPage > 1 ? range.startPage - 1 : 0)
+  );
 
   if (count === 1) {
-    return [
+    return resolvePromptText('pagesSingle', {
+      pageSize: pageSizeStr,
+      visionLines: visionLines.filter(Boolean).join('\n')
+    }, () => [
       'Using the TPT product idea you created above, turn the concept into a complete page-by-page image prompt plan.',
       '',
       'NUMBER OF PAGES: 1',
@@ -1006,6 +881,7 @@ function buildPromptsGenerationRequest(pageCount, format, orientation, options =
       '* Never omit the @image prefix. The @image prefix is mandatory to trigger the image tool directly.',
       `* The prompt must explicitly include the exact requested dimensions: ${pageSizeStr}.`,
       '* Describe the complete printable page: layout, illustrations, exact on-page text in quotation marks, instructions, and activity elements.',
+      '* Describe that required copy as clean classroom print on flat pale paper bands — not collage letters, cut-paper glyphs, rainbow type, empty frames, or a text-free master.',
       '* Make the activity educationally appropriate for the selected grade, age, subject, skill, and difficulty.',
       '* Do not use copyrighted characters, brands, logos, or protected intellectual property.',
       '* Keep all important text and artwork inside safe print margins.',
@@ -1024,27 +900,65 @@ function buildPromptsGenerationRequest(pageCount, format, orientation, options =
       '',
       'IMPORTANT:',
       'Return exactly one line. Never omit the @image prefix. Do not write explanations, introductions, summaries, tables, extra pages, or additional commentary outside the prompt.'
-    ].join('\n');
+    ].join('\n'));
   }
 
-  return [
+  const batchLines = range.isPartial
+    ? [
+      `THIS BATCH: write pages ${range.startPage}–${range.endPage} only (${range.batchCount} prompts).`,
+      alreadyHave > 0
+        ? `You already wrote pages 1–${alreadyHave}. Do not repeat those pages. Continue from Page ${range.startPage}.`
+        : `Write Page ${range.startPage} through Page ${range.endPage} now. Remaining pages will be requested in later batches.`,
+      ''
+    ]
+    : [];
+  const countDirective = range.isPartial
+    ? `* Create exactly ${range.batchCount} prompt lines for pages ${range.startPage}–${range.endPage} of the ${count}-page product. Do not add extra pages beyond page ${range.endPage} in this response.`
+    : `* Create exactly ${count} pages. Do not add extra pages beyond that exact count.`;
+  const distributionDirective = range.isPartial
+    ? `* Keep the product identity consistent with the ${count}-page plan. Never exceed ${range.batchCount} prompts in this batch.`
+    : `* Decide the best distribution of the content across exactly ${count} pages. Never exceed ${count} prompts.`;
+  const stopLine = range.isPartial
+    ? `Stop after Page ${range.endPage}. Do not rewrite pages before ${range.startPage} and do not continue past page ${range.endPage}.`
+    : (count > 3
+      ? `Continue until you have exactly ${count} pages and then stop. Do not add a cover, activity, or final page beyond page ${count}.`
+      : `Stop after Page ${count}. Do not add a cover, activity, or final page beyond page ${count}.`);
+  const importantLine = range.isPartial
+    ? `Return exactly ${range.batchCount} prompt lines for pages ${range.startPage}–${range.endPage}. Never omit the @image prefix.`
+    : `Return exactly ${count} prompt lines. Never omit the @image prefix. Each line must contain one complete prompt that can be copied and used independently in an AI image generator. Do not write explanations, introductions, summaries, tables, or additional commentary outside the prompts.`;
+
+  return resolvePromptText('pagesPlan', {
+    pageCount: count,
+    pageSize: pageSizeStr,
+    visionLines: visionLines.filter(Boolean).join('\n'),
+    batchLines: batchLines.filter(Boolean).join('\n'),
+    countDirective,
+    distributionDirective,
+    lastInterior: Math.max(1, count - 1),
+    stopLine,
+    importantLine
+  }, () => [
     'Using the TPT product idea you created above, turn the concept into a complete page-by-page image prompt plan.',
     '',
     `NUMBER OF PAGES: ${count}`,
     '',
+    ...batchLines,
     `PAGE SIZE: ${pageSizeStr}`,
     '',
     'REQUIREMENTS:',
     '',
     ...visionLines,
-    `* Create exactly ${count} pages. Do not add extra pages beyond that exact count.`,
+    countDirective,
     '* Do not generate images in this step. Return prompt text only.',
     '* Every prompt MUST strictly begin with the prefix "@image " (e.g., "@image A flawless, high-resolution digital illustration of...").',
     '* Never omit the @image prefix. The @image prefix is mandatory to trigger the image tool directly.',
     '* Include the front cover as Page 1 only if it fits inside the exact requested count.',
+    `* Label every prompt as Page K of ${count} with an explicit role. Page 1 of ${count} is the front cover. Pages 2 through ${Math.max(1, count - 1)} are interior worksheets. Page ${count} of ${count} is the back or closing page.`,
+    '* Never write a second cover, title splash, or listing mockup in the middle of the book.',
+    '* Do not tell the later image model to paint "Page K", "K of N", or any folio on the artwork. The K of N label is prompt metadata only.',
     '* Include all necessary educational/activity/content pages within the exact requested count.',
     '* Include an appropriate final page only if it still fits inside the exact requested count, such as an answer key, completion page, credits page, or back cover.',
-    `* Decide the best distribution of the content across exactly ${count} pages. Never exceed ${count} prompts.`,
+    distributionDirective,
     '* Every page must have its own complete, standalone image-generation prompt.',
     `* Every prompt must explicitly include the exact requested dimensions: ${pageSizeStr}.`,
     '* Keep the same visual style, illustration style, typography direction, color palette, line style, layout quality, and overall product identity across ALL pages.',
@@ -1054,6 +968,7 @@ function buildPromptsGenerationRequest(pageCount, format, orientation, options =
     '* Avoid unnecessary repetition. Each page should add meaningful value to the product.',
     '* For worksheets and activities, clearly describe the exact exercises, questions, answer spaces, illustrations, instructions, and layout required.',
     '* If text must appear on a generated page, include the EXACT text inside quotation marks in the prompt.',
+    '* Describe that required copy as clean classroom print on flat pale paper bands — not collage letters, cut-paper glyphs, rainbow type, empty frames, or a text-free master.',
     '* Do not use copyrighted characters, brands, logos, or protected intellectual property.',
     '* Keep all important text and artwork inside safe print margins.',
     '* Do not create mockups. Each prompt must describe only the actual printable/digital page.',
@@ -1072,21 +987,17 @@ function buildPromptsGenerationRequest(pageCount, format, orientation, options =
     '',
     'Use this exact structure:',
     '',
-    ...Array.from({ length: Math.min(count, 3) }, (_, index) => {
-      const pageNumber = index + 1;
-      const label = pageNumber === 1
-        ? `Page 1 — Cover: @image [complete visual description including ${pageSizeStr}]`
-        : `Page ${pageNumber}: @image [complete visual description including ${pageSizeStr}]`;
-      return label;
+    ...Array.from({ length: Math.min(range.batchCount, 3) }, (_, index) => {
+      const pageNumber = range.startPage + index;
+      const role = pageNumber === 1 ? 'Cover' : (pageNumber === count ? 'Back' : 'Interior');
+      return `Page ${pageNumber} of ${count} — ${role}: @image [complete visual description including ${pageSizeStr}]`;
     }).flatMap((line, index, lines) => (index === lines.length - 1 ? [line] : [line, ''])),
     '',
-    count > 3
-      ? `Continue until you have exactly ${count} pages and then stop. Do not add a cover, activity, or final page beyond page ${count}.`
-      : `Stop after Page ${count}. Do not add a cover, activity, or final page beyond page ${count}.`,
+    stopLine,
     '',
     'IMPORTANT:',
-    `Return exactly ${count} prompt lines. Never omit the @image prefix. Each line must contain one complete prompt that can be copied and used independently in an AI image generator. Do not write explanations, introductions, summaries, tables, or additional commentary outside the prompts.`
-  ].join('\n');
+    importantLine
+  ].join('\n'));
 }
 
 function looksLikePageImagePrompt(prompt) {
@@ -1134,26 +1045,36 @@ function parseEditablePageBlueprint(rawText, expectedCount = 20) {
   return null;
 }
 
-function parseGeneratedPrompts(rawText, expectedCount = 20) {
+function parseGeneratedPrompts(rawText, expectedCount = 20, options = {}) {
   expectedCount = Math.max(1, Number.parseInt(expectedCount, 10) || 20);
+  const startPage = Number.parseInt(options.startPage, 10);
+  const endPage = Number.parseInt(options.endPage, 10);
+  const hasRange = Number.isFinite(startPage) && startPage > 0;
+  const rangeStart = hasRange ? startPage : 1;
+  const rangeEnd = Number.isFinite(endPage) && endPage > 0 ? endPage : expectedCount;
   const blueprint = parseEditablePageBlueprint(rawText, expectedCount);
   if (blueprint?.length) {
-    // Line-compatible list for older callers + full page records on .pages
-    const prompts = blueprint.map((page) => page.imagePrompt);
-    prompts.pages = blueprint;
+    const filtered = hasRange
+      ? blueprint.filter((page) => page.pageNumber >= rangeStart && page.pageNumber <= rangeEnd)
+      : blueprint;
+    const prompts = filtered.map((page) => page.imagePrompt);
+    prompts.pages = filtered;
     prompts.blueprint = true;
+    prompts.pageNumbers = filtered.map((page) => page.pageNumber);
     return prompts;
   }
 
-  const text = String(rawText ?? '').replace(/\r\n/g, '\n');
+  const text = String(rawText ?? '')
+    .replace(/\r\n/g, '\n')
+    .replace(/([.!?a-z0-9)])\s*(Page\s+\d+(?:\s+of\s+\d+)?\s*(?:[—–-]\s*[^:\n]{0,40})?:)/gi, '$1\n$2');
   const rawLines = text.split('\n').map((line) => line.trim()).filter(Boolean);
-  const cleaned = rawLines.map((line) => {
+  const records = rawLines.map((line) => {
+    const pageMatch = /(?:^|\b)page\s*(\d+)/i.exec(line);
+    const pageNumber = pageMatch ? Number(pageMatch[1]) : null;
     let result = line;
-    // Strip prefixes like "Page 1 — Cover: ", "Page 1 - Cover: ", "Page 2: ", "* Page 3: "
     result = result.replace(/^(?:\*|-|\s)*page\s*\d+\s*(?:[—–-]\s*cover)?\s*[:.-]\s*/i, '');
     result = result.replace(/^(?:\*|-|\s)*prompt\s*\d+\s*[:.-]\s*/i, '');
     result = result.replace(/^(?:\*|-|\s)*\d+\s*[:.-]\s*/i, '');
-
     let previous;
     do {
       previous = result;
@@ -1162,16 +1083,144 @@ function parseGeneratedPrompts(rawText, expectedCount = 20) {
         .replace(/^"(.*)"$/, '$1')
         .trim();
     } while (result !== previous);
-    return result;
-  }).filter(Boolean).filter(looksLikePageImagePrompt).map((prompt) => ensureImagePrefix(prompt));
-
-  const finalPrompts = cleaned.slice(0, Math.max(1, expectedCount));
-  if (!finalPrompts.length) {
+    return { pageNumber, prompt: result };
+  }).filter((item) => item.prompt).filter((item) => looksLikePageImagePrompt(item.prompt))
+    .map((item) => ({ ...item, prompt: ensureImagePrefix(item.prompt) }));
+  const selected = hasRange
+    ? records.filter((item) => Number.isFinite(item.pageNumber) && item.pageNumber >= rangeStart && item.pageNumber <= rangeEnd)
+    : records;
+  const finalPrompts = selected.map((item) => item.prompt).slice(0, Math.max(1, expectedCount));
+  if (!finalPrompts.length && !options.allowEmpty) {
     throw Object.assign(new Error('The Content Gem returned JSON or commentary instead of page image prompts. Generate prompts again.'), {
       code: 'PROMPTS_NOT_PARSED'
     });
   }
+  finalPrompts.pageNumbers = selected.slice(0, finalPrompts.length).map((item) => item.pageNumber);
   return finalPrompts;
+}
+
+function estimatePromptProgressFromSample(sample = {}, options = {}) {
+  const startPage = Math.max(1, Number.parseInt(options.startPage, 10) || 1);
+  const endPage = Math.max(startPage, Number.parseInt(options.endPage, 10) || startPage);
+  const expectedCount = Math.max(
+    1,
+    Number.parseInt(options.expectedCount ?? options.batchCount, 10) || (endPage - startPage + 1)
+  );
+  const lastParsedCount = Math.max(0, Number.parseInt(options.lastParsedCount, 10) || 0);
+  const suffix = String(sample.suffix || sample.text || '');
+  const length = Number(sample.length) || suffix.length;
+  let highestPage = 0;
+  for (const match of suffix.matchAll(/Page\s+(\d+)\s*:/gi)) {
+    const pageNumber = Number(match[1]);
+    if (pageNumber >= startPage && pageNumber <= endPage) {
+      highestPage = Math.max(highestPage, pageNumber);
+    }
+  }
+  const fromSuffix = highestPage >= startPage ? highestPage - startPage + 1 : 0;
+  const parsedCount = Math.min(expectedCount, Math.max(lastParsedCount, fromSuffix));
+  return {
+    parsedCount,
+    highestPage: highestPage || (parsedCount ? startPage + parsedCount - 1 : 0),
+    complete: parsedCount >= expectedCount,
+    length
+  };
+}
+
+function inspectGeneratedPromptProgress(rawText, options = {}) {
+  const startPage = Math.max(1, Number.parseInt(options.startPage, 10) || 1);
+  const endPage = Math.max(startPage, Number.parseInt(options.endPage, 10) || startPage);
+  const expectedCount = Math.max(
+    1,
+    Number.parseInt(options.expectedCount ?? options.batchCount, 10) || (endPage - startPage + 1)
+  );
+  try {
+    const parsed = parseGeneratedPrompts(rawText, expectedCount, {
+      startPage,
+      endPage,
+      allowEmpty: true
+    });
+    const pageNumbers = Array.isArray(parsed.pageNumbers)
+      ? parsed.pageNumbers.filter(Number.isFinite)
+      : parsed.map((_, index) => startPage + index);
+    const highestPage = pageNumbers.length ? Math.max(...pageNumbers) : 0;
+    return {
+      parsedCount: parsed.length,
+      pageNumbers,
+      highestPage,
+      complete: parsed.length >= expectedCount
+    };
+  } catch {
+    return {
+      parsedCount: 0,
+      pageNumbers: [],
+      highestPage: 0,
+      complete: false
+    };
+  }
+}
+
+function mergeGeneratedPromptSlots(slots, parsed, { startPage = 1, total = 0 } = {}) {
+  const size = Math.max(
+    Array.isArray(slots) ? slots.length : 0,
+    Number.parseInt(total, 10) || 0,
+    1
+  );
+  const next = Array.isArray(slots) ? slots.slice() : new Array(size).fill(null);
+  while (next.length < size) next.push(null);
+  const items = Array.isArray(parsed) ? parsed : [];
+  const numbers = parsed?.pageNumbers;
+  const pages = Array.isArray(parsed?.pages) ? parsed.pages : null;
+  if (pages?.length) {
+    for (const page of pages) {
+      const pageNumber = Number(page.pageNumber);
+      if (!Number.isFinite(pageNumber) || pageNumber < 1 || pageNumber > next.length) continue;
+      if (!next[pageNumber - 1]) next[pageNumber - 1] = page.imagePrompt || page.prompt;
+    }
+    return next;
+  }
+  items.forEach((prompt, index) => {
+    const pageNumber = Number(numbers?.[index]) || (startPage + index);
+    if (pageNumber < 1 || pageNumber > next.length) return;
+    if (!next[pageNumber - 1]) next[pageNumber - 1] = prompt;
+  });
+  return next;
+}
+
+function densePromptPrefix(slots = []) {
+  const prefix = [];
+  for (const item of slots) {
+    if (!item) break;
+    prefix.push(item);
+  }
+  return prefix;
+}
+
+function buildPromptsContinuationRequest(pageCount, format, orientation, options = {}) {
+  const count = clampPromptPageCount(pageCount);
+  const range = resolvePromptPageRange(count, options);
+  const pageSizeStr = resolvePixelDimensions(format, orientation);
+  const alreadyHave = Math.max(
+    0,
+    Number.parseInt(options.alreadyHave, 10) || Math.max(0, range.startPage - 1)
+  );
+  return resolvePromptText('pagesContinuation', {
+    pageCount: count,
+    alreadyHaveLine: alreadyHave > 0 ? `You already wrote pages 1–${alreadyHave}. Do not repeat those pages.` : '',
+    startPage: range.startPage,
+    endPage: range.endPage,
+    batchCount: range.batchCount,
+    pageSize: pageSizeStr
+  }, () => [
+    'Continue the same Teachers Pay Teachers page-by-page image prompt plan from this conversation.',
+    `The finished product has exactly ${count} pages.`,
+    alreadyHave > 0 ? `You already wrote pages 1–${alreadyHave}. Do not repeat those pages.` : '',
+    `Write pages ${range.startPage} through ${range.endPage} now (${range.batchCount} prompts). Then stop.`,
+    'Do not generate images. Return prompt text only.',
+    'One prompt per line. Every line MUST start with the page label then @image.',
+    `Use this structure: Page ${range.startPage}: @image [complete visual description including ${pageSizeStr}]`,
+    'Keep the same visual style, dimensions, and original educational content as the earlier pages.',
+    `Return exactly ${range.batchCount} prompt lines and nothing else.`
+  ].filter(Boolean).join('\n'));
 }
 
 function buildStorybookPrompt(input) {
@@ -1387,12 +1436,101 @@ function storybookInputLines(input = {}) {
   return lines;
 }
 
+function balancedJsonObjects(rawText) {
+  const text = String(rawText ?? '');
+  const objects = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escape) escape = false;
+      else if (ch === '\\') escape = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth += 1;
+    } else if (ch === '}' && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        objects.push(text.slice(start, i + 1));
+        start = -1;
+      }
+    }
+  }
+  return objects;
+}
+
+function quotedJsonField(text, key) {
+  const match = String(text || '').match(new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, 'i'));
+  return cleanText(match?.[1]?.replace(/\\"/g, '"'), '');
+}
+
+function extractAnalysisFields(rawText) {
+  const text = String(rawText ?? '');
+  const title = quotedJsonField(text, 'title')
+    || firstMarkdownHeadingValue(text, 'title')
+    || cleanText(text.match(/(?:^|\n)\s*(?:[-*]\s*)?(?:Book\s+)?Title\s*:\s*(.+)/i)?.[1], '');
+  const description = quotedJsonField(text, 'description')
+    || firstMarkdownHeadingValue(text, 'description|purpose')
+    || cleanText(text.match(/(?:^|\n)\s*(?:[-*]\s*)?(?:Description|Purpose)\s*:\s*([\s\S]*?)(?=\n\s*(?:[-*]\s*)?(?:Target\s*Age|Highlights|pageCount|Page Count|$))/i)?.[1], '');
+  const targetAge = quotedJsonField(text, 'targetAge')
+    || cleanText(text.match(/(?:^|\n)\s*(?:[-*]\s*)?(?:Target\s*Age|Grade)\s*:\s*(.+)/i)?.[1], '');
+  const pageCountMatch = text.match(/"pageCount"\s*:\s*(\d+)/i)
+    || text.match(/(?:^|\n)\s*(?:[-*]\s*)?(?:Page Count|Pages)\s*:\s*(\d+)/i);
+  const pageCount = Number.parseInt(pageCountMatch?.[1], 10);
+  const highlightBlock = text.match(/"keyHighlights"\s*:\s*\[([\s\S]*?)\]/i)?.[1] || '';
+  const keyHighlights = [...highlightBlock.matchAll(/"((?:\\.|[^"\\])*)"/g)].map((item) => cleanText(item[1])).filter(Boolean);
+  if (!title || !(description || Number.isFinite(pageCount))) return null;
+  return {
+    title,
+    description,
+    targetAge,
+    keyHighlights,
+    pageCount: Number.isFinite(pageCount) ? pageCount : undefined
+  };
+}
+
+function tryParseAnalysisObject(rawText) {
+  const text = String(rawText ?? '').trim();
+  if (!text) return null;
+  const candidates = [
+    ...(text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1] ? [text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)[1].trim()] : []),
+    ...jsonObjectCandidates(text)
+  ];
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object' && (parsed.title || parsed.description || parsed.pageCount)) {
+        return parsed;
+      }
+    } catch {
+      // Try the next candidate
+    }
+  }
+  return extractAnalysisFields(text);
+}
+
+function analysisResponseReady(rawText) {
+  return Boolean(tryParseAnalysisObject(rawText));
+}
+
 function jsonObjectCandidates(rawText) {
   const text = String(rawText ?? '').replace(/\r\n/g, '\n').trim();
-  return [
-    ...[...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map((match) => match[1]),
-    text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)
-  ].filter((candidate) => candidate && candidate.trim().startsWith('{'));
+  const fenced = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map((match) => match[1].trim());
+  const balanced = balancedJsonObjects(text);
+  const naive = text.includes('{') && text.lastIndexOf('}') > text.indexOf('{')
+    ? [text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)]
+    : [];
+  return [...fenced, ...balanced, ...naive].filter((candidate) => candidate && candidate.trim().startsWith('{'));
 }
 
 function firstParsedJsonObject(rawText) {
@@ -1954,7 +2092,14 @@ const THUMBNAIL_COORDINATION = 'Coordinated collection: square 2000x2000; bright
 function buildTptThumbnailImagePrompt({ index = 0, title = '', brief = '' } = {}) {
   const thumbnailNumber = Number(index) + 1;
   const specificRule = THUMBNAIL_RULES[index % 4] || '';
-  return [
+  return resolvePromptText('mockupThumbnail', {
+    thumbnailNumber,
+    title,
+    brief,
+    specificRule,
+    coordination: THUMBNAIL_COORDINATION,
+    noCollage: THUMBNAIL_NO_COLLAGE
+  }, () => [
     `Create thumbnail ${thumbnailNumber} of 4 for this Teachers Pay Teachers product.`,
     `Product title: ${title}.`,
     `Creative direction: ${brief}`,
@@ -1967,32 +2112,46 @@ function buildTptThumbnailImagePrompt({ index = 0, title = '', brief = '' } = {}
     'Do not invent pages. Do not remix, shuffle, or combine random pages from memory. Never treat attached pages as tiles in a collage.',
     'Render one listing thumbnail from the inner mockup templates using the attached book art.',
     'Generate an image of exactly one polished 2000x2000 TPT hero thumbnail now. No watermark. No variations. No questions.'
-  ].join('\n');
+  ].join('\n'));
 }
 
 function buildTptThumbnailRetryPrompt({ index = 0 } = {}) {
   const thumbnailNumber = Number(index) + 1;
-  return [
+  return resolvePromptText('mockupRetry', {
+    thumbnailNumber,
+    noCollage: THUMBNAIL_NO_COLLAGE
+  }, () => [
     `Generate Thumbnail ${thumbnailNumber} now.`,
     'Use this Mockups Gem’s built-in TPT mockup style and the attached real book pages or Word document.',
     THUMBNAIL_NO_COLLAGE,
     'Generate an image of exactly one polished 2000x2000 TPT hero thumbnail now. No collage. No 2x2 grid. No watermark. No variations. No questions.'
-  ].join('\n');
+  ].join('\n'));
 }
 
 
-function buildTptPreviewVideoPrompt({ title = '', description = '', attachmentCount = 0 } = {}) {
-  const productTitle = cleanText(title) || 'Untitled TPT resource';
-  const productDescription = cleanText(description).slice(0, 700);
-  return [
-    'Generate a Teachers Pay Teachers product preview video now with Veo 3.',
-    `Product title: ${productTitle}.`,
-    productDescription ? `What the product is: ${productDescription}` : '',
-    `I attached ${Number(attachmentCount) || 0} image file(s): listing mockups/thumbnails and representative pages from the printable.`,
-    'This video is for teachers. Show how to use these papers: move through the mockups and pages, highlight the activity flow, and keep on-screen text short and readable.',
-    'Length about 15 to 30 seconds. Landscape 16:9 MP4. No watermark. Do not invent worksheets that were not attached.',
-    'Use the attached mockups and pages as the visual source. Generate the preview video now. No questions. No storyboard-only reply.'
-  ].filter(Boolean).join('\n');
+const PREVIEW_CLIP_BRIEFS = [
+  'Segment 1 of 3: exactly 8 seconds. Open on the listing mockups and the front cover. Show the product identity only.',
+  'Segment 2 of 3: exactly 8 seconds. Move through the attached interior pages and the activity flow. Keep on-screen text short.',
+  'Segment 3 of 3: exactly 8 seconds. Close on classroom use and the back page. End cleanly.'
+];
+
+function buildTptPreviewVideoPrompt(options = {}) {
+  // Default single-clip sentence is verbatim so Veo generates instead of planning.
+  const base = 'generate a preview video for this tpt product, best seller preview';
+  const clips = Math.max(1, Number(options?.clipCount) || 1);
+  const index = Math.min(PREVIEW_CLIP_BRIEFS.length - 1, Math.max(0, Number(options.clipIndex) || 0));
+  const seconds = Math.max(1, Number(options.clipSeconds) || 8);
+  const clipBrief = clips <= 1 ? '' : PREVIEW_CLIP_BRIEFS[index];
+  const clipLength = clips <= 1 ? '' : `Length exactly ${seconds} seconds. Landscape 16:9 MP4. Generate the preview video now with Veo 3.`;
+  return resolvePromptText('previewVideo', {
+    base,
+    clipBrief,
+    clipLength,
+    seconds
+  }, () => {
+    if (clips <= 1) return base;
+    return [base, clipBrief, clipLength].join('\n');
+  });
 }
 
 function mergeApprovedStoryText(pages, approvedExactText) {
@@ -2017,12 +2176,13 @@ module.exports = {
   MOCKUPS_GPT_URL,
   SEO_GPT_URL,
   SEO_GEM_URL,
-  getGemUrlForJob,
   buildMockupJobs,
   withMockupStage,
   FORMAT_INSTRUCTIONS,
   buildAnalysisPrompt,
   parseAnalysisResponse,
+  analysisResponseReady,
+  tryParseAnalysisObject,
   inferProductFormat,
   buildPromptsGenerationRequest,
   parseGeneratedPrompts,
@@ -2049,16 +2209,21 @@ module.exports = {
   parseStorybookResponsePhase2,
   buildStorybookJobs,
   mergeApprovedStoryText
-  ,SEO_PROMPT_LEAD
   ,isSeoSkipStub
   ,sanitizeSeoListingFields
   ,formatSeoBundleText
   ,parseSeoBundleText
-  ,buildTptListingPrompt
-  ,buildTptListingTaxonomyCorrectionPrompt
-  ,parseTptListingResponse
   ,COMPETITOR_MOCKUP_VISION_RULES
   ,buildTptThumbnailImagePrompt
   ,buildTptThumbnailRetryPrompt
   ,buildTptPreviewVideoPrompt
+  ,PREVIEW_CLIP_BRIEFS
+  ,PROMPT_BATCH_SIZE
+  ,promptPageBatches
+  ,resolvePromptPageRange
+  ,buildPromptsContinuationRequest
+  ,inspectGeneratedPromptProgress
+  ,estimatePromptProgressFromSample
+  ,mergeGeneratedPromptSlots
+  ,densePromptPrefix
 };

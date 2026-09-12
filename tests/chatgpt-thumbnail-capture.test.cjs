@@ -79,25 +79,27 @@ test('collector function is Playwright-serializable and does not close over Node
 });
 
 test('listing mockups use the Gemini Mockups Gem, not ChatGPT', () => {
-  const { getGemUrlForJob, MOCKUPS_GEM_URL, MOCKUPS_GPT_URL } = require('../src/prompt-builder.cjs');
-  assert.equal(getGemUrlForJob({ kind: 'thumbnail' }), MOCKUPS_GEM_URL);
-  assert.equal(getGemUrlForJob({ kind: 'mockup' }), MOCKUPS_GEM_URL);
-  assert.equal(getGemUrlForJob({ purpose: 'thumbnail' }), MOCKUPS_GEM_URL);
+  const { getJobStartUrl, MOCKUPS_GEM_URL, MOCKUPS_GPT_URL } = require('../src/ai-engine.cjs');
+  assert.equal(getJobStartUrl({ kind: 'thumbnail' }, 'gemini'), MOCKUPS_GEM_URL);
+  assert.equal(getJobStartUrl({ kind: 'mockup' }, 'gemini'), MOCKUPS_GEM_URL);
+  assert.equal(getJobStartUrl({ purpose: 'thumbnail' }, 'gemini'), MOCKUPS_GEM_URL);
   assert.match(MOCKUPS_GEM_URL, /gemini\.google\.com\/gem\/6d30d7350cbc/);
-  assert.notEqual(getGemUrlForJob({ kind: 'thumbnail' }), MOCKUPS_GPT_URL);
+  assert.notEqual(getJobStartUrl({ kind: 'thumbnail' }, 'gemini'), MOCKUPS_GPT_URL);
 });
 
-test('mockup generation attaches book pages or Word files, then arms Gemini image mode', () => {
+test('mockup generation attaches the compiled document, then arms Gemini image mode', () => {
   const { readFileSync } = require('node:fs');
   const { join } = require('node:path');
   const { GEMINI_IMAGE_MODE_NAME } = require('../src/browser-controller.cjs');
   const source = readFileSync(join(__dirname, '../src/browser-controller.cjs'), 'utf8');
   assert.match(source, /promptKind: 'thumbnail'/);
   assert.match(source, /#armGeminiImageGeneration/);
-  assert.match(source, /stageThumbnailPageTargets/);
-  assert.match(source, /writeImagesDocx/);
-  assert.match(source, /Gemini cannot use the PDF for mockups/);
-  assert.doesNotMatch(source, /else if \(pdfPath\) \{\s*attachments\.push\(pdfPath\)/);
+  // Page images used to be staged and attached. A 100-200 page pack is hundreds of
+  // megabytes of PNGs, which exceeds the context limit before the model reads any of
+  // them, so the compiled .docx carries the ground truth instead.
+  assert.match(source, /const attachments = \[sourceDocument\];/);
+  assert.doesNotMatch(source, /stageThumbnailPageTargets/);
+  assert.doesNotMatch(source, /writeImagesDocx/);
   assert.match(GEMINI_IMAGE_MODE_NAME.source, /create images\?/);
 });
 

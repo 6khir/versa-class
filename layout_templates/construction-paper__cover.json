@@ -1,0 +1,28 @@
+{
+  "theme_id": "construction-paper",
+  "page_type": "cover",
+  "canvas": { "width": 2480, "height": 3508 },
+  "zones": [
+    {
+      "id": "cover_header_bar",
+      "shape": "rect",
+      "bbox": [0, 0, 2480, 220],
+      "align": "center",
+      "role": "brand_bar"
+    },
+    {
+      "id": "title",
+      "shape": "rect",
+      "bbox": [220, 620, 2260, 1680],
+      "align": "center",
+      "role": "heading"
+    },
+    {
+      "id": "cover_footer_bar",
+      "shape": "rect",
+      "bbox": [0, 3288, 2480, 3508],
+      "align": "center",
+      "role": "brand_bar"
+    }
+  ]
+}

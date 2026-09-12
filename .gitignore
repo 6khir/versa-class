@@ -1,4 +1,8 @@
 node_modules
+# Same iCloud-eviction guard as the Python venv: a synced Desktop corrupts installed
+# packages in place, and the ".nosync" suffix is what iCloud Drive skips.
+node_modules.nosync/
+tmp-versa-asar/
 .DS_Store
 dist/
 dist_windows/
@@ -7,6 +11,37 @@ release/*.zip
 *.log
 .env
 env
+services/versa-book-management/.env
+services/versa-book-management/.venv/
+services/versa-book-management/__pycache__/
+services/versa-book-management/app.pid
+services/**/__pycache__/
 .cursor/
 .tmp-canva-spec/
 .tmp-ui-ref/
+
+# Local vision environment. The venv is ~33k files of platform-specific binaries and
+# the MobileSAM checkpoint is 40 MB; both are rebuilt by python/setup_models.sh.
+#
+# The ".nosync" suffix is the marker macOS iCloud Drive honours to skip a directory.
+# This project sits on a synced Desktop and iCloud was evicting individual package
+# files - it took out paddle/utils/__init__.py and cv2/misc/__init__.py mid-run, which
+# surfaces as a baffling ImportError rather than as a sync problem.
+python/.venv/
+python/.venv.nosync/
+python/models/
+python/__pycache__/
+python/*.pyc
+*.pyc
+
+# Local UI preview harness (design work only, never shipped)
+renderer/__preview.html
+renderer/__preview-stub.js
+.claude/launch.json
+
+# Agent QA captures and duplicate installs — never ship these
+.versa-qa/
+assets/verify-*.png
+"node_modules 2/"
+node_modules 2/
+tests/.test-output/

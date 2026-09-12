@@ -6,7 +6,61 @@ function clampPercent(value) {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
+function readMockupPaths(project) {
+  if (typeof projectMockups === 'function') {
+    return projectMockups(project).paths || [];
+  }
+  const listing = project?.tptListing || {};
+  if (project?.mockups?.paths) return project.mockups.paths;
+  if (listing.mockups?.paths) return listing.mockups.paths;
+  return listing.thumbnailPaths || [];
+}
+
+function projectMarketplace(project) {
+  if (typeof window !== "undefined" && typeof window.projectMarketplace === "function" && window.projectMarketplace !== projectMarketplace) return window.projectMarketplace(project);
+  const listing = project?.tptListing || {};
+  const m = listing.marketplace || {};
+  const r = m.review || {};
+  return {
+    settings: m.settings || {},
+    upload: m.upload || {},
+    review: {
+      approved: r.approved !== undefined ? r.approved : listing.reviewApproved,
+      sellerApproved: r.sellerApproved !== undefined ? r.sellerApproved : listing.sellerApproved
+    }
+  };
+}
+
+function readVideoState(project) {
+  if (typeof projectVideo === 'function') {
+    return projectVideo(project);
+  }
+  const listing = project?.tptListing || {};
+  if (project?.video && typeof project.video === 'object') return project.video;
+  if (listing.video && typeof listing.video === 'object') {
+    return {
+      path: listing.video.path || listing.videoPreviewPath || null,
+      status: listing.video.status || listing.videoPreviewStatus || 'pending'
+    };
+  }
+  return {
+    path: listing.videoPreviewPath || null,
+    status: listing.videoPreviewStatus || (listing.videoPreviewPath ? 'ready' : 'pending')
+  };
+}
+
+
+function projectPdf(project) {
+  if (typeof window !== "undefined" && typeof window.projectPdf === "function" && window.projectPdf !== projectPdf) return window.projectPdf(project);
+  const meta = (project?.printPdfJson && typeof project.printPdfJson === 'object') ? project.printPdfJson : {};
+  const productPath = meta.productPdfPath ?? project?.productPdfPath ?? project?.tptListing?.productPdfPath ?? null;
+  const compressedPath = meta.compressedPdfPath ?? project?.compressedPdfPath ?? null;
+  const thankYouPath = meta.thankYouPdfPath ?? project?.thankYouPdfPath ?? null;
+  return { productPath, compressedPath, thankYouPath, metadata: meta };
+}
+
 function computeProductPipeline(project, liveOp = null, options = {}) {
+  void options;
   const stats = project?.stats || { total: 0, complete: 0, remaining: 0, percent: 0 };
   const pagePercent = clampPercent(stats.percent);
   const characters = project?.highlights && typeof project.highlights === 'object' && Array.isArray(project.highlights.characters)
@@ -17,40 +71,69 @@ function computeProductPipeline(project, liveOp = null, options = {}) {
   // Characters stage removed from product progress — keep sheets for storybook data only.
   const characterPct = 100;
   const editable = project?.productFormat === 'editable';
+  const maze = project?.productFormat === 'maze';
   const listing = project?.tptListing || null;
-  const thumbnailCount = (listing?.thumbnailPaths || []).filter(Boolean).length;
-  const listingReady = Boolean(listing?.title);
-  const reviewApproved = Boolean(listing?.reviewApproved || listing?.sellerApproved);
+  const thumbnailCount = (readMockupPaths(project)).filter(Boolean).length;
+  const mReview = projectMarketplace(project).review;
+  const reviewApproved = Boolean(mReview.approved || mReview.sellerApproved);
   const uploadReady = reviewApproved || ['ready_to_upload', 'uploading_listing', 'listing_form_ready', 'submitting_listing', 'draft_submitted', 'listing_published', 'upload_browser_open'].includes(listing?.status);
-  const vectorDone = project?.stepEditableStatus === 'completed'
-    || Boolean(project?.canvaExportPath)
-    || (typeof project?.canvaTemplateLink === 'string' && project.canvaTemplateLink.length > 0);
-  const canvaPct = liveOp?.kind === 'canva' ? clampPercent(liveOp.percent) : vectorDone ? 100 : 0;
-  const listingPct = liveOp?.kind === 'listing' ? clampPercent(liveOp.percent) : listingReady ? 100 : 0;
+  const vectorDone = project?.stepEditableGenerationStatus === 'completed';
+  const editablePct = liveOp?.kind === 'editable-generation' ? clampPercent(liveOp.percent) : vectorDone ? 100 : 0;
   const thumbPct = liveOp?.kind === 'thumbnails' ? clampPercent(liveOp.percent) : clampPercent((thumbnailCount / 4) * 100);
+  const video = readVideoState(project);
   const previewPct = liveOp?.kind === 'preview'
     ? clampPercent(liveOp.percent)
-    : listing?.videoPreviewPath ? 100 : listing?.videoPreviewStatus === 'generating' ? 40 : 0;
-  const pagesDone = stats.total > 0 && stats.complete === stats.total;
-  let exportPct = pagePercent;
-  if (pagesDone) exportPct = uploadReady ? 100 : listingReady ? 70 : 55;
+    : video.path ? 100 : video.status === 'generating' ? 40 : 0;
+  const mazePages = Array.isArray(project?.mazeProject?.pages) ? project.mazeProject.pages : [];
+  const mazePlanned = Number(project?.mazeLab?.pageCount) || mazePages.length;
+  const mazeReady = mazePages.filter((page) => page.generationStatus === 'ready').length;
+  const mazePct = liveOp?.kind === 'maze'
+    ? clampPercent(liveOp.percent)
+    : mazePlanned
+      ? clampPercent((mazeReady / mazePlanned) * 100)
+      : project?.stepMazeStatus === 'completed' ? 100 : 0;
+  const pagesDone = maze
+    ? mazePlanned > 0 && mazeReady === mazePlanned
+    : stats.total > 0 && stats.complete === stats.total;
+  let exportPct = 0;
+  if (project?.stepExportStatus === 'completed' || uploadReady) exportPct = 100;
+  else if (liveOp?.kind === 'export') exportPct = clampPercent(liveOp.percent);
+
+  // Editable books carry three generation stages instead of one interior stage.
+  const textTotal = Number(project?.editableText?.total) || 0;
+  const textPct = liveOp?.kind === 'editable-text'
+    ? clampPercent(liveOp.percent)
+    : textTotal ? clampPercent(((Number(project?.editableText?.ready) || 0) / textTotal) * 100) : 0;
 
   const weighted = [];
-  weighted.push({ id: 'interior', label: 'Book interior', pct: pagePercent, weight: 34 });
-  if (editable) weighted.push({ id: 'editable', label: 'Canva editable', pct: canvaPct, weight: 10 });
-  weighted.push({ id: 'thumbnails', label: 'Mockups', pct: thumbPct, weight: 24 });
-  weighted.push({ id: 'listing', label: 'SEO', pct: listingPct, weight: 24 });
+  if (maze) {
+    weighted.push({ id: 'maze', label: 'Maze Lab', pct: mazePct, weight: 34 });
+  } else if (editable) {
+    weighted.push({ id: 'interior_artwork', label: 'Pages Lab', pct: pagePercent, weight: 20 });
+    weighted.push({ id: 'interior_text', label: 'Text Lab', pct: textPct, weight: 12 });
+    weighted.push({ id: 'editable_ppt', label: 'Editable Lab', pct: editablePct, weight: 12 });
+  } else {
+    weighted.push({ id: 'interior', label: 'Pages Lab', pct: pagePercent, weight: 34 });
+  }
+  weighted.push({ id: 'thumbnails', label: 'Mockups Lab', pct: thumbPct, weight: 24 });
+  weighted.push({ id: 'preview', label: 'Preview Lab', pct: previewPct, weight: 24 });
 
   const weightSum = weighted.reduce((sum, item) => sum + item.weight, 0) || 1;
   const percent = clampPercent(weighted.reduce((sum, item) => sum + item.pct * item.weight, 0) / weightSum);
 
   const openStages = [];
-  if (pagePercent < 100) openStages.push({ id: 'interior', label: 'Book interior' });
-  if (editable && canvaPct < 100) openStages.push({ id: 'editable', label: 'Canva editable' });
-  if (thumbPct < 100) openStages.push({ id: 'thumbnails', label: 'Mockups' });
-  if (previewPct < 100) openStages.push({ id: 'preview', label: 'Preview video' });
+  if (maze) {
+    if (mazePct < 100) openStages.push({ id: 'maze', label: 'Maze Lab' });
+  } else if (editable) {
+    if (pagePercent < 100) openStages.push({ id: 'interior_artwork', label: 'Pages Lab' });
+    if (textPct < 100) openStages.push({ id: 'interior_text', label: 'Text Lab' });
+    if (editablePct < 100) openStages.push({ id: 'editable_ppt', label: 'Editable Lab' });
+  } else if (pagePercent < 100) {
+    openStages.push({ id: 'interior', label: 'Pages Lab' });
+  }
+  if (thumbPct < 100) openStages.push({ id: 'thumbnails', label: 'Mockups Lab' });
+  if (previewPct < 100) openStages.push({ id: 'preview', label: 'Preview Lab' });
   if (exportPct < 100) openStages.push({ id: 'export', label: 'Export' });
-  if (listingPct < 100) openStages.push({ id: 'listing', label: 'SEO' });
 
   const requiredOpen = openStages.filter((stage) => !['preview', 'export'].includes(stage.id));
   const nextView = (requiredOpen[0] || openStages[0] || { id: 'export' }).id;
@@ -59,14 +142,15 @@ function computeProductPipeline(project, liveOp = null, options = {}) {
     percent,
     pagePercent,
     characterPct,
-    canvaPct,
-    listingPct,
+    editablePct,
     thumbPct,
     previewPct,
+    textPct,
     exportPct,
     thumbnailCount,
-    listingReady,
     pagesDone,
+    mazePct,
+    maze,
     editable,
     openStages,
     requiredOpen,

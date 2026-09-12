@@ -50,7 +50,7 @@ function createStore({ projects = [], settings = {}, pendingSteps = [] } = {}) {
 
 // Fast watchdog budgets so the tests finish in milliseconds instead of minutes.
 const FAST_TIMING = {
-  stepTimeouts: { listing: { idleMs: 200, hardCapMs: 200 } },
+  stepTimeouts: { preview: { idleMs: 200, hardCapMs: 200 } },
   watchdogTickMs: 10,
   orphanSettleGraceMs: 100,
   retryDelaysMs: [1, 1, 1]
@@ -62,10 +62,10 @@ function collectNotifications(manager) {
   return seen;
 }
 
-test('a frozen listing step is aborted instead of hanging the pipeline forever', async () => {
+test('a frozen step is aborted instead of hanging the pipeline forever', async () => {
   const store = createStore({
     projects: [{ id: 'p1', name: 'Frozen Book' }],
-    pendingSteps: ['listing']
+    pendingSteps: ['preview']
   });
 
   let abortCalls = 0;
@@ -79,11 +79,11 @@ test('a frozen listing step is aborted instead of hanging the pipeline forever',
     ...FAST_TIMING,
     abortStep: async (step) => {
       abortCalls += 1;
-      assert.strictEqual(step, 'listing');
+      assert.strictEqual(step, 'preview');
       releaseRunner();
     },
     stepRunners: {
-      listing: async () => {
+      preview: async () => {
         await new Promise((resolve) => { releaseRunner = resolve; });
       }
     }
@@ -94,7 +94,7 @@ test('a frozen listing step is aborted instead of hanging the pipeline forever',
   await manager._loopPromise;
 
   assert.strictEqual(abortCalls, 4, 'every frozen attempt should be aborted');
-  assert.strictEqual(store.stepStatus.get('p1:listing'), 'failed');
+  assert.strictEqual(store.stepStatus.get('p1:preview'), 'failed');
 
   const stalled = notifications.find((n) => n.type === 'step_stalled');
   assert.ok(stalled, 'a step_stalled notification should be emitted');
@@ -107,7 +107,7 @@ test('a frozen listing step is aborted instead of hanging the pipeline forever',
 test('a frozen step never reports the automation as completed', async () => {
   const store = createStore({
     projects: [{ id: 'p1', name: 'Frozen Book' }],
-    pendingSteps: ['listing']
+    pendingSteps: ['preview']
   });
 
   let releaseRunner = () => {};
@@ -117,7 +117,7 @@ test('a frozen step never reports the automation as completed', async () => {
     ...FAST_TIMING,
     abortStep: async () => { releaseRunner(); },
     stepRunners: {
-      listing: async () => {
+      preview: async () => {
         await new Promise((resolve) => { releaseRunner = resolve; });
       }
     }
@@ -137,7 +137,7 @@ test('a frozen step never reports the automation as completed', async () => {
 test('a one-off freeze recovers on retry instead of failing the book', async () => {
   const store = createStore({
     projects: [{ id: 'p1', name: 'Recovering Book' }],
-    pendingSteps: ['listing']
+    pendingSteps: ['preview']
   });
 
   let attempts = 0;
@@ -149,7 +149,7 @@ test('a one-off freeze recovers on retry instead of failing the book', async () 
     ...FAST_TIMING,
     abortStep: async () => { releaseRunner(); },
     stepRunners: {
-      listing: async (_projectId, onProgress) => {
+      preview: async (_projectId, onProgress) => {
         attempts += 1;
         // Only the first attempt hangs; the retry after the abort succeeds.
         if (attempts === 1) await new Promise((resolve) => { releaseRunner = resolve; });
@@ -163,15 +163,74 @@ test('a one-off freeze recovers on retry instead of failing the book', async () 
   await manager._loopPromise;
 
   assert.strictEqual(attempts, 2);
-  assert.strictEqual(store.stepStatus.get('p1:listing'), 'completed');
+  assert.strictEqual(store.stepStatus.get('p1:preview'), 'completed');
   assert.ok(notifications.some((n) => n.type === 'step_stalled'), 'the freeze should still be reported');
   assert.ok(notifications.some((n) => n.type === 'all_completed'), 'the recovered run should finish');
 });
 
+test('a frozen orphan that will not settle is never overlapped by a retry', async () => {
+  const store = createStore({
+    projects: [{ id: 'p1', name: 'Lingering Runner' }],
+    pendingSteps: ['preview']
+  });
+
+  let attempts = 0;
+  const manager = new AutomationManager({
+    store,
+    broadcast: async () => {},
+    ...FAST_TIMING,
+    abortStep: async () => {},
+    stepRunners: {
+      preview: async () => {
+        attempts += 1;
+        await new Promise(() => {});
+      }
+    }
+  });
+
+  const notifications = collectNotifications(manager);
+  await manager.start();
+  await manager._loopPromise;
+
+  assert.strictEqual(attempts, 1, 'a second attempt must not start while the first runner may still be alive');
+  assert.strictEqual(store.stepStatus.get('p1:preview'), 'failed');
+  assert.ok(store.events.some((event) => event.details?.code === 'STEP_ORPHAN_LINGERING'));
+  assert.ok(notifications.some((event) => event.type === 'step_failed'));
+  assert.ok(!notifications.some((event) => event.type === 'all_completed'));
+});
+
+test('a frozen step with a cleanup hook that hangs fails closed without retrying', async () => {
+  const store = createStore({
+    projects: [{ id: 'p1', name: 'Hung Cleanup' }],
+    pendingSteps: ['preview']
+  });
+
+  let attempts = 0;
+  const manager = new AutomationManager({
+    store,
+    broadcast: async () => {},
+    ...FAST_TIMING,
+    abortStep: async () => new Promise(() => {}),
+    stepRunners: {
+      preview: async () => {
+        attempts += 1;
+        await new Promise(() => {});
+      }
+    }
+  });
+
+  await manager.start();
+  await manager._loopPromise;
+
+  assert.strictEqual(attempts, 1);
+  assert.strictEqual(store.stepStatus.get('p1:preview'), 'failed');
+  assert.ok(store.events.some((event) => event.details?.code === 'STEP_ABORT_TIMEOUT'));
+});
+
 test('a step that returns without producing output fails verification', async () => {
   const store = createStore({
-    projects: [{ id: 'p1', name: 'Empty Listing' }],
-    pendingSteps: ['listing']
+    projects: [{ id: 'p1', name: 'Empty Output' }],
+    pendingSteps: ['preview']
   });
 
   let runnerCalls = 0;
@@ -180,11 +239,11 @@ test('a step that returns without producing output fails verification', async ()
     broadcast: async () => {},
     ...FAST_TIMING,
     // The runner resolves cleanly — the old code marked this "completed".
-    stepRunners: { listing: async (_projectId, onProgress) => { runnerCalls += 1; onProgress(100); } },
+    stepRunners: { preview: async (_projectId, onProgress) => { runnerCalls += 1; onProgress(100); } },
     stepVerifiers: {
-      listing: () => {
-        throw Object.assign(new Error('The generated TPT listing is missing title.'), {
-          code: 'TPT_LISTING_INCOMPLETE'
+      preview: () => {
+        throw Object.assign(new Error('The generated preview video is missing.'), {
+          code: 'PREVIEW_INCOMPLETE'
         });
       }
     }
@@ -195,7 +254,7 @@ test('a step that returns without producing output fails verification', async ()
   await manager._loopPromise;
 
   assert.strictEqual(runnerCalls, 4, 'the step should be retried before giving up');
-  assert.strictEqual(store.stepStatus.get('p1:listing'), 'failed');
+  assert.strictEqual(store.stepStatus.get('p1:preview'), 'failed');
   assert.ok(!notifications.some((n) => n.type === 'step_completed'));
   assert.ok(notifications.some((n) => n.type === 'step_failed'));
 });
@@ -206,9 +265,9 @@ test('a run halted mid-way reports "stopped early" rather than success', async (
       { id: 'p1', name: 'Book One' },
       { id: 'p2', name: 'Book Two' }
     ],
-    // Listing is forced always-on (must never be skipped). Halt on thumbnails instead.
-    pendingSteps: ['listing', 'thumbnails'],
-    settings: { listing: 'always', thumbnails: 'manual' }
+    // Thumbnails runs, then the manual gate on preview halts the run.
+    pendingSteps: ['thumbnails', 'preview'],
+    settings: { thumbnails: 'always', preview: 'manual' }
   });
 
   const manager = new AutomationManager({
@@ -216,12 +275,12 @@ test('a run halted mid-way reports "stopped early" rather than success', async (
     broadcast: async () => {},
     ...FAST_TIMING,
     stepRunners: {
-      listing: async () => {},
-      thumbnails: async () => {}
+      thumbnails: async () => {},
+      preview: async () => {}
     },
     stepVerifiers: {
-      // Allow empty listing output in this unit harness.
-      listing: async () => {}
+      // Allow empty output in this unit harness.
+      thumbnails: async () => {}
     }
   });
 
@@ -241,22 +300,22 @@ test('a run halted mid-way reports "stopped early" rather than success', async (
 test('a healthy run still completes and reports success', async () => {
   const store = createStore({
     projects: [{ id: 'p1', name: 'Good Book' }],
-    pendingSteps: ['listing']
+    pendingSteps: ['preview']
   });
 
   const manager = new AutomationManager({
     store,
     broadcast: async () => {},
     ...FAST_TIMING,
-    stepRunners: { listing: async (_projectId, onProgress) => { onProgress(100); } },
-    stepVerifiers: { listing: () => {} }
+    stepRunners: { preview: async (_projectId, onProgress) => { onProgress(100); } },
+    stepVerifiers: { preview: () => {} }
   });
 
   const notifications = collectNotifications(manager);
   await manager.start();
   await manager._loopPromise;
 
-  assert.strictEqual(store.stepStatus.get('p1:listing'), 'completed');
+  assert.strictEqual(store.stepStatus.get('p1:preview'), 'completed');
   const completed = notifications.find((n) => n.type === 'all_completed');
   assert.ok(completed, 'a clean run should still report all_completed');
   assert.strictEqual(completed.completedBooks, 1);
@@ -266,7 +325,7 @@ test('a healthy run still completes and reports success', async () => {
 test('progress callbacks keep a slow but healthy step alive', async () => {
   const store = createStore({
     projects: [{ id: 'p1', name: 'Slow Book' }],
-    pendingSteps: ['listing']
+    pendingSteps: ['preview']
   });
 
   let aborted = false;
@@ -275,10 +334,10 @@ test('progress callbacks keep a slow but healthy step alive', async () => {
     broadcast: async () => {},
     ...FAST_TIMING,
     // Idle window of 200ms, no hard cap: steady progress must prevent a stall.
-    stepTimeouts: { listing: { idleMs: 200, hardCapMs: 0 } },
+    stepTimeouts: { preview: { idleMs: 200, hardCapMs: 0 } },
     abortStep: async () => { aborted = true; },
     stepRunners: {
-      listing: async (_projectId, onProgress) => {
+      preview: async (_projectId, onProgress) => {
         for (let i = 1; i <= 10; i += 1) {
           await new Promise((resolve) => setTimeout(resolve, 50));
           onProgress(i * 10);
@@ -291,7 +350,7 @@ test('progress callbacks keep a slow but healthy step alive', async () => {
   await manager._loopPromise;
 
   assert.strictEqual(aborted, false, 'a step reporting progress must not be aborted');
-  assert.strictEqual(store.stepStatus.get('p1:listing'), 'completed');
+  assert.strictEqual(store.stepStatus.get('p1:preview'), 'completed');
 });
 
 test('a fake-complete thumbnails step is reopened instead of reporting success', async () => {
@@ -339,7 +398,7 @@ test('full automation can be scoped to the current book', async () => {
       { id: 'p1', name: 'First' },
       { id: 'p2', name: 'Current book' }
     ],
-    pendingSteps: ['listing']
+    pendingSteps: ['preview']
   });
   const ran = [];
   const manager = new AutomationManager({
@@ -347,7 +406,7 @@ test('full automation can be scoped to the current book', async () => {
     broadcast: async () => {},
     ...FAST_TIMING,
     stepRunners: {
-      listing: async (projectId, onProgress) => {
+      preview: async (projectId, onProgress) => {
         ran.push(projectId);
         onProgress(100);
       }
@@ -364,7 +423,7 @@ test('paused full automation does not switch to a different book on resume', asy
       { id: 'p1', name: 'First' },
       { id: 'p2', name: 'Second' }
     ],
-    pendingSteps: ['listing']
+    pendingSteps: ['preview']
   });
   const ran = [];
   let release;
@@ -374,7 +433,7 @@ test('paused full automation does not switch to a different book on resume', asy
     broadcast: async () => {},
     ...FAST_TIMING,
     stepRunners: {
-      listing: async (projectId, onProgress) => {
+      preview: async (projectId, onProgress) => {
         ran.push(projectId);
         manager.pause();
         await gate;
@@ -396,4 +455,32 @@ test('paused full automation does not switch to a different book on resume', asy
   await manager.start({ projectId: 'p1' });
   await manager._loopPromise;
   assert.deepEqual(ran, ['p1']);
+});
+
+test('a persisted processing export is rerun normally after restart', async () => {
+  const store = createStore({ projects: [{ id: 'p1', name: 'Interrupted Export' }] });
+  store.stepStatus.set('p1:export', 'processing');
+  let runnerCalls = 0;
+  let verifierCalls = 0;
+  const manager = new AutomationManager({
+    store,
+    broadcast: async () => {},
+    ...FAST_TIMING,
+    stepRunners: {
+      export: async (_projectId, onProgress) => {
+        runnerCalls += 1;
+        onProgress(100);
+      }
+    },
+    stepVerifiers: {
+      export: async () => { verifierCalls += 1; }
+    }
+  });
+
+  await manager.start();
+  await manager._loopPromise;
+
+  assert.equal(runnerCalls, 1);
+  assert.equal(verifierCalls, 1);
+  assert.equal(store.stepStatus.get('p1:export'), 'completed');
 });

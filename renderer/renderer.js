@@ -3,13 +3,33 @@ const api = window.tptDesktop;
 async function openLoginSession(options = {}) {
   if (typeof api?.openLoginBrowser === 'function') return api.openLoginBrowser(options);
   if (typeof api?.launchBrowser === 'function') return api.launchBrowser();
-  throw new Error('The app bridge is out of date. Quit the app completely, then restart it.');
+  throw new Error('Restart the app.');
 }
 
 async function verifyLoginSession(options = {}) {
   if (typeof api?.verifyChatGptLogin === 'function') return api.verifyChatGptLogin(options);
-  throw new Error('Login verification requires a full app restart to load the updated bridge.');
+  throw new Error('Restart the app.');
 }
+
+// Stages that exist only in the editable pipeline, in run order.
+const EDITABLE_ONLY_STAGES = ['interior_artwork', 'interior_text', 'editable_ppt'];
+
+// Readable names for pipeline steps, used by the hero control and the automation bar so
+// both name the same step the same way.
+const STEP_LABELS = {
+  overview: 'Overview',
+  characters: 'Characters',
+  interior: 'Pages Lab',
+  interior_artwork: 'Pages Lab',
+  interior_text: 'Text Lab',
+  editable_ppt: 'Editable Lab',
+  editable_generation: 'Editable Lab',
+  maze: 'Maze Lab',
+  thumbnails: 'Mockups Lab',
+  mockups: 'Mockups Lab',
+  preview: 'Preview Lab',
+  export: 'Export'
+};
 
 const STATUS_LABELS = {
   pending: 'Pending',
@@ -17,12 +37,12 @@ const STATUS_LABELS = {
   submitted: 'Submitted',
   generating: 'Generating',
   downloading: 'Downloading',
-  validating: 'Validating image',
+  validating: 'Validating',
   complete: 'Complete',
-  edit_pending: 'Revision queued',
-  retry_wait: 'Retry queued',
+  edit_pending: 'Queued',
+  retry_wait: 'Retry',
   rate_limit_paused: 'Usage limit',
-  needs_user_action: 'Needs attention'
+  needs_user_action: 'Attention'
 };
 
 const PROJECT_STATUS_LABELS = {
@@ -35,6 +55,7 @@ const PROJECT_STATUS_LABELS = {
 
 let state = null;
 let selectedJobId = null;
+let lastPagesScrollId = null;
 let currentFilter = 'all';
 let lastHeartbeatAt = null;
 let editingJobId = null;
@@ -42,11 +63,15 @@ let authManagerOpenedManually = false;
 let authTarget = 'gemini';
 let activeWorkspaceView = 'overview';
 let lastRenderedWorkspaceView = null;
-const WORKSPACE_PANES = ['overview', 'characters', 'interior', 'editable', 'thumbnails', 'preview', 'export', 'listing'];
+let selectedMazePageId = null;
+let mazePreviewVariant = 'student';
+const WORKSPACE_PANES = ['overview', 'characters', 'interior', 'interior_artwork', 'interior_text', 'editable_ppt', 'maze', 'editable', 'thumbnails', 'preview', 'export'];
 let activeSettingsTab = 'profile';
 let imagePreviewItems = [];
 let imagePreviewIndex = 0;
 let bundleViewActive = false;
+let mazeWorkspaceOpen = false;
+let mazeAutoGenerateId = null;
 
 const elements = Object.fromEntries([
   'update-button', 'update-label', 'browser-pill', 'browser-label', 'focus-browser-button', 'launch-browser-button',
@@ -55,10 +80,8 @@ const elements = Object.fromEntries([
   'settings-current-version', 'settings-update-status-badge', 'settings-update-message',
   'settings-update-progress-container', 'settings-update-progress-fill', 'settings-update-progress-text',
   'settings-update-last-checked', 'settings-check-update-btn', 'settings-install-update-btn',
-  'settings-listing-tags', 'settings-listing-subjects', 'settings-listing-grades',
-  'settings-listing-formats', 'settings-listing-tax-code', 'settings-listing-copyright',
-  'settings-listing-pricing-mode', 'settings-listing-price', 'settings-listing-multi-price',
-  'settings-listing-publication', 'settings-listing-thumbnail', 'settings-default-format',
+  'settings-management-root', 'settings-management-pick-folders',
+  'settings-default-format',
   'settings-default-orientation', 'settings-when-complete', 'settings-save-button', 'settings-save-note',
   'settings-chatgpt-card', 'settings-chatgpt-status', 'settings-chatgpt-profile', 'settings-chatgpt-verified',
   'settings-chatgpt-logout', 'settings-chatgpt-profile-select', 'settings-selected-profile-sessions',
@@ -67,23 +90,23 @@ const elements = Object.fromEntries([
   'settings-openai-logout',
   'engine-chatgpt-toggle', 'engine-chatgpt-state', 'engine-gemini-toggle', 'engine-gemini-state', 'engine-meta-toggle', 'engine-meta-state',
   'settings-meta-card', 'settings-meta-status', 'settings-meta-profile', 'settings-meta-verified', 'settings-meta-logout',
-  'settings-canva-card', 'settings-canva-status', 'settings-canva-profile', 'settings-canva-verified', 'settings-canva-logout',
   'settings-gpt-card', 'settings-gpt-status', 'settings-gpt-profile', 'settings-studio-list',
+  'settings-gpts-card', 'settings-gpts-status', 'settings-gpts-profile', 'settings-gpts-list',
   'new-project-button', 'project-count', 'project-list', 'empty-state', 'project-workspace',
   'bundle-upload-sidebar-btn', 'bundle-upload-view', 'bundle-projects-list', 'bundle-empty-state',
   'bundle-ready-badge', 'start-bundle-btn', 'stop-bundle-btn',
-  'project-meta', 'project-title', 'project-format-toggle', 'project-theme', 'output-folder-button', 'retry-all-button',
+  'project-meta', 'project-title', 'project-format-toggle', 'project-generation-mode-toggle', 'project-theme', 'output-folder-button', 'export-to-management-button', 'retry-all-button',
   'pause-button', 'live-pause-button', 'studio-stage-pause', 'studio-banner-pause', 'run-button', 'stat-total', 'stat-complete', 'stat-remaining', 'stat-percent',
   'queue-caption', 'current-job-label', 'current-job-status', 'progress-fill', 'progress-percent-label', 'heartbeat-text', 'live-dock',
-  'jobs-table', 'detail-title', 'detail-status-wrap', 'detail-error', 'detail-prompt',
+  'jobs-table', 'pages-stage', 'pages-canvas', 'pages-rail-count', 'detail-title', 'detail-status-wrap', 'detail-error', 'detail-prompt',
   'detail-story-text-wrap', 'detail-story-text',
   'copy-prompt-button', 'import-image-button', 'open-conversation-button', 'retry-job-button',
   'export-caption', 'export-mode-select', 'export-all-files-button', 'export-pdf-button', 'export-zip-button', 'export-pptx-button', 'event-log', 'project-dialog',
-  'tpt-listing-caption', 'generate-tpt-listing-button', 'generate-tpt-thumbnails-button', 'generate-tpt-preview-video-button', 'open-tpt-upload-button',
+  'generate-tpt-thumbnails-button', 'generate-tpt-preview-video-button', 'open-tpt-upload-button',
   'mark-tpt-ready-button', 'start-tpt-uploading-button', 'when-complete-control', 'open-project-folder-button',
-  'tpt-listing-review', 'tpt-thumbnails-review', 'tpt-preview-review',
-  'overview-character-count', 'overview-character-names', 'overview-interior-detail', 'overview-editable-status', 'overview-editable-detail', 'overview-listing-status',
-  'overview-listing-detail', 'overview-thumbnail-count', 'overview-thumbnail-detail', 'overview-preview-status', 'overview-preview-detail', 'overview-export-status', 'overview-export-detail',
+  'tpt-thumbnails-review', 'tpt-preview-review',
+  'overview-character-count', 'overview-character-names', 'overview-interior-detail', 'overview-editable-status', 'overview-editable-detail', 
+  'overview-thumbnail-count', 'overview-thumbnail-detail', 'overview-mockups-status', 'overview-mockups-detail', 'overview-preview-status', 'overview-preview-detail', 'overview-export-status', 'overview-export-detail',
   'overview-open-stages', 'overview-overall-state', 'overview-product-ring', 'overview-overall-card',
   'project-form', 'toast-host', 'filter-tabs', 'bulk-prompt-panel', 'bulk-prompts-text',
   'prompt-split-mode', 'bulk-prompt-count', 'upload-prompts-button', 'clear-prompts-button',
@@ -131,12 +154,20 @@ const elements = Object.fromEntries([
   'crop-pan-y-slider', 'crop-pan-y-value', 'crop-save-btn',
   'automation-bar', 'automation-bar-label', 'automation-bar-detail', 'automation-overall-fill',
   'automation-pause-btn', 'automation-resume-btn', 'automation-start-btn',
-  'auto-step-overview', 'auto-step-characters', 'auto-step-interior', 'auto-step-editable', 'auto-step-listing', 'auto-step-thumbnails', 'auto-step-preview', 'auto-step-export',
-  'canva-editable-status', 'canva-editable-link', 'canva-pdf-status', 'run-canva-editable-button', 'open-canva-template-button',
-  'canva-progress-percent', 'canva-progress-fill', 'canva-progress-message', 'canva-progress-label', 'canva-progress-elapsed', 'clear-canva-template-button',
+  'auto-step-overview', 'auto-step-characters', 'auto-step-interior', 'auto-step-editable', 'auto-step-thumbnails', 'auto-step-preview', 'auto-step-export',
+  'editable-engine-status', 'run-editable-engine-button', 'generate-editable-text-button',
+  'editable-artwork-status', 'editable-artwork-button', 'editable-text-status',
+  'overview-interior-artwork-state', 'overview-interior-artwork-status', 'overview-interior-artwork-detail', 'overview-interior-artwork-meter',
+  'overview-interior-text-state', 'overview-interior-text-status', 'overview-interior-text-detail', 'overview-interior-text-meter',
+  'text-page-deck', 'text-lab-eta', 'vision-status', 'vision-dot', 'vision-engine-state', 'vision-engine-detail', 'vision-hint',
+  'vision-phases', 'export-editable-pptx-button', 'export-editable-pdf-button',
+  'pipeline-step-label', 'vision-metrics', 'vision-metric-pages', 'vision-metric-built', 'editable-build-chip', 'editable-build-dot',
+  'ppt-stat-pages', 'deliverable-pptx-note', 'deliverable-pdf-note', 'deliverable-docx-note',
+  'export-editable-docx-button', 'rebuild-editable-text-button',
+  'vision-metric-layers', 'vision-metric-text', 'vision-metric-bound', 'vision-metric-orphan',
+  'ppt-slide-deck', 'ppt-stat-slides', 'ppt-stat-boxes', 'ppt-stat-state', 'ppt-open-folder-button',
   'automation-ask-overlay', 'automation-ask-title', 'automation-ask-body', 'automation-ask-skip', 'automation-ask-proceed',
   'settings-sound-enabled', 'settings-sound-volume', 'settings-sound-volume-val', 'settings-toasts-enabled', 'settings-desktop-notifications-enabled',
-  'mini-canva-dashboard'
 ].map((id) => [id.replace(/-([a-z])/g, (_, character) => character.toUpperCase()), document.getElementById(id)]));
 
 function escapeHtml(value) {
@@ -176,7 +207,7 @@ function jobPreviewItems(project) {
   return project.jobs.filter((job) => job.outputPath).map((job) => ({
     src: `tpt-image://job/${encodeURIComponent(job.id)}?v=${encodeURIComponent(job.updatedAt ?? '')}`,
     alt: `Page ${job.pageNumber} at full size`,
-    title: `Page ${job.pageNumber} — ${job.fileName}`
+    title: `Page ${job.pageNumber} ${job.fileName}`
   }));
 }
 
@@ -184,7 +215,7 @@ function thumbnailPreviewItems(project) {
   return (project.tptListing?.thumbnailPaths ?? []).map((path, index) => path ? ({
     src: `tpt-image://thumbnail/${encodeURIComponent(project.id)}/${index}?v=${encodeURIComponent(project.updatedAt ?? '')}`,
     alt: `TPT thumbnail ${index + 1}`,
-    title: `TPT Thumbnail ${index + 1}`
+    title: `TPT Mockup ${index + 1}`
   }) : null).filter(Boolean);
 }
 
@@ -194,6 +225,62 @@ function statusLabel(status) {
 
 function statusChip(status) {
   return `<span class="status-chip status-${escapeHtml(status)}">${escapeHtml(statusLabel(status))}</span>`;
+}
+
+function pagesStatusCopy(job, isLive = false) {
+  if (!job) return '';
+  const activity = generationActivity.get(job.id);
+  if (activity?.phase === 'failed' && activity.generating === false) return 'Needs attention';
+  if (activity?.phase === 'image_ready') return 'Almost there';
+  if (isLive || observerGenerating(activity) || ['preparing', 'submitted', 'generating', 'downloading', 'validating'].includes(job.status)) {
+    return 'Processing';
+  }
+  if (job.status === 'complete') return 'Ready';
+  if (job.status === 'needs_user_action') return 'Needs attention';
+  if (job.status === 'rate_limit_paused') return 'Paused';
+  if (job.status === 'pending') return 'Pending';
+  return statusLabel(job.status);
+}
+
+function pageLiveCopy(job) {
+  if (job?.status === 'preparing') return 'Starting';
+  if (job?.status === 'downloading' || job?.status === 'validating') return 'Almost there';
+  return 'Processing';
+}
+
+function pageSheetInnerHtml(job, { isLive = false, hasImage = false } = {}) {
+  const number = String(job.pageNumber).padStart(2, '0');
+  if (hasImage) {
+    return `
+      <div class="page-fill-layer" aria-hidden="true"></div>
+      <div class="page-fill-sheen" aria-hidden="true"></div>
+      <img class="page-generated-image" src="${pageImageSrc(job)}" alt="Page ${job.pageNumber}" decoding="async" loading="lazy">
+      <div class="page-placeholder image-missing-placeholder" hidden>
+        <strong>${number}</strong>
+        <span>Missing</span>
+      </div>
+    `;
+  }
+  return `
+    <div class="page-fill-layer" aria-hidden="true"></div>
+    <div class="page-fill-sheen" aria-hidden="true"></div>
+    <div class="page-placeholder">
+      <strong>${number}</strong>
+      <span>${escapeHtml(isLive ? pageLiveCopy(job) : pagesStatusCopy(job, false))}</span>
+    </div>
+  `;
+}
+
+function bindPageImages(root) {
+  if (!root) return;
+  root.querySelectorAll('.page-generated-image').forEach((image) => {
+    image.addEventListener('error', () => {
+      image.hidden = true;
+      const placeholder = image.nextElementSibling;
+      if (placeholder) placeholder.hidden = false;
+    }, { once: true });
+  });
+  bindFlexibleImageAspect(root, '.page-generated-image', '.page-visual');
 }
 
 function humanPageLabel(job) {
@@ -207,6 +294,8 @@ function humanPageLabel(job) {
   const looksTechnical = !title
     || /_\w+\.(png|jpe?g|webp)$/i.test(title)
     || /\d{3,}\s*[x×]\s*\d{3,}/i.test(title)
+    // A title that is just the page number renders as "Page 1 · Page 1".
+    || new RegExp(`^page\\s*${n}$`, 'i').test(title)
     || title.length > 56;
   if (looksTechnical) return `Page ${n}`;
   return `Page ${n} · ${title}`;
@@ -226,10 +315,42 @@ const JOB_FILL_PERCENT = {
   needs_user_action: 36
 };
 
+const generationActivity = new Map();
+const textLabActivity = new Map();
+let lastTextLabBeat = null;
+let lastTextDeckKey = '';
+let textDeckPatchLogTick = 0;
+let textLabBeatLogTick = 0;
+
+/** Observer-backed generating flag from queue:heartbeat. false wins over a stale phase. */
+function observerGenerating(activity) {
+  if (!activity) return false;
+  if (activity.generating === false) return false;
+  if (activity.generating === true) return true;
+  return activity.phase === 'generating';
+}
+
 function jobFillPercent(job, isLive = false) {
-  if (job?.outputPath || job?.status === 'complete') return 100;
+  if (job?.status === 'complete' && !isLive) return 100;
+  const activity = generationActivity.get(job?.id);
+  if (activity?.phase === 'image_ready') return 96;
+  if (isLive && activity) return Math.min(92, 20 + 65 * (1 - Math.exp(-(activity.elapsedMs || 0) / 90000)));
   const base = JOB_FILL_PERCENT[job?.status] ?? 8;
   return isLive ? Math.min(92, base + 10) : base;
+}
+
+function pageCardActionsHtml(job, { isLive = false, hasImage = false, queueLocksThisProject = false } = {}) {
+  const busyBrowser = browserBusy();
+  return `
+        <div class="page-card-actions">
+          <div class="page-card-tools">
+            <button class="row-button" data-action="zoom-job" data-job-id="${escapeHtml(job.id)}" title="Preview" type="button" ${hasImage ? '' : 'disabled'}>⛶</button>
+            <button class="row-button" data-action="open-job" data-job-id="${escapeHtml(job.id)}" title="Conversation" type="button" ${busyBrowser || !job.conversationUrl ? 'disabled' : ''}>↗</button>
+            <button class="row-button" data-action="edit-job" data-job-id="${escapeHtml(job.id)}" title="Edit" type="button" ${queueLocksThisProject || !hasImage || job.editInstruction ? 'disabled' : ''}>✎</button>
+            <button class="row-button is-danger" data-action="delete-job-image" data-job-id="${escapeHtml(job.id)}" title="Delete" type="button" ${queueLocksThisProject || !hasImage ? 'disabled' : ''}>✕</button>
+          </div>
+          <button class="row-button is-regen" data-action="generate-job" data-job-id="${escapeHtml(job.id)}" title="${hasImage ? 'Regenerate' : 'Generate'}" type="button" ${isLive ? 'disabled' : ''}>${hasImage ? 'Regenerate' : 'Generate'}</button>
+        </div>`;
 }
 
 function activeLiveOperation(project = null) {
@@ -248,26 +369,252 @@ function setMeterWidth(id, percent) {
 const STAGE_STATE_LABELS = {
   done: 'Done',
   live: 'Running',
-  progress: 'In progress',
+  progress: 'Working',
   waiting: 'Ready',
   blocked: 'Waiting',
-  skipped: 'Not in this book',
+  skipped: 'Skipped',
   error: 'Error'
 };
 
+// One vocabulary. The card used to carry `is-done` from here and a bare `done`
+// from a ported stylesheet at the same time, which is how the live DOM ended up
+// reading `node is-error pending`. data-state is the contract: it is what the
+// stylesheet keys off, what a test can assert, and what an agent can read.
 function setStagePresentation(stageId, state, extraClass = {}) {
   const card = document.querySelector(`.overview-stage-card[data-stage="${stageId}"]`);
   if (!card) return;
-  const states = ['done', 'live', 'progress', 'waiting', 'blocked', 'skipped', 'error'];
-  states.forEach((name) => card.classList.toggle(`is-${name}`, name === state));
-  card.classList.toggle('is-filling', Boolean(extraClass.filling));
+  card.dataset.state = state;
+  card.dataset.filling = extraClass.filling ? 'true' : 'false';
+  card.dataset.testid = `stage-${stageId}`;
   const chip = card.querySelector('.stage-state');
-  if (chip) chip.textContent = STAGE_STATE_LABELS[state] || 'Waiting';
+  if (chip) chip.textContent = state === 'live' ? 'Working' : (STAGE_STATE_LABELS[state] || 'Ready');
+  const fill = extraClass.percent;
+  const pct = Number.isFinite(fill) ? Math.max(0, Math.min(100, fill)) : 0;
+  card.dataset.percent = String(Math.round(pct));
+  card.style.setProperty('--stage-fill', `${pct}%`);
+  const bar = card.querySelector('.n-bar i, .stage-meter i');
+  if (bar) bar.style.width = `${pct}%`;
+}
+
+// Ordinals are content, not decoration: an Editable book runs six stages and a
+// Static one runs four, so the numbers have to be counted off the stages that
+// are actually on screen rather than off the markup order.
+//
+// Wrap is a path, not a centered leftover: the next visible stage must sit on
+// the connector. 4+2 parks 05 under 04 (06 to its right). 3+3 either parks 04
+// under 03 or uses a short elbow so 03 still terminates on 04 — never a drop
+// into empty canvas.
+const pipelineBoardObservers = typeof WeakMap === 'function' ? new WeakMap() : null;
+
+function boxesOverlapX(a, b) {
+  return Math.min(a.right, b.right) > Math.max(a.left, b.left) + 1;
+}
+
+function ensurePipelineLinks(track) {
+  let svg = track.querySelector(':scope > svg.pipeline-rail-links');
+  if (!svg) {
+    svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'pipeline-rail-links');
+    svg.setAttribute('aria-hidden', 'true');
+    track.insertBefore(svg, track.firstChild);
+  }
+  return svg;
+}
+
+function drawPipelineConnectors(track, nodes) {
+  const svg = ensurePipelineLinks(track);
+  const tr = track.getBoundingClientRect();
+  const w = Math.max(1, track.clientWidth || tr.width || 0);
+  const h = Math.max(1, track.clientHeight || tr.height || 0);
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.setAttribute('width', String(w));
+  svg.setAttribute('height', String(h));
+  if (!nodes.length || w < 8 || h < 8) {
+    svg.replaceChildren();
+    return;
+  }
+  const ns = 'http://www.w3.org/2000/svg';
+  const frag = document.createDocumentFragment();
+  const addPath = (d, kind) => {
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('class', kind);
+    frag.appendChild(path);
+  };
+  for (let i = 0; i < nodes.length - 1; i += 1) {
+    const a = nodes[i].getBoundingClientRect();
+    const b = nodes[i + 1].getBoundingClientRect();
+    if (a.width < 2 || b.width < 2) continue;
+    const sameRow = Math.abs(a.top - b.top) < 24;
+    let d;
+    if (sameRow) {
+      const y = ((a.top + a.bottom) / 2) - tr.top;
+      d = `M ${(a.right - tr.left).toFixed(1)} ${y.toFixed(1)} L ${(b.left - tr.left).toFixed(1)} ${y.toFixed(1)}`;
+    } else if (boxesOverlapX(a, b)) {
+      const x = ((a.left + a.right) / 2) - tr.left;
+      d = `M ${x.toFixed(1)} ${(a.bottom - tr.top).toFixed(1)} L ${x.toFixed(1)} ${(b.top - tr.top).toFixed(1)}`;
+    } else {
+      const x1 = ((a.left + a.right) / 2) - tr.left;
+      const x2 = ((b.left + b.right) / 2) - tr.left;
+      const y1 = a.bottom - tr.top;
+      const y2 = b.top - tr.top;
+      const midY = (y1 + y2) / 2;
+      d = `M ${x1.toFixed(1)} ${y1.toFixed(1)} L ${x1.toFixed(1)} ${midY.toFixed(1)} L ${x2.toFixed(1)} ${midY.toFixed(1)} L ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+    }
+    addPath(d, 'rail-base');
+    addPath(d, 'rail-flow');
+  }
+  svg.replaceChildren(frag);
+}
+
+function watchPipelineBoard(board) {
+  if (!board || !pipelineBoardObservers || typeof ResizeObserver !== 'function') return;
+  if (pipelineBoardObservers.has(board)) return;
+  const observer = new ResizeObserver(() => layoutPipelineRail());
+  observer.observe(board);
+  pipelineBoardObservers.set(board, observer);
+}
+
+let railLayoutTimer = 0;
+
+function layoutPipelineRail() {
+  if (railLayoutTimer) return;
+  const run = () => {
+    railLayoutTimer = 0;
+    layoutPipelineRailNow();
+  };
+  if (typeof requestAnimationFrame === 'function') railLayoutTimer = requestAnimationFrame(run);
+  else run();
+}
+
+function layoutPipelineRailNow() {
+  const track = document.querySelector('.pipeline-rail-track');
+  if (!track) return;
+  const nodes = [...track.querySelectorAll('.overview-stage-card.node')]
+    .filter((node) => !node.hidden);
+  track.dataset.visibleCount = String(nodes.length);
+  const n = nodes.length;
+  const board = track.closest('.overview-board');
+  const pane = board?.closest('.workspace-pane') || board;
+  watchPipelineBoard(board);
+
+  nodes.forEach((node) => {
+    node.style.gridColumn = '';
+    node.style.gridRow = '';
+  });
+
+  let gap = 36;
+  const availW = Math.max(0, track.clientWidth || track.parentElement?.clientWidth || 0);
+  const boardH = board ? board.clientHeight : 0;
+  const progress = board?.querySelector('.overview-stage-overall');
+  const progressH = progress ? progress.offsetHeight : 0;
+  const boardStyle = board ? getComputedStyle(board) : null;
+  const padY = boardStyle
+    ? (parseFloat(boardStyle.paddingTop) || 0) + (parseFloat(boardStyle.paddingBottom) || 0)
+    : 0;
+  const availH = Math.max(0, boardH - progressH - padY - 8);
+  const sizeFor = (cols, rowCount, g) => {
+    if (cols < 1) return 0;
+    const sizeW = (availW - (cols - 1) * g) / cols;
+    const sizeH = rowCount > 1 ? (availH - (rowCount - 1) * g) / rowCount : availH;
+    return Math.min(sizeW, sizeH);
+  };
+
+  let wrapCols = n;
+  let rows = 1;
+  let gridCols = Math.max(1, n);
+  let stack = false;
+
+  if (n > 4 && availW > 0) {
+    const branchedCols = n - 1;
+    const fourSize = sizeFor(branchedCols, 2, gap);
+    const threeSize = sizeFor(3, 2, gap);
+    const usable = 128;
+    if (fourSize >= usable || fourSize >= threeSize * 0.72) {
+      wrapCols = 4;
+      rows = 2;
+      gridCols = branchedCols;
+    } else {
+      wrapCols = 3;
+      rows = 2;
+      gridCols = 3;
+      stack = true;
+    }
+  }
+
+  if (availW > 0 && availH > 0 && n > 4) {
+    if (sizeFor(gridCols, rows, gap) < 140) gap = 28;
+    if (sizeFor(gridCols, rows, gap) < 118) gap = 22;
+  }
+
+  let nodeSize = 160;
+  if (availW > 40 && availH > 40) {
+    nodeSize = Math.floor(Math.max(96, Math.min(280, sizeFor(gridCols, rows, gap))));
+  }
+
+  track.style.setProperty('--rail-gap', `${gap}px`);
+  track.style.setProperty('--node-size', `${nodeSize}px`);
+  track.style.setProperty('--rail-cols', String(gridCols));
+  track.dataset.wrapCols = String(wrapCols);
+  track.dataset.railRows = String(rows);
+  track.dataset.wrapMode = n <= 4 ? 'row' : stack ? '3-3' : '4-2';
+
+  const row2StartCol = stack ? 1 : wrapCols;
+  nodes.forEach((node, index) => {
+    let row = 1;
+    let col = index + 1;
+    if (rows > 1 && index >= wrapCols) {
+      row = 2;
+      col = row2StartCol + (index - wrapCols);
+    }
+    node.style.gridColumn = String(col);
+    node.style.gridRow = String(row);
+    const next = nodes[index + 1];
+    const nextRow = next && rows > 1 && (index + 1) >= wrapCols ? 2 : 1;
+    const rowEnd = Boolean(next) && nextRow !== row;
+    node.classList.toggle('is-row-end', rowEnd);
+    node.dataset.rail = !next ? 'last' : rowEnd ? 'wrap' : 'next';
+  });
+
+  const paint = () => {
+    drawPipelineConnectors(track, nodes);
+    const scroller = board || pane;
+    if (scroller) {
+      let fits = scroller.scrollHeight <= scroller.clientHeight + 1;
+      if (!fits && nodeSize > 96 && availH > 40) {
+        const overflow = scroller.scrollHeight - scroller.clientHeight;
+        nodeSize = Math.max(96, nodeSize - Math.ceil(overflow / Math.max(1, rows)) - 6);
+        track.style.setProperty('--node-size', `${nodeSize}px`);
+        drawPipelineConnectors(track, nodes);
+        fits = scroller.scrollHeight <= scroller.clientHeight + 1;
+      }
+      scroller.dataset.fits = fits ? 'true' : 'false';
+      if (pane && pane !== scroller) pane.dataset.fits = scroller.dataset.fits;
+    }
+  };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(paint);
+  else paint();
+}
+
+function renumberPipeline() {
+  const nodes = [...document.querySelectorAll('.pipeline-rail-track .overview-stage-card.node')]
+    .filter((node) => !node.hidden);
+  nodes.forEach((node, index) => {
+    const idx = node.querySelector('.n-idx');
+    if (idx) idx.textContent = String(index + 1).padStart(2, '0');
+    node.dataset.position = index === 0 ? 'first' : index === nodes.length - 1 ? 'last' : 'middle';
+  });
+  requestAnimationFrame(layoutPipelineRail);
 }
 
 function setTabMark(view, state) {
   const mark = document.querySelector(`[data-tab-mark="${view}"]`);
   if (!mark) return;
+  const tab = document.querySelector(`.workspace-tab[data-view-target="${view}"]`);
+  if (tab) {
+    tab.dataset.state = state;
+    tab.dataset.testid = `tab-${view}`;
+  }
   mark.dataset.state = state;
   mark.classList.toggle('is-done', state === 'done');
   mark.classList.toggle('is-live', state === 'live');
@@ -302,6 +649,20 @@ function previewAspectRatio(project) {
   if (project?.format === 'LETTER') return landscape ? '11 / 8.5' : '8.5 / 11';
   if (project?.format === 'SQUARE') return '1 / 1';
   return landscape ? '1.414 / 1' : '1 / 1.414';
+}
+
+/** Size a page frame to the real image, not a forced crop. */
+function bindFlexibleImageAspect(root, imageSelector, frameSelector) {
+  if (!root) return;
+  root.querySelectorAll(imageSelector).forEach((image) => {
+    const apply = () => {
+      if (!image.naturalWidth || !image.naturalHeight) return;
+      const frame = (frameSelector && image.closest(frameSelector)) || image.parentElement || image;
+      frame.style.setProperty('--page-aspect', `${image.naturalWidth} / ${image.naturalHeight}`);
+    };
+    if (image.complete && image.naturalWidth) apply();
+    else image.addEventListener('load', apply, { once: true });
+  });
 }
 
 function resolvedStoryText(project, job) {
@@ -350,6 +711,8 @@ function appearanceResolved() {
 function applyAppearanceUi() {
   const preference = appearancePreference();
   const resolved = appearanceResolved() === 'dark' ? 'dark' : 'light';
+  // Theme is a re-lighting of the same surfaces. CSS transitions on color,
+  // background, border, and shadow do the crossfade — no timeout class.
   document.documentElement.dataset.theme = resolved;
   document.documentElement.style.colorScheme = resolved;
   try { localStorage.setItem('versa-theme', resolved); } catch {}
@@ -363,45 +726,16 @@ function applyAppearanceUi() {
     button.classList.toggle('is-active', selected);
     button.setAttribute('aria-pressed', selected ? 'true' : 'false');
   });
+  globalThis.versaBookManagement?.syncTheme?.();
 }
 
-function canvaLocked() {
-  if (state?.app?.canvaAvailable === false || state?.integrations?.canva?.available === false) return true;
-  if (state?.app?.canvaAvailable === true || state?.integrations?.canva?.available === true) return false;
-  return runningOnWindows();
-}
-
-function canvaLockMessage() {
-  return state?.app?.canvaLockMessage
-    || state?.integrations?.canva?.lockMessage
-    || 'Canva Magic Layer is coming soon on Windows. ChatGPT, Gemini, Meta AI, listing, mockups, and TPT still work.';
-}
-
-function applyCanvaLockUi() {
-  const locked = canvaLocked();
-  document.body.classList.toggle('canva-locked', locked);
-  document.querySelector('[data-view-target="editable"]')?.classList.toggle('is-locked', locked);
-  document.querySelector('[data-workspace-pane="editable"]')?.classList.toggle('is-canva-locked', locked);
-  const banner = document.getElementById('canva-coming-soon');
-  if (banner) banner.hidden = !locked;
-  if (elements.settingsCanvaCard) {
-    elements.settingsCanvaCard.classList.toggle('is-locked', locked);
-    elements.settingsCanvaCard.querySelectorAll('[data-action="settings-manage-canva"], [data-action="settings-verify-canva"], [data-action="settings-logout-canva"]').forEach((button) => {
-      button.disabled = locked;
-      if (button.dataset.action === 'settings-logout-canva' && locked) button.style.display = 'none';
-    });
-  }
+function applyEditableEngineUi() {
   if (elements.autoStepEditable) {
-    elements.autoStepEditable.disabled = locked;
-    elements.autoStepEditable.title = locked ? canvaLockMessage() : '';
+    elements.autoStepEditable.disabled = false;
+    elements.autoStepEditable.title = 'Editable generation';
   }
-  document.getElementById('automation-step-editable')?.classList.toggle('is-locked', locked);
   const autoCopy = document.getElementById('automation-step-editable-copy');
-  if (autoCopy) {
-    autoCopy.textContent = locked
-      ? 'Coming soon on Windows. Automation skips this step so listing, mockups, and export still run.'
-      : 'Import the print PDF once, Magic Layer each page, save a verified template link. Skips static books. Defaults to Ask.';
-  }
+  if (autoCopy) autoCopy.textContent = 'After analysis.';
 }
 
 function syncAnalysisPageSetup(format, orientation) {
@@ -459,7 +793,7 @@ function translateLegacyText(value) {
     [/^تم تغيير مجلد الحفظ إلى: (.+)$/u, 'Output folder changed to: $1'],
     [/^تم اختيار مجلد الحفظ: (.+)$/u, 'Output folder selected: $1'],
     [/^بدأت دفعة من (\d+) صفحات: (.+)\.$/u, 'Started a batch of $1 pages: $2.'],
-    [/^تجهيز الصفحة (\d+)\/(\d+) — المحاولة (\d+)\/(\d+)\.$/u, 'Preparing page $1/$2 — attempt $3/$4.'],
+    [/^تجهيز الصفحة (\d+)\/(\d+) — المحاولة (\d+)\/(\d+)\.$/u, 'Preparing page $1/$2 attempt $3/$4.'],
     [/^تم إرسال الصفحة (\d+) بنجاح\.$/u, 'Page $1 submitted successfully.'],
     [/^تم تجهيز الصفحة (\d+) لإعادة المحاولة\.$/u, 'Page $1 reset for retry.'],
     [/^اكتملت الصفحة (\d+): (.+)$/u, 'Page $1 complete: $2'],
@@ -625,18 +959,20 @@ function showRichToast({
     <button type="button" class="toast-close-btn" aria-label="Close">×</button>
   `;
 
+  const dismissToast = () => {
+    if (!toast.isConnected || toast.classList.contains('is-leaving')) return;
+    toast.classList.add('is-leaving');
+    setTimeout(() => toast.remove(), 400);
+  };
+
   const closeBtn = toast.querySelector('.toast-close-btn');
-  closeBtn?.addEventListener('click', () => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateY(10px)';
-    setTimeout(() => toast.remove(), 200);
-  });
+  closeBtn?.addEventListener('click', dismissToast);
 
   if (actionText && typeof onAction === 'function') {
     const actionBtn = toast.querySelector('.toast-action-btn');
     actionBtn?.addEventListener('click', () => {
       onAction();
-      toast.remove();
+      dismissToast();
     });
   }
 
@@ -644,19 +980,19 @@ function showRichToast({
 
   if (duration > 0) {
     setTimeout(() => {
-      if (toast.isConnected) {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateY(10px)';
-        setTimeout(() => toast.remove(), 200);
-      }
+      if (toast.isConnected) dismissToast();
     }, duration);
   }
 }
 
 function showToast(message, type = 'info') {
+  const title = type === 'error' ? 'Failed'
+    : type === 'success' ? 'Ready'
+    : type === 'warning' ? 'Heads up'
+    : 'Notice';
   showRichToast({
     type,
-    title: type === 'error' ? 'Error' : type === 'success' ? 'Success' : '',
+    title,
     message,
     duration: 4500
   });
@@ -698,7 +1034,14 @@ async function invoke(action, { successMessage = null, refresh = true } = {}) {
     const code = error?.code || '';
     const info = ['QUEUE_BUSY', 'QUEUE_RUNNING', 'AUTOMATION_BUSY', 'QUEUE_PAUSED', 'BROWSER_BUSY'].includes(code)
       || /still generating|paused on another book|keep browsing|keep opening other books|you paused this work/i.test(message);
-    showToast(code === 'QUEUE_PAUSED' ? 'Stopped. Start again when you are ready.' : message, info ? 'info' : 'error');
+    if (code === 'FATAL_ENGINE_ERROR' || /FATAL_ENGINE_ERROR/i.test(message)) {
+      showRichToast({
+        type: 'error',
+        title: 'Engine failed',
+        message
+      });
+    }
+    showToast(code === 'QUEUE_PAUSED' ? 'Stopped.' : message, info ? 'info' : 'error');
     throw error;
   }
 }
@@ -740,17 +1083,20 @@ function isPipelineBusy() {
 
 function browserBusyReason() {
   if (state?.queue?.running) {
-    return `Interior is generating on "${displayProjectName(generatingProjectRecord()?.name || 'this book')}". Pause it to start another browser stage. You can still open other tabs.`;
+    return `Generating “${displayProjectName(generatingProjectRecord()?.name || 'this book')}”.`;
   }
   const live = state?.liveOperation;
-  if (live?.kind === 'canva') return 'Canva is using the browser. You can still open listing, interior, export, and settings.';
-  if (live?.kind === 'listing') return 'SEO is using the browser. You can still open other tabs.';
-  if (live?.kind === 'thumbnails') return 'Mockups are using the browser. You can still open other tabs.';
-  if (live?.kind === 'preview') return 'Preview is using the browser. You can still open other tabs.';
-  if (state?.workBusy?.characters) return 'Character references are generating. You can still open other tabs.';
-  if (state?.workBusy?.tptListing) return 'SEO work is running in the background. You can still open other tabs.';
+  if (live?.kind === 'print-pdf' || live?.kind === 'maze-assemble') return '';
+  if (live?.kind === 'editable-generation') return 'Generating.';
+  if (live?.kind === 'thumbnails') return 'Mockups running.';
+  if (live?.recovering || state?.workBusy?.comfyRecovering) {
+    return live?.message || 'Restarting.';
+  }
+  if (live?.kind === 'preview') return 'Preview running.';
+  if (state?.workBusy?.characters) return 'Characters running.';
+  if (state?.workBusy?.tptListing) return 'SEO running.';
   if (state?.automation?.active && !state?.automation?.paused) {
-    return 'Full automation is running. Pause it to start a stage by itself. You can still open other tabs.';
+    return 'Automation running.';
   }
   return '';
 }
@@ -760,45 +1106,88 @@ function stageStartBlockReason(step, project) {
   const listing = project?.tptListing || {};
   const thumbnailCount = (listing.thumbnailPaths || []).filter(Boolean).length;
   const hasPages = Number(stats.complete) > 0 || Number(stats.total) > 0;
-  const hasPdf = Boolean(listing.productPdfPath || project?.productPdfPath);
+  const hasPdf = Boolean(projectPdf(project).productPath);
   const hasListingContent = Boolean(listing.title || listing.rawResponse || listing.description);
   if (step === 'characters') {
-    return 'Characters is not part of this studio.';
+    return 'Not in this studio.';
   }
   if (step === 'interior') {
     if (!stats.total) return 'Create pages first.';
-    if (stats.remaining === 0) return 'All interior pages are already done.';
+    if (state?.queue?.pauseRequested || state?.liveOperation?.message?.startsWith('Stopping')) return ''; 
     return browserBusyReason();
   }
-  if (step === 'editable') {
-    if (canvaLocked()) return canvaLockMessage();
-    if (project?.productFormat !== 'editable') return 'Canva Magic Layer is only for editable books.';
-    if (!hasPages && !hasPdf) return 'Add pages or a print PDF first.';
+  if (step === 'interior_artwork') {
+    if (project?.productFormat !== 'editable') return 'Editable books only.';
+    if (!stats.total) return 'Create pages first.';
+    if (state?.queue?.pauseRequested || state?.liveOperation?.message?.startsWith('Stopping')) return '';
     return browserBusyReason();
   }
-  if (step === 'listing') {
-    if (!hasPages && !hasPdf) return 'Add pages or a PDF before SEO.';
+  if (step === 'interior_text') {
+    if (project?.productFormat !== 'editable') return 'Editable books only.';
+    if (!stats.total || stats.complete !== stats.total) return 'Finish artwork first.';
+    // Local pipeline: MobileSAM, PaddleOCR and LaMa never touch Chrome. Only the gem
+    // fallback does, so the browser gate applies only when vision is unavailable.
+    if (visionReady()) return '';
+    return browserBusyReason();
+  }
+  if (step === 'editable_ppt') {
+    if (project?.productFormat !== 'editable') return 'Editable books only.';
+    if (!stats.total || stats.complete !== stats.total) return 'Finish artwork first.';
+    // Assembly is local, so it never waits on the browser.
+    return '';
+  }
+  if (step === 'editable_generation' || step === 'editable') {
+    if (project?.productFormat !== 'editable') return 'Editable books only.';
+    if (!hasPages && !hasPdf) return 'Add pages first.';
     return browserBusyReason();
   }
   if (step === 'thumbnails') {
     if (!hasPages && !hasPdf && !hasListingContent) {
-      return 'Add pages, a PDF, or listing content before mockups.';
+      return 'Add pages first.';
     }
     return browserBusyReason();
   }
   if (step === 'preview') {
-    if (thumbnailCount === 0) return 'Generate mockups first.';
+    if (thumbnailCount === 0) return 'Generate mockups.';
     return browserBusyReason();
   }
   if (step === 'export') {
-    if (!hasPages && !hasPdf) return 'Add pages or a PDF before export.';
+    if (!hasPages && !hasPdf) return 'Add pages first.';
+    return '';
+  }
+  if (step === 'maze') {
+    if (project?.productFormat !== 'maze') return 'Maze books only.';
     return '';
   }
   return '';
 }
 
+function isOverviewNodeAction(btn) {
+  return Boolean(btn?.classList?.contains('stage-run-btn')
+    && btn.closest('.pipeline-rail-track .overview-stage-card.node'));
+}
+
+function syncOverviewNodeAction(btn, { hide = false, disable = false } = {}) {
+  btn.removeAttribute('title');
+  btn.hidden = Boolean(hide);
+  btn.disabled = Boolean(disable);
+}
+
+function overviewNodeActionLabel(step, { running = false, hasVideo = false } = {}) {
+  if (step === 'interior' || step === 'interior_artwork') return running ? 'Generating…' : 'Generate';
+  if (step === 'interior_text') return running ? 'Writing…' : 'Write text';
+  if (step === 'editable_ppt') return running ? 'Building…' : 'Build';
+  if (step === 'thumbnails') return running ? 'Generating…' : 'Start';
+  if (step === 'preview') return running ? 'Generating…' : hasVideo ? 'Open' : 'Start';
+  if (step === 'export') return running ? 'Exporting…' : 'Start';
+  if (step === 'maze') return running ? 'Generating…' : 'Generate';
+  return running ? 'Working…' : 'Start';
+}
+
 function isGeneratingThisProject(project) {
   if (!project?.id) return false;
+  if (state?.liveOperation?.projectId === project.id && state.liveOperation.kind === 'editable-generation') return true;
+  if (state?.liveOperation?.projectId === project.id && state.liveOperation.kind === 'maze') return true;
   if (state?.queue?.running && state.queue.activeProjectId === project.id) return true;
   return Boolean(state?.automation?.active && !state.automation.paused && state.automation.currentProjectId === project.id);
 }
@@ -845,6 +1234,7 @@ function renderBulkPromptCount() {
 }
 
 let currentAnalysisMode = 'url';
+let currentProjectMethodChoice = 'agent';
 let analysisResult = null;
 let storySelectedPhotoPath = null;
 let storybookReviewState = null;
@@ -858,6 +1248,8 @@ function hideAllProjectSteps() {
   if (elements.projectAnalysisResultStep) elements.projectAnalysisResultStep.hidden = true;
   if (elements.projectPromptsLoadingStep) elements.projectPromptsLoadingStep.hidden = true;
   if (elements.storybookReviewStep) elements.storybookReviewStep.hidden = true;
+  const agentStep = document.getElementById('project-agent-step');
+  if (agentStep) agentStep.hidden = true;
   elements.projectDialog.classList.remove('storybook-review-open');
   elements.bulkPromptsText.required = false;
 }
@@ -878,33 +1270,33 @@ function characterCardsHtml(project, phaseComplete, variant = 'dashboard') {
       <article class="${cardClass}" data-character-card>
         <header class="character-card-header">
           <strong>${characterName}</strong>
-          <span>${complete ? 'Reference ready' : busy ? 'Generating…' : 'Not generated'}</span>
+          <span>${complete ? 'Ready' : busy ? 'Generating…' : 'Idle'}</span>
         </header>
         <div class="character-thumbnail-shell">
           ${complete ? `
-            <button class="character-thumbnail-button" data-action="preview-character" data-project-id="${projectId}" data-character-index="${index}" type="button" title="Open ${characterName} at full size" aria-label="Open ${characterName} character reference at full size">
-              <img class="character-thumbnail" src="tpt-image://character/${encodeURIComponent(project.id)}/${index}?v=${encodeURIComponent(project.updatedAt ?? '')}" alt="${characterName} character reference">
-              <span class="character-thumbnail-hint">View full size</span>
+            <button class="character-thumbnail-button" data-action="preview-character" data-project-id="${projectId}" data-character-index="${index}" type="button" title="${characterName}" aria-label="${characterName}">
+              <img class="character-thumbnail" src="tpt-image://character/${encodeURIComponent(project.id)}/${index}?v=${encodeURIComponent(project.updatedAt ?? '')}" alt="${characterName}">
+              <span class="character-thumbnail-hint">View</span>
             </button>
           ` : `
-            <div class="character-thumbnail-placeholder" aria-label="Character reference has not been generated">
+            <div class="character-thumbnail-placeholder" aria-label="No reference">
               <span aria-hidden="true">◇</span>
-              <small>Reference preview</small>
+              <small>No preview</small>
             </div>
           `}
         </div>
-        <div id="${escapeHtml(promptId)}" class="character-prompt-box">${escapeHtml(character.prompt || 'No image prompt was returned.')}</div>
+        <div id="${escapeHtml(promptId)}" class="character-prompt-box">${escapeHtml(character.prompt || 'No prompt.')}</div>
         <div class="character-prompt-actions">
-          <button class="character-text-button" data-action="toggle-character-prompt" data-project-id="${projectId}" data-character-index="${index}" aria-controls="${escapeHtml(promptId)}" aria-expanded="false" type="button">Show Full Prompt</button>
-          <button class="character-text-button" data-action="copy-character-prompt" data-project-id="${projectId}" data-character-index="${index}" type="button" ${character.prompt ? '' : 'disabled'}>Copy Prompt</button>
+          <button class="character-text-button" data-action="toggle-character-prompt" data-project-id="${projectId}" data-character-index="${index}" aria-controls="${escapeHtml(promptId)}" aria-expanded="false" type="button">Show prompt</button>
+          <button class="character-text-button" data-action="copy-character-prompt" data-project-id="${projectId}" data-character-index="${index}" type="button" ${character.prompt ? '' : 'disabled'}>Copy</button>
         </div>
         ${sheet.error ? `<small class="error-box character-card-error">${escapeHtml(sheet.error)}</small>` : ''}
         <button class="button ${complete ? 'button-ghost' : 'button-primary'} button-full character-generate-button" data-action="generate-character-sheet" data-project-id="${projectId}" data-character-index="${index}" type="button" ${disabled ? 'disabled' : ''}>
-          ${busy ? 'Generating Character Reference…' : complete ? 'Regenerate Character Reference' : 'Generate Character Reference'}
+          ${busy ? 'Generating…' : complete ? 'Regenerate' : 'Generate'}
         </button>
       </article>
     `;
-  }).join('') || '<p class="muted">No character cards were returned.</p>';
+  }).join('') || '<p class="muted">No cards.</p>';
 }
 
 function storybookCharacterCardsHtml(project, phaseComplete) {
@@ -919,38 +1311,38 @@ function renderStorybookReviewModal(payload, phase = 'blueprint_complete', error
   const phaseComplete = phase === 'complete';
   const phaseFailed = phase === 'workflow_failed' || phase === 'phase2_failed';
   const stageCopy = {
-    blueprint_complete: ['Idea saved', 'The story idea and blueprint are saved with the main Gemini conversation link.'],
-    characters_generating: ['Requesting character cards', 'Asking only for the essential characters, one standalone prompt per character.'],
-    characters_complete: ['Character cards saved', 'The character prompts are ready. Reference image generation starts next.'],
-    references_generating: ['Generating character references', payload.progress?.currentName
-      ? `Creating ${payload.progress.currentName} (${Math.min((payload.progress.completed ?? 0) + 1, payload.progress.total ?? 1)} of ${payload.progress.total ?? 1}) in an independent chat.`
-      : 'Creating each character in an independent chat; the original photo is attached only to the first character.'],
-    references_complete: ['Character references ready', 'All cartoon character references are saved. Returning to the main planning conversation.'],
-    pages_generating: ['Requesting official page cards', 'Asking for the front cover, exact story page text and prompts, and the back cover only now.'],
-    workflow_failed: ['Workflow needs attention', 'The saved project can resume from its first incomplete stage.'],
-    phase2_failed: ['Workflow needs attention', 'This older project can resume from its first incomplete stage.'],
-    complete: ['Storybook package saved', 'All five planning stages are complete. Page generation will attach every saved character reference.']
+    blueprint_complete: ['Idea saved', 'Saved.'],
+    characters_generating: ['Characters', 'Requesting characters.'],
+    characters_complete: ['Characters saved', 'References next.'],
+    references_generating: ['References', payload.progress?.currentName
+      ? `${payload.progress.currentName} ${Math.min((payload.progress.completed ?? 0) + 1, payload.progress.total ?? 1)} of ${payload.progress.total ?? 1}`
+      : 'Generating.'],
+    references_complete: ['References ready', 'Saved.'],
+    pages_generating: ['Pages', 'Requesting pages.'],
+    workflow_failed: ['Needs attention', 'Resume when ready.'],
+    phase2_failed: ['Needs attention', 'Resume when ready.'],
+    complete: ['Storybook saved', 'Ready.']
   };
-  const [stageTitle, stageDetail] = stageCopy[phase] ?? ['Building Storybook', 'Continuing the controlled Storybook workflow.'];
+  const [stageTitle, stageDetail] = stageCopy[phase] ?? ['Building', 'Continuing.'];
   hideAllProjectSteps();
   elements.projectDialog.classList.add('storybook-review-open');
   elements.storybookReviewStep.hidden = false;
-  elements.projectDialogTitle.textContent = 'Storybook Studio Preview';
-  elements.storybookReviewTitle.textContent = displayProjectName(project.name || parsed.title || 'Story package review');
+  elements.projectDialogTitle.textContent = 'Storybook';
+  elements.storybookReviewTitle.textContent = displayProjectName(project.name || parsed.title || 'Review');
   elements.storybookPhaseBadge.className = `status-chip status-${phaseComplete ? 'complete' : phaseFailed ? 'needs_user_action' : 'generating'}`;
   elements.storybookPhaseBadge.textContent = stageTitle;
   const approvedStoryIdea = parsed.storyIdea || project.storyInput?.approvedStoryIdea || project.description || '';
-  const approvedBlueprint = parsed.blueprint || project.storyBlueprint || 'Blueprint saved in the project.';
+  const approvedBlueprint = parsed.blueprint || project.storyBlueprint || 'Saved.';
   elements.storybookBlueprintPreview.textContent = approvedStoryIdea
     ? `STORY IDEA\n${approvedStoryIdea}\n\nBLUEPRINT\n${approvedBlueprint}`
     : approvedBlueprint;
-  elements.storybookFrontCoverPreview.textContent = parsed.frontCover || project.frontCoverPrompt || 'Requested only after all character references are ready.';
+  elements.storybookFrontCoverPreview.textContent = parsed.frontCover || project.frontCoverPrompt || 'After references.';
   elements.storybookCharacterCards.innerHTML = storybookCharacterCardsHtml(project, phaseComplete);
   elements.storybookPhase2Progress.hidden = phaseComplete || phaseFailed;
   if (elements.storybookProgressTitle) elements.storybookProgressTitle.textContent = stageTitle;
   if (elements.storybookProgressDetail) elements.storybookProgressDetail.textContent = stageDetail;
   elements.storybookReviewError.hidden = !resolvedError;
-  elements.storybookReviewError.textContent = resolvedError ? `The Storybook workflow paused safely: ${resolvedError}` : '';
+  elements.storybookReviewError.textContent = resolvedError ? String(resolvedError) : '';
   elements.storybookOpenDashboardButton.disabled = !phaseComplete;
   if (elements.storybookRetryPhase2Button) {
     elements.storybookRetryPhase2Button.hidden = !phaseFailed;
@@ -986,27 +1378,638 @@ function renderStorybookReviewModal(payload, phase = 'blueprint_complete', error
   }
 }
 
-function showProjectMethodStep() {
+function setProjectMethodChoice(choice = 'agent') {
+  const normalized = ['agent', 'analysis', 'prompts'].includes(choice) ? choice : 'agent';
+  currentProjectMethodChoice = normalized;
+  const methodCards = document.querySelectorAll('#project-method-step [data-method-choice]');
+  methodCards.forEach((card) => {
+    const isActive = card.dataset.methodChoice === normalized;
+    card.classList.toggle('method-card-active', isActive);
+    card.dataset.state = isActive ? 'active' : 'idle';
+    card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+}
+
+function showProjectMethodStep(choice = currentProjectMethodChoice || 'agent') {
   hideAllProjectSteps();
   elements.projectMethodStep.hidden = false;
-  elements.projectDialogTitle.textContent = 'How do you want to create this book?';
+  setProjectMethodChoice(choice);
+  elements.projectDialogTitle.textContent = 'New book';
 }
 
 function showProjectPromptStep() {
+  setProjectMethodChoice('prompts');
   hideAllProjectSteps();
   elements.projectPromptStep.hidden = false;
   elements.bulkPromptsText.required = true;
-  elements.projectDialogTitle.textContent = 'Paste your ordered page prompts';
+  elements.projectDialogTitle.textContent = 'Paste prompts';
   renderBulkPromptCount();
   setTimeout(() => elements.bulkPromptsText.focus(), 50);
 }
 
 function showProjectAnalysisInputStep() {
+  setProjectMethodChoice('analysis');
   hideAllProjectSteps();
   elements.projectAnalysisInputStep.hidden = false;
   renderWindowsUrlPageSetup();
   setAnalysisMode(currentAnalysisMode);
 }
+
+/** VERSA AGENT's step in the New Book flow. */
+function showProjectAgentStep() {
+  setProjectMethodChoice('agent');
+  hideAllProjectSteps();
+  const step = document.getElementById('project-agent-step');
+  if (step) step.hidden = false;
+  if (elements.projectDialogTitle) elements.projectDialogTitle.textContent = 'Scan marketplace';
+  const status = document.getElementById('agent-status');
+  if (status) status.textContent = '';
+  if (!marketSession.active) resetMarketRail();
+}
+
+/** Which marketplace the agent was told to validate against. */
+function selectedAgentMarketplace() {
+  const selected = document.querySelector('#agent-sources input[name="agentMarketplace"]:checked')?.value;
+  return ['tpt', 'kdp', 'etsy'].includes(selected) ? selected : '';
+}
+
+const MARKET_STAGES = ['scan', 'analyze', 'extract', 'prompts', 'capture', 'lab', 'assemble', 'mockups', 'preview', 'export'];
+
+const marketSession = {
+  active: false,
+  localStage: null,
+  marketplace: 'tpt',
+  query: '',
+  error: '',
+  stageIndex: -1,
+  holdDone: false
+};
+
+let incomingMarketBook = null;
+let adoptedAnalysisTaskId = null;
+let incomingStartedAt = 0;
+
+function conceptLede() {
+  return document.querySelector('#project-concept-view .concept-brief__lede');
+}
+
+function openIncomingMarketplace(query) {
+  incomingStartedAt = Date.now();
+  incomingMarketBook = {
+    query: String(query || '').trim(),
+    title: query ? `Finding “${query}”…` : 'Finding…',
+    targetAge: 'Waiting…',
+    description: 'Scanning.',
+    highlights: [],
+    lede: query
+      ? `Finding “${query}”.`
+      : 'Finding.',
+    pageCount: 0
+  };
+  mazeWorkspaceOpen = false;
+  analysisResult = null;
+  // #region agent log
+  fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H100',location:'renderer/renderer.js:openIncomingMarketplace',message:'opened a blank marketplace for the new search',data:{query:incomingMarketBook.query},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  paintIncomingMarketplace();
+}
+
+function applyIncomingListing(listing = {}) {
+  if (!incomingMarketBook) return;
+  const title = String(listing.title || listing.concept || listing.keyword || '').trim();
+  const productUrl = String(listing.productUrl || listing.url || '').trim();
+  incomingMarketBook = {
+    ...incomingMarketBook,
+    title: title || incomingMarketBook.title,
+    productUrl: productUrl || incomingMarketBook.productUrl || '',
+    targetAge: 'Reading…',
+    description: title ? `Analyzing “${title}”.` : incomingMarketBook.description,
+    lede: productUrl
+      ? `Listing found ${productUrl}`
+      : 'Listing found.',
+    highlights: productUrl
+      ? [productUrl, ...(Array.isArray(incomingMarketBook.highlights) ? incomingMarketBook.highlights : [])]
+      : incomingMarketBook.highlights
+  };
+  paintIncomingMarketplace();
+}
+
+function clearIncomingMarketplace() {
+  incomingMarketBook = null;
+}
+
+function paintIncomingMarketplace() {
+  const draft = incomingMarketBook;
+  if (!draft) return;
+  elements.emptyState.hidden = true;
+  if (elements.bundleUploadView) elements.bundleUploadView.hidden = true;
+  elements.projectWorkspace.hidden = false;
+  if (elements.projectConceptView) elements.projectConceptView.hidden = false;
+  if (elements.projectStandardView) elements.projectStandardView.hidden = true;
+  document.body.classList.add('has-project');
+  document.body.classList.toggle('has-books', (state?.projects?.length || 0) > 0);
+  document.body.dataset.studioPin = '';
+  document.body.dataset.mode = 'studio';
+  if (elements.conceptProjectTitle) elements.conceptProjectTitle.textContent = draft.title;
+  if (elements.conceptProjectMeta) elements.conceptProjectMeta.textContent = 'New book · 0 pages';
+  if (elements.conceptDisplayAge) elements.conceptDisplayAge.textContent = draft.targetAge;
+  if (elements.conceptDisplayDescription) elements.conceptDisplayDescription.textContent = draft.description;
+  if (elements.conceptDisplayHighlights) {
+    elements.conceptDisplayHighlights.innerHTML = (Array.isArray(draft.highlights) ? draft.highlights : [])
+      .map((item) => `<li>${escapeHtml(item)}</li>`)
+      .join('') || '<li>Waiting…</li>';
+  }
+  const lede = conceptLede();
+  if (lede) lede.textContent = draft.lede;
+  if (elements.conceptGeneratePromptsBtn) {
+    elements.conceptGeneratePromptsBtn.disabled = true;
+    elements.conceptGeneratePromptsBtn.textContent = 'Waiting…';
+  }
+  const composeTitle = document.querySelector('.concept-brief__compose h3');
+  const composeHint = document.querySelector('.concept-brief__compose .concept-brief__hint');
+  if (composeTitle) composeTitle.textContent = 'New book';
+  if (composeHint) composeHint.textContent = 'Brief filling in.';
+  if (typeof window.__versaSetStudioMode === 'function') window.__versaSetStudioMode('studio', true);
+  paintBrowserSupervisor(state?.browserSupervisor);
+}
+
+function marketStageFromCheckpoint(kind, checkpoint) {
+  if (kind === 'trend_scan') {
+    switch (checkpoint?.phase) {
+      case 'handed-off': return 'analyze';
+      case 'discovering':
+      case 'validating':
+      default: return 'scan';
+    }
+  }
+  if (kind === 'analysis') {
+    switch (checkpoint?.phase) {
+      case 'analysed':
+      case 'project-created': return 'extract';
+      case 'scraping':
+      default: return 'analyze';
+    }
+  }
+  return null;
+}
+
+function marketBrowserNote(stage, marketplace = marketSession.marketplace) {
+  if (stage === 'scan') {
+    if (marketplace === 'kdp') return 'Reading KDP.';
+    if (marketplace === 'etsy') return 'Reading Etsy.';
+    return 'Reading TPT.';
+  }
+  if (stage === 'analyze' || stage === 'extract') {
+    return 'Analyzing.';
+  }
+  if (stage === 'prompts') {
+    return 'Writing.';
+  }
+  if (stage === 'capture') {
+    return 'Receiving.';
+  }
+  if (stage === 'lab') {
+    return 'Maze Lab.';
+  }
+  if (stage === 'assemble') {
+    return 'Assembling.';
+  }
+  if (stage === 'mockups') {
+    return 'Mockups.';
+  }
+  if (stage === 'preview') {
+    return 'Preview.';
+  }
+  if (stage === 'export') {
+    return 'Exporting.';
+  }
+  return '';
+}
+
+function beginMarketSession({ marketplace = 'tpt', query = '', stage = 'scan', detail = '' } = {}) {
+  marketSession.active = true;
+  marketSession.localStage = stage;
+  marketSession.marketplace = marketplace || 'tpt';
+  marketSession.query = String(query || '').trim();
+  marketSession.error = '';
+  marketSession.stageIndex = MARKET_STAGES.indexOf(stage);
+  marketSession.holdDone = false;
+  setMarketStage(stage, { detail, session: 'running' });
+}
+
+function setMarketLocalStage(stage, detail = '') {
+  if (!stage) return;
+  marketSession.active = true;
+  marketSession.holdDone = false;
+  marketSession.localStage = stage;
+  setMarketStage(stage, { detail, session: 'running' });
+}
+
+function failMarketSession(message) {
+  marketSession.error = String(message || 'Scan failed.');
+  marketSession.active = false;
+  setMarketStage(marketSession.localStage || 'scan', {
+    detail: marketSession.error,
+    session: 'failed'
+  });
+}
+
+function finishMarketSession(stage = 'lab', detail = '') {
+  marketSession.localStage = stage;
+  marketSession.active = false;
+  marketSession.error = '';
+  marketSession.holdDone = true;
+  marketSession.stageIndex = Math.max(marketSession.stageIndex, MARKET_STAGES.indexOf(stage));
+  setMarketStage(stage, { detail, session: 'done' });
+}
+
+function resetMarketRail() {
+  marketSession.active = false;
+  marketSession.localStage = null;
+  marketSession.error = '';
+  marketSession.stageIndex = -1;
+  marketSession.holdDone = false;
+  setMarketStage(null, { detail: '', session: 'idle' });
+}
+
+function setMarketStage(stage, { detail = '', session = 'running' } = {}) {
+  let resolvedStage = stage;
+  let stageIndex = MARKET_STAGES.indexOf(resolvedStage);
+  if (session !== 'idle' && session !== 'failed' && marketSession.holdDone && stageIndex >= 0 && stageIndex < marketSession.stageIndex) {
+    resolvedStage = MARKET_STAGES[marketSession.stageIndex] || resolvedStage;
+    stageIndex = MARKET_STAGES.indexOf(resolvedStage);
+    session = 'done';
+  } else if (stageIndex > marketSession.stageIndex) {
+    marketSession.stageIndex = stageIndex;
+  }
+  document.querySelectorAll('[data-market-live]').forEach((root) => {
+    root.hidden = false;
+    root.dataset.state = session === 'idle' ? 'idle' : session;
+    root.querySelectorAll('[data-market-stage]').forEach((node) => {
+      const name = node.dataset.marketStage;
+      const index = MARKET_STAGES.indexOf(name);
+      let state = 'waiting';
+      if (session === 'failed' && name === resolvedStage) state = 'error';
+      else if (stageIndex < 0) state = 'waiting';
+      else if (index < stageIndex) state = 'done';
+      else if (index === stageIndex) state = session === 'done' ? 'done' : 'live';
+      node.dataset.state = state;
+    });
+    const detailEl = root.querySelector('[data-market-detail]');
+    if (detailEl) detailEl.textContent = detail || '';
+    const noteEl = root.querySelector('[data-market-browser]');
+    if (noteEl) {
+      const note = session === 'idle' ? '' : marketBrowserNote(resolvedStage);
+      noteEl.hidden = !note;
+      noteEl.textContent = note;
+    }
+  });
+}
+
+function applyMarketStageFromPipeline(pipeline = []) {
+  if (['prompts', 'capture', 'lab', 'assemble', 'mockups', 'preview', 'export'].includes(marketSession.localStage)) {
+    return;
+  }
+  if (marketSession.localStage === 'extract' && !marketSession.active) {
+    return;
+  }
+  const tasks = Array.isArray(pipeline) ? pipeline : [];
+  const live = tasks.find((task) => task && (task.state === 'pending' || task.state === 'leased'));
+  if (!live) return;
+  const stage = marketStageFromCheckpoint(live.kind, live.checkpoint)
+    || (live.kind === 'analysis' ? 'analyze' : 'scan');
+  const detail = live.kind === 'trend_scan'
+    ? agentPhaseMessage(live.checkpoint)
+    : analysisPhaseMessage(live.checkpoint);
+  marketSession.active = true;
+  setMarketStage(stage, { detail, session: 'running' });
+}
+
+function analysisPhaseMessage(checkpoint) {
+  switch (checkpoint?.phase) {
+    case 'scraping': return 'Reading listing.';
+    case 'analysed': return 'Extracting.';
+    case 'project-created': return 'Saving concept.';
+    default: return 'Analyzing…';
+  }
+}
+
+function mazeAssembledForRail(project) {
+  return Boolean(projectPdf(project).productPath);
+}
+
+async function continueMazePipelineFromLab(project, readyCount) {
+  const ready = Number(readyCount) || 0;
+  setMarketLocalStage('assemble', `${ready} maze${ready === 1 ? '' : 's'} ready.`);
+  mazeWorkspaceOpen = true;
+  activeWorkspaceView = 'thumbnails';
+  document.body.dataset.studioPin = '';
+  applyWorkspacePanes('thumbnails');
+  if (typeof api.continueMazePipeline === 'function' && project?.id) {
+    try {
+      await api.continueMazePipeline(project.id);
+    } catch (error) {
+      showToast(errorMessage(error), 'error');
+    }
+  }
+}
+
+function mockupMadeCount(project) {
+  const listing = project?.tptListing || {};
+  const paths = listing.thumbnailPaths || listing.mockups?.paths || [];
+  return (Array.isArray(paths) ? paths : []).filter(Boolean).length;
+}
+
+function applyLiveMazeToRail(project, liveOp) {
+  if (!project || project.productFormat !== 'maze') return;
+  if (liveOp?.kind === 'maze' && liveOp.projectId === project.id) {
+    const percent = Number(liveOp.percent) || 0;
+    const detail = liveOp.message || (percent ? `Capturing ${percent}%` : 'Generating…');
+    setMarketLocalStage(percent > 0 ? 'capture' : 'prompts', detail);
+    return;
+  }
+  if ((liveOp?.kind === 'maze-assemble' || liveOp?.kind === 'print-pdf') && liveOp.projectId === project.id) {
+    setMarketLocalStage('assemble', liveOp.message || 'Assembling…');
+    return;
+  }
+  if (liveOp?.kind === 'thumbnails' && liveOp.projectId === project.id) {
+    const made = mockupMadeCount(project);
+    const next = Math.min(4, Math.max(1, made + 1));
+    setMarketLocalStage('mockups', liveOp.message || `Mockup ${next} of 4`);
+    return;
+  }
+  if (liveOp?.kind === 'preview' && liveOp.projectId === project.id) {
+    setMarketLocalStage('preview', liveOp.message || 'Generating…');
+    return;
+  }
+  if (liveOp?.kind === 'export' && liveOp.projectId === project.id) {
+    setMarketLocalStage('export', liveOp.message || 'Exporting…');
+    return;
+  }
+  const ready = (project.mazeProject?.pages || []).filter((page) => page.generationStatus === 'ready').length;
+  const mazeDone = ready > 0 && (project.stepMazeStatus === 'completed' || marketSession.localStage === 'capture' || marketSession.localStage === 'lab');
+  if (!mazeDone) return;
+  const made = mockupMadeCount(project);
+  const previewReady = Boolean(project.tptListing?.videoPreviewPath || project.tptListing?.video?.path);
+  const exportDone = project.stepExportStatus === 'completed';
+  const assembled = mazeAssembledForRail(project);
+  if (exportDone) {
+    finishMarketSession('export', 'Export ready.');
+    return;
+  }
+  if (previewReady && made >= 4) {
+    setMarketLocalStage('export', 'Preview ready.');
+    return;
+  }
+  if (made >= 4) {
+    setMarketLocalStage('preview', 'Mockups ready.');
+    return;
+  }
+  if (assembled) {
+    setMarketLocalStage('mockups', made ? `${made} of 4 mockups.` : 'Mockups next');
+    return;
+  }
+  setMarketLocalStage('assemble', `${ready} maze${ready === 1 ? '' : 's'} ready.`);
+}
+
+function formatSupervisorClock(value) {
+  const at = Number(value) || 0;
+  if (!at) return '—';
+  const delta = Math.max(0, Date.now() - at);
+  if (delta < 5_000) return 'just now';
+  if (delta < 60_000) return `${Math.round(delta / 1000)}s ago`;
+  return `${Math.round(delta / 60_000)}m ago`;
+}
+
+function paintBrowserSupervisor(snapshot = state?.browserSupervisor) {
+  document.querySelectorAll('[data-browser-supervisor]').forEach((node) => {
+    if (!snapshot?.state) {
+      node.hidden = true;
+      node.textContent = '';
+      return;
+    }
+    const pages = snapshot.pagesCompleted != null
+      ? `${snapshot.pagesCompleted}/${snapshot.pagesTotal || '?'} pages`
+      : '';
+    const retry = snapshot.nextRetryAt && snapshot.nextRetryAt > Date.now()
+      ? `Retry ${Math.max(1, Math.round((snapshot.nextRetryAt - Date.now()) / 1000))}s.`
+      : '';
+    const user = snapshot.userActionRequired ? 'Needs you.' : '';
+    node.hidden = false;
+    node.textContent = [
+      String(snapshot.state || '').replace(/_/g, ' '),
+      snapshot.action && snapshot.action !== 'WAIT' ? String(snapshot.action).replace(/_/g, ' ') : '',
+      snapshot.reason || '',
+      `Last ${formatSupervisorClock(snapshot.lastProgressAt)}`,
+      pages,
+      retry,
+      user
+    ].filter(Boolean).join(' · ');
+  });
+}
+
+function findIncomingAnalysisProject(nextState = state, pipeline = []) {
+  const tasks = Array.isArray(pipeline) ? pipeline : [];
+  const done = tasks.find((task) => (
+    task?.kind === 'analysis'
+    && (task.checkpoint?.projectId || task.projectId)
+    && (task.state === 'done' || task.checkpoint?.phase === 'project-created')
+  ));
+  const projectId = done?.checkpoint?.projectId || done?.projectId || null;
+  const fromTask = projectId
+    ? ((nextState?.projects || []).find((item) => item.id === projectId) || { id: projectId })
+    : null;
+  if (fromTask?.id && adoptedAnalysisTaskId !== (done?.id || fromTask.id)) {
+    if (!(incomingStartedAt && done?.updatedAt && done.updatedAt < incomingStartedAt - 2000)) {
+      return { project: fromTask, task: done };
+    }
+  }
+  const created = (nextState?.projects || [])
+    .filter((project) => {
+      const at = Date.parse(project.createdAt || project.updatedAt || '') || 0;
+      return incomingStartedAt ? at >= incomingStartedAt - 2000 : false;
+    })
+    .sort((left, right) => Date.parse(right.createdAt || 0) - Date.parse(left.createdAt || 0))[0];
+  if (created && adoptedAnalysisTaskId !== created.id) return { project: created, task: done || null };
+  return null;
+}
+
+function adoptFinishedMarketplaceAnalysis(pipeline = [], nextState = state) {
+  if (mazeAutoGenerateId) return;
+  if (['prompts', 'capture', 'lab'].includes(marketSession.localStage)) return;
+  if (!incomingMarketBook && !marketSession.active) return;
+  const found = findIncomingAnalysisProject(nextState, pipeline);
+  if (!found?.project?.id) return;
+  adoptedAnalysisTaskId = found.task?.id || found.project.id;
+  // #region agent log
+  fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H121',location:'renderer/renderer.js:adoptFinishedMarketplaceAnalysis',message:'adopting a finished analysis that the IPC wait missed',data:{projectId:found.project.id,taskId:found.task?.id||null,incoming:Boolean(incomingMarketBook),productFormat:found.project.productFormat||null},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  void finishGateAnalysis({
+    project: found.project,
+    conversationUrl: found.task?.checkpoint?.conversationUrl || found.project.conversationUrl || 'resumed',
+    analysis: {
+      title: found.project.name || '',
+      description: found.project.description || '',
+      pageCount: found.project.activityCount || 20
+    },
+    detectedFormat: { productFormat: found.project.productFormat || 'maze' }
+  });
+}
+
+function syncMarketRailFromState(nextState = state) {
+  applyLiveMazeToRail(nextState?.activeProject, nextState?.liveOperation);
+  paintBrowserSupervisor(nextState?.browserSupervisor);
+  adoptFinishedMarketplaceAnalysis(nextState?.agentPipeline || [], nextState);
+  if (!nextState?.agentPipeline) return;
+  applyMarketStageFromPipeline(nextState.agentPipeline);
+}
+
+function markConceptReadyFromAnalysis(detail = 'Analysis saved.') {
+  marketSession.active = false;
+  marketSession.localStage = 'extract';
+  marketSession.error = '';
+  setMarketStage('extract', { detail, session: 'done' });
+}
+
+function seedConceptMarketRail() {
+  if (incomingMarketBook) return;
+  if (MARKET_STAGES.includes(marketSession.localStage) || marketSession.active) return;
+  markConceptReadyFromAnalysis();
+}
+
+function applyPromptProgressToRail(payload = {}) {
+  if (marketSession.localStage !== 'prompts' && marketSession.localStage !== 'capture') return;
+  const have = Number(payload.have) || 0;
+  const total = Number(payload.total) || 0;
+  const parsed = Number(payload.parsedCount) || 0;
+  if (have <= 0 && parsed <= 0) return;
+  const received = have || parsed;
+  const detail = total
+    ? `Receiving ${received} of ${total}`
+    : 'Receiving…';
+  setMarketLocalStage('capture', detail);
+}
+
+/**
+ * Start a scan and follow it to its handoff.
+ *
+ * The scan is durable. When it returns a winner, the renderer starts the normal
+ * URL analysis task so the user lands on the existing page-count screen.
+ *
+ * Every state change is also written to `data-state` and `#agent-result`, because
+ * this app is meant to be drivable by an agent as well as a person, and an agent
+ * that can click but cannot read the outcome is not automating anything. Reading
+ * a `data-state` attribute is reliable in a way that parsing a status sentence
+ * never is.
+ */
+async function runVersaAgent(button) {
+  const step = document.getElementById('project-agent-step');
+  const status = document.getElementById('agent-status');
+  const resultBox = document.getElementById('agent-result');
+  const query = String(document.getElementById('agent-query-input')?.value || '').trim();
+  const marketplace = selectedAgentMarketplace();
+
+  const setState = (value, message, payload = null) => {
+    if (step) step.dataset.state = value;
+    if (button) button.dataset.state = value;
+    if (status) status.textContent = message ?? '';
+    if (resultBox) {
+      resultBox.hidden = !payload;
+      // The full result as data, so an agent reads a value instead of a sentence.
+      if (payload) resultBox.dataset.result = JSON.stringify(payload);
+      else delete resultBox.dataset.result;
+      resultBox.innerHTML = payload ? agentResultHtml(payload) : '';
+    }
+  };
+
+  if (!marketplace) {
+    setState('invalid', 'Choose a marketplace.');
+    showToast('Choose a marketplace.', 'warning');
+    return;
+  }
+  if (button) { button.disabled = true; button.textContent = 'Scanning…'; }
+  beginMarketSession({ marketplace, query, stage: 'scan', detail: 'Reading the trending feed…' });
+  setState('running', 'Reading the trending feed…');
+
+  try {
+    const started = await api.scanTrends({ query, marketplace });
+    if (!started?.taskId) throw new Error('Scan failed.');
+    if (step) step.dataset.taskId = started.taskId;
+
+    const deadline = Date.now() + 11 * 60_000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      const scan = await api.agentScanResult(started.taskId);
+      if (!scan) break;
+      if (scan.state === 'done') {
+        const opportunity = scan.result?.opportunity;
+        setMarketLocalStage('analyze', opportunity
+          ? `Chose "${opportunity.keyword}".`
+          : 'Analyzing…');
+        setState('done', opportunity
+          ? `Chose "${opportunity.keyword}".`
+          : 'Analyzing…', scan.result ?? null);
+        await startAgentAnalysisHandoff(scan.result);
+        showToast(`Chose "${opportunity?.keyword ?? 'a product'}".`, 'success');
+        return;
+      }
+      if (scan.state === 'failed' || scan.state === 'cancelled') {
+        throw new Error(scan.lastError || 'Scan failed.');
+      }
+      setMarketStage('scan', { detail: agentPhaseMessage(scan.checkpoint), session: 'running' });
+      setState('running', agentPhaseMessage(scan.checkpoint));
+    }
+    // The wait ended; the scan did not. It is a queued task either way.
+    setState('running', 'Still scanning.');
+  } catch (error) {
+    failMarketSession(String(error.message || error));
+    setState('failed', String(error.message || error));
+    showToast(String(error.message || error), 'error');
+  } finally {
+    if (button) { button.disabled = false; button.textContent = 'Scan'; }
+  }
+}
+
+/** Say which phase the scan is in, from the checkpoint it committed. */
+function agentPhaseMessage(checkpoint) {
+  switch (checkpoint?.phase) {
+    case 'discovering': return 'Scanning…';
+    case 'validating': {
+      const done = checkpoint.done?.length ?? 0;
+      const remaining = checkpoint.remaining ?? 0;
+      return `Checking ${done} keyword${done === 1 ? '' : 's'}.`;
+    }
+    case 'handed-off': return 'Listing found.';
+    default: return 'Scanning…';
+  }
+}
+
+/**
+ * What the agent found and why it chose it.
+ *
+ * The evidence is shown, not just the answer — a decision a person can argue
+ * with is worth more than one they have to trust.
+ */
+function agentResultHtml(result) {
+  const opportunity = result?.opportunity;
+  if (!opportunity) return '';
+  const evidence = opportunity.evidence || {};
+  const facts = [
+    `${evidence.listings ?? 0} listing${evidence.listings === 1 ? '' : 's'}`,
+    (evidence.marketplaces || []).join(' · ') || null,
+    evidence.medianPrice ? `median $${evidence.medianPrice}` : null,
+    evidence.topReviews ? `leader ${evidence.topReviews} reviews` : null
+  ].filter(Boolean);
+  const runners = (opportunity.runnersUp || []).map((item) => escapeHtml(item.keyword)).join(', ');
+  return `
+    <p class="eyebrow">Chosen</p>
+    <strong data-testid="agent-keyword-chosen">${escapeHtml(opportunity.keyword)}</strong>
+    <p class="muted" data-testid="agent-evidence">${escapeHtml(facts.join(' · '))}</p>
+    ${runners ? `<p class="muted">Also: ${runners}</p>` : ''}
+    ${result.degradedDiscovery ? '<p class="muted">Used your keyword.</p>' : ''}
+  `;
+}
+
 
 function competitorMockupStripHtml(projectId, mockups, cacheKey) {
   const images = Array.isArray(mockups?.images) ? mockups.images : [];
@@ -1033,13 +2036,13 @@ function renderAnalysisMockups(result) {
   const status = mockups?.status || 'empty';
   if (elements.resultMockupsStatus) {
     if (count) {
-      elements.resultMockupsStatus.textContent = `${count} listing mockup${count === 1 ? '' : 's'} captured. These will be attached so the model can see structure and style, then write original pages.`;
+      elements.resultMockupsStatus.textContent = `${count} mockup${count === 1 ? '' : 's'} captured.`;
     } else if (status === 'skipped') {
-      elements.resultMockupsStatus.textContent = mockups?.warning || 'Listing mockup capture is available for Teachers Pay Teachers product links.';
+      elements.resultMockupsStatus.textContent = mockups?.warning || 'No mockups.';
     } else if (status === 'blocked') {
-      elements.resultMockupsStatus.textContent = mockups?.warning || 'The listing page could not be opened. Prompt generation will use the URL and text analysis only.';
+      elements.resultMockupsStatus.textContent = mockups?.warning || 'Listing unavailable.';
     } else {
-      elements.resultMockupsStatus.textContent = mockups?.warning || 'No listing mockups were found. Prompt generation will use the URL and text analysis only.';
+      elements.resultMockupsStatus.textContent = mockups?.warning || 'No mockups.';
     }
   }
   if (elements.resultMockupsStrip) {
@@ -1064,7 +2067,7 @@ function renderConceptMockups(project) {
   }
   block.hidden = false;
   if (elements.conceptMockupsStatus) {
-    elements.conceptMockupsStatus.textContent = `${count} listing mockup${count === 1 ? '' : 's'} will be attached when you generate page prompts.`;
+    elements.conceptMockupsStatus.textContent = `${count} mockup${count === 1 ? '' : 's'} attached.`;
   }
   if (elements.conceptMockupsStrip) {
     elements.conceptMockupsStrip.innerHTML = `${competitorMockupStripHtml(project.id, mockups, project.updatedAt)}
@@ -1072,15 +2075,91 @@ function renderConceptMockups(project) {
   }
 }
 
+function renderAnalysisResult(result, isUrl = currentAnalysisMode === 'url') {
+  analysisResult = result;
+  const { analysis } = result;
+  applyDetectedPipeline(result.detectedFormat);
+
+  elements.resultTitle.textContent = displayProjectName(analysis.title);
+  elements.resultTargetAge.textContent = analysis.targetAge || 'Pre-K / Grade 1';
+  elements.resultDescription.textContent = analysis.description || 'Printable workbook based on analyzed product.';
+  elements.resultHighlightsList.innerHTML = (analysis.keyHighlights || [])
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join('');
+  const resolvedCount = (Number.isFinite(analysis.pageCount) && analysis.pageCount > 0) ? analysis.pageCount : 1;
+  elements.resultCompetitorCount.textContent = String(resolvedCount);
+  elements.resultCustomCountInput.value = String(resolvedCount);
+
+  if (isUrl && runningOnWindows()) {
+    syncAnalysisPageSetup(result.project?.format, result.project?.orientation);
+  }
+
+  showProjectAnalysisResultStep();
+}
+
+function normalizeAgentAnalysisInput(scanResult = {}) {
+  const handoff = scanResult.analysisInput || scanResult.chosen || null;
+  const productUrl = String(handoff?.productUrl || handoff?.url || '').trim();
+  if (!productUrl) return null;
+  return {
+    ...handoff,
+    sourceMode: 'url',
+    productUrl,
+    keyword: handoff.keyword || scanResult.opportunity?.keyword || handoff.trendMetadata?.query || '',
+    title: handoff.title || handoff.concept || handoff.trendMetadata?.title || '',
+    tptNiche: handoff.tptNiche || '',
+    activityType: handoff.activityType || '',
+    metadataText: handoff.metadataText || '',
+    niche: handoff.niche || '',
+    ...(runningOnWindows() ? {
+      format: elements.analysisUrlPageFormat?.value || 'LETTER',
+      orientation: elements.analysisUrlPageOrientation?.value || 'portrait'
+    } : {})
+  };
+}
+
+async function startAgentAnalysisHandoff(scanResult = {}) {
+  const chosen = normalizeAgentAnalysisInput(scanResult);
+  if (!chosen) throw new Error('No product URL.');
+
+  setAnalysisMode('url');
+  if (elements.analysisProductUrl) elements.analysisProductUrl.value = chosen.productUrl;
+  if (elements.analysisErrorBox) {
+    elements.analysisErrorBox.hidden = true;
+    elements.analysisErrorBox.textContent = '';
+  }
+  if (!incomingMarketBook) openIncomingMarketplace(chosen.keyword || chosen.title || chosen.concept || '');
+  applyIncomingListing(chosen);
+  showProjectAnalysisLoadingStep(true);
+  setMarketLocalStage('analyze', 'Analyzing.');
+
+  try {
+    const result = await invoke(() => api.analyzeProduct(chosen), { refresh: false });
+    // #region agent log
+    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H92',location:'renderer/renderer.js:startAgentAnalysisHandoff',message:'analyzeProduct returned; finishing the same way Gate does',data:{hasProject:Boolean(result?.project?.id),productFormat:result?.project?.productFormat||result?.detectedFormat?.productFormat||null,title:result?.analysis?.title||''},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    await finishGateAnalysis(result);
+    return result;
+  } catch (error) {
+    if (elements.analysisErrorBox) {
+      elements.analysisErrorBox.hidden = false;
+      elements.analysisErrorBox.textContent = errorMessage(error);
+    }
+    showProjectAnalysisInputStep();
+    throw error;
+  }
+}
+
 function showProjectAnalysisLoadingStep(isUrl = false) {
   hideAllProjectSteps();
   elements.projectAnalysisLoadingStep.hidden = false;
-  elements.projectDialogTitle.textContent = 'Connecting to Content Gem…';
+  elements.projectDialogTitle.textContent = 'Analyzing…';
   if (elements.analysisLoadingDetail) {
     elements.analysisLoadingDetail.textContent = isUrl
-      ? 'Collecting listing mockups from the public product page, then analyzing the concept with Content Gem.'
-      : 'Analyzing product concept, grade level, and page count structure.';
+      ? 'Collecting listing.'
+      : 'Analyzing.';
   }
+  setMarketLocalStage('analyze', elements.analysisLoadingDetail?.textContent || 'Analyzing…');
 }
 
 function showProjectAnalysisResultStep() {
@@ -1090,19 +2169,20 @@ function showProjectAnalysisResultStep() {
     syncAnalysisPageSetup(analysisResult.project.format, analysisResult.project.orientation);
   }
   renderAnalysisMockups(analysisResult);
-  elements.projectDialogTitle.textContent = 'Competitor analysis & page count';
+  elements.projectDialogTitle.textContent = 'Analysis';
 }
 
 function showProjectPromptsLoadingStep(pageCount, mockupCount = 0) {
   hideAllProjectSteps();
   elements.projectPromptsLoadingStep.hidden = false;
-  elements.promptsLoadingTitle.textContent = `Generating ${pageCount} page prompts…`;
-  elements.projectDialogTitle.textContent = 'Generating page prompts…';
+  elements.promptsLoadingTitle.textContent = `Generating ${pageCount}…`;
+  elements.projectDialogTitle.textContent = 'Generating…';
   if (elements.promptsLoadingDetail) {
     elements.promptsLoadingDetail.textContent = mockupCount
-      ? `Attaching ${mockupCount} competitor listing mockup${mockupCount === 1 ? '' : 's'} so the model can see structure and style, then generating original page prompts.`
-      : 'Generating distinct single-line prompts for each page slot in the Content Gem conversation.';
+      ? `Attaching ${mockupCount} mockup${mockupCount === 1 ? '' : 's'}.`
+      : 'Writing prompts.';
   }
+  setMarketLocalStage('prompts', elements.promptsLoadingDetail?.textContent || `Generating ${pageCount}…`);
 }
 
 function setAnalysisMode(mode) {
@@ -1116,20 +2196,20 @@ function setAnalysisMode(mode) {
   
   if (elements.startAnalysisButton) {
     if (currentAnalysisMode === 'url') {
-      elements.startAnalysisButton.textContent = 'Analyze Product URL with Content Gem →';
+      elements.startAnalysisButton.textContent = 'Analyze';
     } else if (currentAnalysisMode === 'builder') {
-      elements.startAnalysisButton.textContent = 'Build Book Concept with Content Gem →';
+      elements.startAnalysisButton.textContent = 'Analyze';
     } else {
-      elements.startAnalysisButton.textContent = 'Generate Storybook & Prompts →';
+      elements.startAnalysisButton.textContent = 'Generate';
     }
   }
   if (elements.projectDialogTitle) {
     if (currentAnalysisMode === 'url') {
-      elements.projectDialogTitle.textContent = 'Analyze Competitor Product URL';
+      elements.projectDialogTitle.textContent = 'Product URL';
     } else if (currentAnalysisMode === 'builder') {
-      elements.projectDialogTitle.textContent = 'Book Concept & Prompt Builder';
+      elements.projectDialogTitle.textContent = 'Prompt builder';
     } else {
-      elements.projectDialogTitle.textContent = "Children's Storybook Mode";
+      elements.projectDialogTitle.textContent = 'Storybook';
     }
   }
 }
@@ -1509,9 +2589,9 @@ function engineLabel(engine = activeEngine()) {
 }
 
 function unusedEngineSummary(engine = activeEngine()) {
-  if (engine === 'meta') return 'Gemini still writes prompts. ChatGPT stays signed in and unused for images.';
-  if (engine === 'gemini') return 'ChatGPT and Meta stay signed in and unused for images.';
-  return 'Gemini still writes prompts. Meta stays signed in and unused for images.';
+  if (engine === 'meta') return 'Gemini writes prompts.';
+  if (engine === 'gemini') return 'ChatGPT unused.';
+  return 'Gemini writes prompts.';
 }
 
 function renderBrowser() {
@@ -1530,15 +2610,15 @@ function renderBrowser() {
   }
   if (meta) {
     elements.browserLabel.textContent = loginRequired
-      ? 'Meta: sign in from Settings'
-      : (connected ? 'Meta running in background' : 'Meta ready');
+      ? 'Meta sign in'
+      : (connected ? 'Meta running' : 'Meta ready');
     return;
   }
   elements.browserLabel.textContent = connected
     ? (queueRunning || state.browser.headless || !state.browser.loginMode
-      ? 'Engine running in background'
-      : (loginRequired ? 'Sign in from Settings when ready' : 'Engine connected'))
-    : (loginRequired ? 'Sign in from Settings' : 'Engine ready');
+      ? 'Engine running'
+      : (loginRequired ? 'Sign in' : 'Engine connected'))
+    : (loginRequired ? 'Sign in' : 'Engine ready');
 }
 
 function renderUpdate() {
@@ -1557,11 +2637,11 @@ function renderUpdate() {
       elements.updateButton.disabled = status !== 'ready';
       elements.updateButton.classList.toggle('is-active', ['checking', 'available', 'downloading', 'installing'].includes(status));
       elements.updateButton.classList.toggle('is-ready', status === 'ready');
-      if (status === 'checking') elements.updateLabel.textContent = 'Checking for updates…';
+      if (status === 'checking') elements.updateLabel.textContent = 'Checking…';
       else if (status === 'available') elements.updateLabel.textContent = `Downloading v${availableVersion}…`;
-      else if (status === 'downloading') elements.updateLabel.textContent = `Downloading update… ${percent}%`;
-      else if (status === 'ready') elements.updateLabel.textContent = `Restart to update v${availableVersion}`;
-      else if (status === 'installing') elements.updateLabel.textContent = 'Installing update…';
+      else if (status === 'downloading') elements.updateLabel.textContent = `Downloading ${percent}%`;
+      else if (status === 'ready') elements.updateLabel.textContent = `Restart v${availableVersion}`;
+      else if (status === 'installing') elements.updateLabel.textContent = 'Installing…';
     }
   }
 
@@ -1598,21 +2678,21 @@ function renderUpdate() {
 
   if (elements.settingsUpdateMessage) {
     if (status === 'checking') {
-      elements.settingsUpdateMessage.textContent = 'Checking official release servers for new updates…';
+      elements.settingsUpdateMessage.textContent = 'Checking…';
     } else if (status === 'available') {
-      elements.settingsUpdateMessage.textContent = `New update version ${availableVersion} found! Starting automatic download…`;
+      elements.settingsUpdateMessage.textContent = `Downloading v${availableVersion}.`;
     } else if (status === 'downloading') {
-      elements.settingsUpdateMessage.textContent = `Downloading update version ${availableVersion} (${percent}%)…`;
+      elements.settingsUpdateMessage.textContent = `Downloading v${availableVersion} ${percent}%.`;
     } else if (status === 'ready') {
-      elements.settingsUpdateMessage.textContent = `Version ${availableVersion} has been downloaded and is ready to install! Restart the app to complete the update.`;
+      elements.settingsUpdateMessage.textContent = `v${availableVersion} ready. Restart.`;
     } else if (status === 'up-to-date') {
-      elements.settingsUpdateMessage.textContent = `You are running the latest version (v${currentVersion}). No new updates available.`;
+      elements.settingsUpdateMessage.textContent = `v${currentVersion} current.`;
     } else if (status === 'error') {
-      elements.settingsUpdateMessage.textContent = update?.message || 'Failed to check for updates or update service is temporarily unavailable.';
+      elements.settingsUpdateMessage.textContent = update?.message || 'Check failed.';
     } else if (status === 'disabled') {
-      elements.settingsUpdateMessage.textContent = `Running unpackaged dev build (v${currentVersion}). Auto-updater is active only in installed releases.`;
+      elements.settingsUpdateMessage.textContent = `Dev build v${currentVersion}.`;
     } else {
-      elements.settingsUpdateMessage.textContent = `Current version: v${currentVersion}. Click "Check for Updates" to look for new releases.`;
+      elements.settingsUpdateMessage.textContent = `v${currentVersion}.`;
     }
   }
 
@@ -1629,12 +2709,12 @@ function renderUpdate() {
     if (checkedAt) {
       try {
         const date = new Date(checkedAt);
-        elements.settingsUpdateLastChecked.textContent = `Last checked: ${date.toLocaleTimeString()} (${date.toLocaleDateString()})`;
+        elements.settingsUpdateLastChecked.textContent = `Checked ${date.toLocaleTimeString()}`;
       } catch (e) {
-        elements.settingsUpdateLastChecked.textContent = `Last checked: ${checkedAt}`;
+        elements.settingsUpdateLastChecked.textContent = `Checked ${checkedAt}`;
       }
     } else {
-      elements.settingsUpdateLastChecked.textContent = 'Last checked: Not checked yet';
+      elements.settingsUpdateLastChecked.textContent = 'Not checked';
     }
   }
 
@@ -1643,7 +2723,7 @@ function renderUpdate() {
     elements.settingsCheckUpdateBtn.disabled = isCheckingOrDownloading;
     elements.settingsCheckUpdateBtn.innerHTML = isCheckingOrDownloading
       ? '<span class="update-spinner">↻</span> Checking…'
-      : '<span class="btn-icon">↻</span> Check for Updates';
+      : '<span class="btn-icon">↻</span> Check';
   }
 
   if (elements.settingsInstallUpdateBtn) {
@@ -1662,9 +2742,9 @@ function renderAuth() {
 }
 
 const BRAND_MARKS = {
-  chatgpt: { className: 'auth-brand-logo brand-chatgpt', html: '<svg viewBox="0 0 24 24"><path fill="#fff" d="M12.4 3.2c.9-1.5 2.9-2 4.5-1.2 1.6.8 2.3 2.7 1.6 4.4 1.7.4 2.9 2 2.9 3.8 0 1.8-1.2 3.4-2.9 3.8.7 1.7 0 3.6-1.6 4.4-1.6.8-3.6.3-4.5-1.2-.9 1.5-2.9 2-4.5 1.2-1.6-.8-2.3-2.7-1.6-4.4-1.7-.4-2.9-2-2.9-3.8 0-1.8 1.2-3.4 2.9-3.8C5.6 6.7 6.3 4.8 7.9 4c1.6-.8 3.6-.3 4.5 1.2zm.1 2.3c-.3-.5-.9-.7-1.4-.4-.6.3-.8.9-.5 1.4l4.7 8.1c.3.5.9.7 1.4.4.6-.3.8-.9.5-1.4l-4.7-8.1z"/></svg>' },
-  gemini: { className: 'auth-brand-logo brand-gemini', html: '<svg viewBox="0 0 24 24"><defs><linearGradient id="geminiAuthLive" x1="4" y1="2" x2="20" y2="22" gradientUnits="userSpaceOnUse"><stop stop-color="#4285F4"/><stop offset=".45" stop-color="#9B72CB"/><stop offset=".75" stop-color="#D96570"/><stop offset="1" stop-color="#F2BD42"/></linearGradient></defs><path fill="url(#geminiAuthLive)" d="M12 2c.4 4.2 1.8 6.6 6 7-4.2.4-5.6 2.8-6 7-.4-4.2-1.8-6.6-6-7 4.2-.4 5.6-2.8 6-7z"/></svg>' },
-  meta: { className: 'auth-brand-logo brand-meta', html: '<svg viewBox="0 0 24 24"><path fill="#fff" d="M8.6 8.2c1.7 0 3.1 1.9 4.4 3.8 1.3-1.9 2.8-3.8 4.5-3.8 2.3 0 3.5 2.3 3.5 4.6 0 3.7-2.4 6.8-5.5 6.8-1.6 0-2.8-.8-3.9-2.1-1.1 1.3-2.3 2.1-3.9 2.1-3.1 0-5.5-3.1-5.5-6.8 0-2.3 1.2-4.6 3.4-4.6zm0 2.1c-.8 0-1.5 1.1-1.5 2.5 0 2 1.2 3.8 2.6 3.8.8 0 1.6-.5 2.6-1.8-1.4-2-2.4-4.5-3.7-4.5zm6.9 0c-1.3 0-2.3 2.5-3.7 4.5 1 1.3 1.8 1.8 2.6 1.8 1.4 0 2.6-1.8 2.6-3.8 0-1.4-.7-2.5-1.5-2.5z"/></svg>' }
+  chatgpt: { className: 'auth-brand-logo brand-chatgpt', html: '<img src="../assets/brand/chatgpt.png" alt="" class="ai-profile-logo">' },
+  gemini: { className: 'auth-brand-logo brand-gemini', html: '<img src="../assets/brand/gemini.png" alt="" class="ai-profile-logo">' },
+  meta: { className: 'auth-brand-logo brand-meta', html: '<img src="../assets/brand/meta-ai.png" alt="" class="ai-profile-logo">' }
 };
 
 function configureAuthDialog(target = 'gemini') {
@@ -1677,29 +2757,31 @@ function configureAuthDialog(target = 'gemini') {
     elements.authBrandLogo.innerHTML = mark.html;
   }
   if (elements.authEyebrow) {
-    elements.authEyebrow.textContent = chatgpt ? 'CHATGPT LOGIN' : (meta ? 'META AI LOGIN' : 'GEMINI LOGIN');
+    elements.authEyebrow.textContent = chatgpt ? 'ChatGPT' : (meta ? 'Meta AI' : 'Gemini');
   }
   if (elements.authTitle) {
     elements.authTitle.textContent = chatgpt
       ? 'Connect ChatGPT'
-      : (meta ? 'Connect Meta' : 'Connect Google Gemini');
+      : (meta ? 'Connect Meta AI' : 'Connect Gemini');
   }
+  const geminiConnected = Boolean(state?.integrations?.gemini?.connected);
+  const geminiEmail = String(state?.integrations?.gemini?.profile?.email || '').trim();
   if (elements.authCopy) {
     elements.authCopy.textContent = chatgpt
-      ? 'Sign in to ChatGPT once. After that Canary stays in the background and VERSA CLASS keeps the login. This does not verify Gemini.'
+      ? 'Sign in once.'
       : (meta
-        ? 'Sign in on meta.ai once. After that Canary stays in the background. ChatGPT and Gemini stay signed in separately.'
-        : 'Sign in to Google Gemini once. After that Canary stays in the background and VERSA CLASS keeps the login. This does not verify ChatGPT.');
+        ? 'Sign in once.'
+        : (geminiConnected
+          ? `Signed in${geminiEmail ? ` ${geminiEmail}` : ''}.`
+          : 'Sign in once.'));
   }
   if (elements.authOpenButton) {
     elements.authOpenButton.textContent = chatgpt
-      ? 'Sign in to ChatGPT'
-      : (meta ? 'Sign in to Meta' : 'Sign in to Gemini');
+      ? 'Sign in'
+      : (meta ? 'Sign in' : (geminiConnected ? 'Sign in' : 'Sign in'));
   }
   if (elements.authVerifyButton) {
-    elements.authVerifyButton.textContent = chatgpt
-      ? 'Verify ChatGPT'
-      : (meta ? 'Verify Meta' : 'Verify Gemini');
+    elements.authVerifyButton.textContent = 'Verify';
   }
 }
 
@@ -1709,12 +2791,12 @@ function openAuthManager(target = 'gemini') {
   configureAuthDialog(target);
   elements.authCloseButton.hidden = required;
   elements.authStatusText.textContent = required
-    ? 'Gemini is not verified yet. Sign in to Gemini in Google Chrome Canary.'
+    ? 'Not verified.'
     : (target === 'chatgpt'
-      ? 'Sign in to ChatGPT in Google Chrome Canary, then import and verify that session for mockups.'
+      ? 'Sign in once.'
       : (target === 'meta'
-        ? 'Sign in on meta.ai in Google Chrome Canary, then import and verify that session for page images.'
-        : 'Your imported Gemini session is saved. Reopen Google Chrome Canary and import it again whenever needed.'));
+        ? 'Sign in once.'
+        : 'Session saved.'));
   if (!elements.authDialog.open) elements.authDialog.showModal();
 }
 
@@ -1763,51 +2845,42 @@ function renderSelectedProfileSessions(profiles = []) {
   }
   if (elements.settingsMockupsStatus) {
     elements.settingsMockupsStatus.textContent = chatgptVerified
-      ? 'Verified ChatGPT connection'
-      : (selected?.hasChatGptSession
-        ? 'Signed in Chrome — verify ChatGPT'
-        : (chatgptCount ? `${chatgptCount} other profile${chatgptCount === 1 ? '' : 's'} signed into ChatGPT` : 'ChatGPT sign-in required'));
+      ? 'Verified'
+      : (selected?.hasChatGptSession || chatgptCount ? 'Signed in' : 'Sign in required');
   }
   if (elements.settingsMockupsProfile) {
-    elements.settingsMockupsProfile.textContent = chatgptVerified
-      ? 'ChatGPT is verified. Mockups will use the TPT Winner Mockups Custom GPT.'
-      : 'Use Sign in / manage, then Verify ChatGPT. This is separate from Gemini.';
+    elements.settingsMockupsProfile.textContent = chatgptVerified ? 'Ready' : 'Sign in, then verify.';
   }
   if (elements.settingsMockupsVerified) {
-    const mockupProfile = mockups.profile ?? {};
-    const verifiedParts = [
-      mockupProfile.sourceBrowser && `${mockupProfile.sourceBrowser} / ${mockupProfile.sourceProfile || 'profile'}`,
-      mockupProfile.verifiedAt && `verified ${new Date(mockupProfile.verifiedAt).toLocaleString()}`
-    ].filter(Boolean);
-    elements.settingsMockupsVerified.textContent = verifiedParts.join(' · ')
-      || (selected ? `${selected.browser} / ${selected.profileName || selected.profileKey} · ${profileSessionLabel(selected)}` : '');
+    elements.settingsMockupsVerified.textContent = '';
   }
   if (elements.settingsOpenaiLogout) {
+    elements.settingsOpenaiLogout.hidden = !chatgptVerified;
     elements.settingsOpenaiLogout.style.display = chatgptVerified ? 'inline-flex' : 'none';
   }
 }
 
-function renderStudioList() {
-  if (!elements.settingsStudioList) return;
-  const gems = state?.integrations?.studios?.gems ?? [];
-  const gpts = state?.integrations?.studios?.gpts ?? [];
-  const rows = [
-    ...gems.map((studio) => ({ ...studio, group: 'Gemini Gem' })),
-    ...gpts.map((studio) => ({ ...studio, group: 'ChatGPT Custom GPT' }))
-  ];
-  if (!rows.length) {
-    elements.settingsStudioList.innerHTML = '<p class="muted">Gems load after the app finishes starting.</p>';
+function renderStudioGroup(target, studios, emptyCopy) {
+  if (!target) return;
+  if (!studios.length) {
+    target.innerHTML = `<p class="muted">${emptyCopy}</p>`;
     return;
   }
-  elements.settingsStudioList.innerHTML = rows.map((studio) => `
+  target.innerHTML = studios.map((studio) => `
     <div class="studio-row ${studio.connected ? 'is-ready' : 'is-waiting'}">
       <div>
         <strong>${escapeHtml(studio.name)}</strong>
-        <small>${escapeHtml(studio.group)}${studio.connected ? ' · ready' : ' · verify to open'}</small>
       </div>
       <button class="button button-ghost" data-action="settings-open-studio" data-studio="${escapeHtml(studio.id)}" type="button">Open</button>
     </div>
   `).join('');
+}
+
+function renderStudioList() {
+  const gems = state?.integrations?.studios?.gems ?? [];
+  const gpts = state?.integrations?.studios?.gpts ?? [];
+  renderStudioGroup(elements.settingsStudioList, gems, 'Gems load at start.');
+  renderStudioGroup(elements.settingsGptsList, gpts, 'Custom GPTs load at start.');
 }
 
 function renderSettingsConnections() {
@@ -1822,37 +2895,36 @@ function renderSettingsConnections() {
   const displayName = profile.displayName || profile.sellerName || detected.name || detected.email || 'Profile';
   const initial = profileInitial(displayName);
 
-  elements.settingsProfileLabel.textContent = displayName;
-  elements.settingsProfileAvatar.textContent = initial;
-  elements.settingsProfileLargeAvatar.textContent = initial;
+  if (elements.settingsProfileLabel) elements.settingsProfileLabel.textContent = displayName;
+  if (elements.settingsProfileAvatar) elements.settingsProfileAvatar.textContent = initial;
+  if (elements.settingsProfileLargeAvatar) elements.settingsProfileLargeAvatar.textContent = initial;
+  document.querySelectorAll('.ui-journey-profile .profile-pill-avatar').forEach((el) => { el.textContent = initial; });
+  document.querySelectorAll('.ui-journey-profile .profile-pill-copy strong').forEach((el) => { el.textContent = displayName; });
   elements.settingsChatgptCard.classList.toggle('is-connected', connected);
   elements.settingsGptCard.classList.toggle('is-connected', customGptConnected);
-  elements.settingsChatgptStatus.textContent = connected ? 'Verified connection' : 'Connection required';
-  elements.settingsGptStatus.textContent = customGptConnected
-    ? 'Gems ready — verify ChatGPT separately for Custom GPTs'
-    : 'Verify Gemini to open Gems';
+  elements.settingsChatgptStatus.textContent = connected ? 'Verified' : 'Sign in required';
+  elements.settingsGptStatus.textContent = customGptConnected ? 'Ready' : 'Sign in required';
+  const chatgptEngineConnected = Boolean(state?.integrations?.chatgpt?.connected || state?.integrations?.chatgptMockups?.connected);
+  if (elements.settingsGptsCard) {
+    elements.settingsGptsCard.classList.toggle('is-connected', chatgptEngineConnected);
+  }
+  if (elements.settingsGptsStatus) {
+    elements.settingsGptsStatus.textContent = chatgptEngineConnected ? 'Ready' : 'Sign in required';
+  }
+  if (elements.settingsGptsProfile) {
+    elements.settingsGptsProfile.textContent = chatgptEngineConnected ? 'Ready' : 'Sign in, then verify.';
+  }
   if (elements.settingsChatgptLogout) {
+    elements.settingsChatgptLogout.hidden = !connected;
     elements.settingsChatgptLogout.style.display = connected ? 'inline-flex' : 'none';
   }
 
-  let detectedIdentity = [detected.name, detected.email].filter(Boolean).join(' · ');
-  
-  if (connected && state?.profileRotation?.enabled && state.profileRotation.profiles && state.profileRotation.profiles.length > 1) {
-    const rotationCount = state.profileRotation.profiles.length;
-    detectedIdentity = `${detectedIdentity || 'Valid Session'} (Auto-swapping between ${rotationCount} accounts)`;
-  }
-  
+  const detectedIdentity = [detected.name, detected.email].filter(Boolean).join(' · ');
   elements.settingsChatgptProfile.textContent = connected
-    ? (detectedIdentity || 'The Gemini session is valid. Add your preferred name and email above if Gemini does not expose them.')
-    : 'Sign in to Gemini in the Chrome profile above, then verify the local session.';
-  const verifiedParts = [
-    detected.sourceBrowser && `${detected.sourceBrowser} / ${detected.sourceProfile || 'profile'}`,
-    detected.verifiedAt && `verified ${new Date(detected.verifiedAt).toLocaleString()}`
-  ].filter(Boolean);
-  elements.settingsChatgptVerified.textContent = verifiedParts.join(' · ');
-  elements.settingsGptProfile.textContent = customGptConnected
-    ? 'Content, SEO, Mockups, and Veo 3 gems use this Gemini session. ChatGPT custom GPTs stay on the ChatGPT card above.'
-    : 'Verify Gemini in Google Chrome Canary to unlock the four VERSA CLASS gems. They live on your Gemini account, not in this app.';
+    ? (detectedIdentity || 'Ready')
+    : 'Sign in, then verify.';
+  if (elements.settingsChatgptVerified) elements.settingsChatgptVerified.textContent = '';
+  elements.settingsGptProfile.textContent = customGptConnected ? 'Ready' : 'Verify Gemini to open.';
   renderStudioList();
 
   const engine = activeEngine();
@@ -1879,66 +2951,30 @@ function renderSettingsConnections() {
     elements.settingsMetaCard.classList.toggle('is-active-engine', engine === 'meta');
     elements.settingsMetaCard.classList.toggle('is-unused', engine !== 'meta');
     if (elements.settingsMetaStatus) {
-      elements.settingsMetaStatus.textContent = engine !== 'meta'
-        ? (metaConnected ? 'Signed in · unused for images' : 'Off — not used')
-        : (metaConnected ? 'Active · verified' : 'Active · connection required');
+      elements.settingsMetaStatus.textContent = metaConnected
+        ? (engine === 'meta' ? 'Verified' : 'Signed in')
+        : 'Sign in required';
     }
     if (elements.settingsMetaLogout) {
+      elements.settingsMetaLogout.hidden = !metaConnected;
       elements.settingsMetaLogout.style.display = metaConnected ? 'inline-flex' : 'none';
     }
     if (elements.settingsMetaProfile) {
       const metaIdentity = [metaDetected.name, metaDetected.email].filter(Boolean).join(' · ');
       elements.settingsMetaProfile.textContent = metaConnected
-        ? (metaIdentity || 'The Meta session is valid. It generates images only while Meta is turned on.')
-        : 'Sign in on meta.ai, then verify the local session.';
+        ? (metaIdentity || 'Ready')
+        : 'Sign in, then verify.';
     }
-    if (elements.settingsMetaVerified) {
-      const metaVerifiedParts = [
-        metaDetected.sourceBrowser && `${metaDetected.sourceBrowser} / ${metaDetected.sourceProfile || 'profile'}`,
-        metaDetected.verifiedAt && `verified ${new Date(metaDetected.verifiedAt).toLocaleString()}`
-      ].filter(Boolean);
-      elements.settingsMetaVerified.textContent = metaVerifiedParts.join(' · ');
-    }
+    if (elements.settingsMetaVerified) elements.settingsMetaVerified.textContent = '';
   }
 
-  const canva = state?.integrations?.canva ?? {};
-  const canvaConnected = Boolean(canva.connected) && !canvaLocked();
-  const canvaDetected = canva.profile ?? {};
-  if (elements.settingsCanvaCard) {
-    elements.settingsCanvaCard.classList.toggle('is-connected', canvaConnected);
-    if (elements.settingsCanvaStatus) {
-      elements.settingsCanvaStatus.textContent = canvaLocked()
-        ? 'Coming soon on Windows'
-        : canvaConnected ? 'Verified Canva Pro connection' : 'Connection required';
-    }
-    if (elements.settingsCanvaLogout) {
-      elements.settingsCanvaLogout.style.display = canvaConnected ? 'inline-flex' : 'none';
-    }
-    if (elements.settingsCanvaProfile) {
-      const canvaIdentity = [canvaDetected.name, canvaDetected.email].filter(Boolean).join(' · ');
-      elements.settingsCanvaProfile.textContent = canvaLocked()
-        ? canvaLockMessage()
-        : canvaConnected
-          ? (canvaIdentity || 'Canva login is optional now. Editable products build PowerPoint + SVG files instead of Magic Layers.')
-          : 'Sign in to Canva Pro in Google Chrome Canary, then verify. This is separate from Gemini and ChatGPT.';
-    }
-    if (elements.settingsCanvaVerified) {
-      elements.settingsCanvaVerified.textContent = canvaLocked()
-        ? 'Available soon. Other logins are unchanged.'
-        : [
-          canvaDetected.sourceBrowser && `${canvaDetected.sourceBrowser} / ${canvaDetected.sourceProfile || 'profile'}`,
-          canvaDetected.verifiedAt && `verified ${new Date(canvaDetected.verifiedAt).toLocaleString()}`
-        ].filter(Boolean).join(' · ');
-    }
-  }
-
-  applyCanvaLockUi();
+  applyEditableEngineUi();
 
   renderSelectedProfileSessions(lastSystemProfiles);
 }
 
 function selectSettingsTab(tab) {
-  activeSettingsTab = ['profile', 'listing', 'workflow', 'automation', 'notifications', 'updates'].includes(tab) ? tab : 'profile';
+  activeSettingsTab = ['profile', 'workflow', 'management', 'customization', 'automation', 'notifications', 'updates'].includes(tab) ? tab : 'profile';
   document.querySelectorAll('[data-settings-panel]').forEach((panel) => {
     panel.hidden = panel.dataset.settingsPanel !== activeSettingsTab;
   });
@@ -1953,32 +2989,27 @@ async function populateSettingsForm() {
   const preferences = state?.settings ?? {};
   const profile = preferences.profile ?? {};
   const identity = preferences.projectIdentity ?? {};
-  const listing = preferences.listingDefaults ?? {};
   const workflow = preferences.workflow ?? {};
   const setValue = (element, value = '') => { if (element) element.value = value ?? ''; };
 
-  setValue(elements.settingsListingTags, (listing.tags ?? []).join(', '));
-  setValue(elements.settingsListingSubjects, (listing.subjects ?? []).join(', '));
-  setValue(elements.settingsListingGrades, (listing.grades ?? []).join(', '));
-  setValue(elements.settingsListingFormats, (listing.formats ?? []).join(', '));
-  setValue(elements.settingsListingTaxCode, listing.taxCode);
-  setValue(elements.settingsListingCopyright, listing.copyrightDeclaration);
-  setValue(elements.settingsListingPricingMode, listing.pricingMode || 'paid');
-  setValue(elements.settingsListingPrice, listing.suggestedPrice);
-  setValue(elements.settingsListingMultiPrice, listing.multipleLicensePrice);
-  setValue(elements.settingsListingPublication, listing.publicationStatus || 'draft');
-  setValue(elements.settingsListingThumbnail, listing.thumbnailMode || 'manual');
   setValue(elements.settingsDefaultFormat, workflow.defaultFormat || 'LETTER');
   setValue(elements.settingsDefaultOrientation, workflow.defaultOrientation || 'portrait');
   setValue(elements.settingsWhenComplete, workflow.whenCompleteAction || state?.app?.whenCompleteAction || 'nothing');
-  elements.settingsSaveNote.textContent = 'Changes are saved locally and used for future projects.';
+  if (elements.settingsSaveNote) elements.settingsSaveNote.textContent = '';
+  const managementRoot = document.getElementById('settings-management-root');
+  if (managementRoot && typeof api.bookManagementStatus === 'function') {
+    api.bookManagementStatus().then((status) => {
+      managementRoot.textContent = status?.rootPath || 'No folders yet.';
+    }).catch(() => {
+      managementRoot.textContent = 'No folders yet.';
+    });
+  }
 
   const autoSettings = state?.automationSettings || {};
   setValue(elements.autoStepOverview, autoSettings.overview || 'always');
   setValue(elements.autoStepCharacters, autoSettings.characters || 'always');
   setValue(elements.autoStepInterior, autoSettings.interior || 'always');
-  setValue(elements.autoStepEditable, autoSettings.editable || 'ask');
-  setValue(elements.autoStepListing, autoSettings.listing || 'always');
+  setValue(elements.autoStepEditable, autoSettings.editable_generation || 'ask');
   setValue(elements.autoStepThumbnails, autoSettings.thumbnails || 'always');
   setValue(elements.autoStepPreview, autoSettings.preview || 'always');
   setValue(elements.autoStepExport, autoSettings.export || 'always');
@@ -2001,7 +3032,7 @@ async function populateSettingsForm() {
       for (const p of profiles) {
         const option = document.createElement('option');
         option.value = `${p.browser}/${p.profileKey}`;
-        option.textContent = `${profileSessionLabel(p)} — ${p.browser} - ${p.profileName} (${p.email || 'No email'}) ${p.isLastUsed ? '[Last Active]' : ''}`.trim();
+        option.textContent = `${profileSessionLabel(p)} ${p.browser} ${p.profileName} (${p.email || 'No email'}) ${p.isLastUsed ? '[Last Active]' : ''}`.trim();
         elements.settingsChatgptProfileSelect.appendChild(option);
       }
       elements.settingsChatgptProfileSelect.value = currentVal;
@@ -2076,6 +3107,7 @@ async function populateSettingsForm() {
   }
 
   renderSettingsConnections();
+  populateCustomizationForm();
 }
 
 async function saveCurrentProfileRotation() {
@@ -2095,6 +3127,99 @@ async function saveCurrentProfileRotation() {
   await api.setProfileRotation({ profiles: selectedProfiles, enabled });
 }
 
+function customizationDefaultsFromState() {
+  return state?.settings?.customizationDefaults || { links: {}, prompts: {} };
+}
+
+function isCustomizationHttpUrl(value) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return true;
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function populateCustomizationForm() {
+  const custom = state?.settings?.customization || {};
+  const defaults = customizationDefaultsFromState();
+  document.querySelectorAll('[data-customization-link]').forEach((input) => {
+    const key = input.dataset.customizationLink;
+    const stored = String(custom.links?.[key] || '').trim();
+    input.value = stored || defaults.links?.[key] || '';
+    input.classList.remove('is-invalid');
+    if (defaults.links?.[key]) input.placeholder = defaults.links[key];
+  });
+  document.querySelectorAll('[data-customization-prompt]').forEach((textarea) => {
+    const key = textarea.dataset.customizationPrompt;
+    const stored = String(custom.prompts?.[key] || '');
+    textarea.value = stored || defaults.prompts?.[key] || '';
+  });
+}
+
+function collectCustomizationForm() {
+  const defaults = customizationDefaultsFromState();
+  const links = {};
+  const invalid = [];
+  document.querySelectorAll('[data-customization-link]').forEach((input) => {
+    const key = input.dataset.customizationLink;
+    const value = String(input.value || '').trim();
+    if (!isCustomizationHttpUrl(value)) {
+      input.classList.add('is-invalid');
+      invalid.push(key);
+      return;
+    }
+    input.classList.remove('is-invalid');
+    links[key] = value && value !== defaults.links?.[key] ? value : '';
+  });
+  if (invalid.length) {
+    throw new Error('Use an http URL.');
+  }
+  const prompts = {};
+  document.querySelectorAll('[data-customization-prompt]').forEach((textarea) => {
+    const key = textarea.dataset.customizationPrompt;
+    const value = String(textarea.value || '').replace(/\r\n/g, '\n').trim();
+    const fallback = String(defaults.prompts?.[key] || '').replace(/\r\n/g, '\n').trim();
+    prompts[key] = value && value !== fallback ? value : '';
+  });
+  return { links, prompts };
+}
+
+function restoreCustomizationLinks() {
+  const defaults = customizationDefaultsFromState();
+  document.querySelectorAll('[data-customization-link]').forEach((input) => {
+    input.value = defaults.links?.[input.dataset.customizationLink] || '';
+    input.classList.remove('is-invalid');
+  });
+}
+
+function restoreCustomizationPrompts() {
+  const defaults = customizationDefaultsFromState();
+  document.querySelectorAll('[data-customization-prompt]').forEach((textarea) => {
+    textarea.value = defaults.prompts?.[textarea.dataset.customizationPrompt] || '';
+  });
+}
+
+function restoreCustomizationField(target) {
+  const kind = target?.dataset?.customizationKind;
+  const key = target?.dataset?.customizationKey;
+  const defaults = customizationDefaultsFromState();
+  if (kind === 'link') {
+    const input = document.querySelector(`[data-customization-link="${key}"]`);
+    if (input) {
+      input.value = defaults.links?.[key] || '';
+      input.classList.remove('is-invalid');
+    }
+    return;
+  }
+  if (kind === 'prompt') {
+    const textarea = document.querySelector(`[data-customization-prompt="${key}"]`);
+    if (textarea) textarea.value = defaults.prompts?.[key] || '';
+  }
+}
+
 function collectSettingsForm() {
   return {
     profile: {
@@ -2109,19 +3234,6 @@ function collectSettingsForm() {
       copyrightYear: elements.settingsCopyrightYear?.value ?? '',
       projectNotes: elements.settingsProjectNotes?.value ?? ''
     },
-    listingDefaults: {
-      tags: elements.settingsListingTags.value,
-      subjects: elements.settingsListingSubjects.value,
-      grades: elements.settingsListingGrades.value,
-      formats: elements.settingsListingFormats.value,
-      taxCode: elements.settingsListingTaxCode.value,
-      copyrightDeclaration: elements.settingsListingCopyright.value,
-      pricingMode: elements.settingsListingPricingMode.value,
-      suggestedPrice: elements.settingsListingPrice.value,
-      multipleLicensePrice: elements.settingsListingMultiPrice.value,
-      publicationStatus: elements.settingsListingPublication.value,
-      thumbnailMode: elements.settingsListingThumbnail.value
-    },
     workflow: {
       defaultFormat: elements.settingsDefaultFormat.value,
       defaultOrientation: elements.settingsDefaultOrientation.value,
@@ -2133,15 +3245,17 @@ function collectSettingsForm() {
       soundVolume: elements.settingsSoundVolume ? Number(elements.settingsSoundVolume.value) : 80,
       toastsEnabled: elements.settingsToastsEnabled ? elements.settingsToastsEnabled.checked : true,
       desktopEnabled: elements.settingsDesktopNotificationsEnabled ? elements.settingsDesktopNotificationsEnabled.checked : true
-    }
+    },
+    customization: collectCustomizationForm()
   };
 }
 
 async function openSettings() {
-  await populateSettingsForm();
   selectSettingsTab(activeSettingsTab);
   elements.settingsDialog.scrollTop = 0;
   if (!elements.settingsDialog.open) elements.settingsDialog.showModal();
+  document.querySelector('.settings-nav-button.is-active')?.focus();
+  void populateSettingsForm();
 }
 
 function applyNewProjectDefaults() {
@@ -2164,6 +3278,34 @@ function renderProjectList() {
   const projects = state?.projects ?? [];
   elements.projectCount.textContent = String(projects.length);
   const key = projects.map((project) => project.id).join('\0');
+  const existingItems = [...elements.projectList.querySelectorAll('.project-item[data-project-id]')];
+  const sameList = existingItems.length === projects.length
+    && existingItems.every((item, index) => item.dataset.projectId === projects[index]?.id);
+  if (sameList && projects.length) {
+    projects.forEach((project, index) => {
+      const item = existingItems[index];
+      const full = state.activeProject?.id === project.id ? state.activeProject : null;
+      const percent = full?.stats?.percent ?? project.stats?.percent ?? 0;
+      const generating = isGeneratingThisProject(project);
+      item.classList.toggle('is-active', project.id === state.selectedProjectId);
+      item.classList.toggle('is-generating', generating);
+      const readiness = item.querySelector('.project-readiness');
+      if (readiness) readiness.textContent = `${project.stats?.complete ?? 0}/${project.stats?.total ?? 0}`;
+      const mini = item.querySelector('.project-progress-mini');
+      if (mini) mini.textContent = `${percent}%`;
+      const meta = item.querySelector('.project-item-main small');
+      if (meta && project.productFormat === 'maze' && window.versaMazeLab) {
+        meta.textContent = window.versaMazeLab.mazeProjectListMeta(full || project);
+      }
+      const liveBadge = item.querySelector('.project-live-badge');
+      if (generating && !liveBadge) {
+        item.querySelector('.project-badges')?.insertAdjacentHTML('beforeend', '<span class="project-live-badge">Live</span>');
+      } else if (!generating && liveBadge) {
+        liveBadge.remove();
+      }
+    });
+    return;
+  }
   elements.projectList.classList.toggle('is-entering', key !== lastProjectListKey);
   lastProjectListKey = key;
   elements.projectList.innerHTML = projects.map((project, index) => {
@@ -2174,33 +3316,25 @@ function renderProjectList() {
     const generating = isGeneratingThisProject(project);
     return `
       <button class="project-item status-${projectStatusTone(project.status)} ${active ? 'is-active' : ''} ${generating ? 'is-generating' : ''}" data-action="select-project" data-project-id="${escapeHtml(project.id)}" type="button" style="--i:${index}">
-        <span class="project-cover" aria-hidden="true" data-letter="${escapeHtml((displayProjectName(project.name) || 'B').trim().charAt(0).toUpperCase())}"></span>
+        <span class="project-cover${project.productFormat === 'maze' && window.versaMazeLab?.mazeFirstThumb(project) ? ' has-thumb' : ''}" aria-hidden="true" data-letter="${escapeHtml((displayProjectName(project.name) || 'B').trim().charAt(0).toUpperCase())}">${project.productFormat === 'maze' && window.versaMazeLab?.mazeFirstThumb(project) ? `<img src="${window.versaMazeLab.mazeFirstThumb(project)}" alt="">` : ''}</span>
         <span class="project-item-main">
           <strong>${escapeHtml(displayProjectName(project.name))}</strong>
-          <span class="project-badges"><span class="project-type-badge">${escapeHtml(projectTypeLabel(project))}</span>${project.productFormat === 'editable' ? '<span class="project-format-badge">Editable</span>' : ''}${generating ? '<span class="project-live-badge">Live</span>' : ''}</span>
-          <small>${escapeHtml(projectSetupLabel(project))}</small>
+          <span class="project-badges"><span class="project-type-badge">${escapeHtml(projectTypeLabel(project))}</span>${project.productFormat === 'editable' ? '<span class="project-format-badge">Editable</span>' : project.productFormat === 'maze' ? '<span class="project-format-badge">Maze</span>' : ''}${generating ? '<span class="project-live-badge">Live</span>' : ''}</span>
+          <small>${escapeHtml(project.productFormat === 'maze' && window.versaMazeLab
+            ? window.versaMazeLab.mazeProjectListMeta(project)
+            : projectSetupLabel(project))}</small>
           <span class="project-readiness">${escapeHtml(pageSummary)}</span>
         </span>
         <span class="project-progress-mini">${percent}%</span>
+        <span class="project-item-delete" data-action="delete-project" data-project-id="${escapeHtml(project.id)}" role="button" tabindex="0" title="Delete" aria-label="Delete ${escapeHtml(displayProjectName(project.name))}">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.75 4.25h10.5M6.25 4.25V2.75h3.5v1.5M4.25 4.25l.6 8.4a1 1 0 0 0 1 .9h4.3a1 1 0 0 0 1-.9l.6-8.4"/></svg>
+        </span>
       </button>
     `;
   }).join('');
   const liveSearch = document.getElementById('ui-global-search')?.value;
   if (window.versaUi?.filterProjects) {
-    const applied = window.versaUi.filterProjects(liveSearch || '', { revealLibrary: false });
-    // #region agent log
-    if (String(liveSearch || '').trim()) {
-      const rePayload = {sessionId:'1c3662',runId:'search-debug',hypothesisId:'D',location:'renderer.js:renderProjectList',message:'reapplied search after render',data:{liveSearch:String(liveSearch).slice(0,80),applied},timestamp:Date.now()};
-      fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify(rePayload)}).catch(()=>{});
-      window.tptDesktop?.debugAgentLog?.(rePayload);
-    }
-    // #endregion
-  } else if (String(liveSearch || '').trim()) {
-    // #region agent log
-    const missingApi = {sessionId:'1c3662',runId:'search-debug',hypothesisId:'D',location:'renderer.js:renderProjectList',message:'versaUi.filterProjects missing during render',data:{liveSearch:String(liveSearch).slice(0,80)},timestamp:Date.now()};
-    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify(missingApi)}).catch(()=>{});
-    window.tptDesktop?.debugAgentLog?.(missingApi);
-    // #endregion
+    window.versaUi.filterProjects(liveSearch || '', { revealLibrary: false });
   }
 }
 
@@ -2219,104 +3353,220 @@ function chooseDefaultJob(project) {
     ?? null;
 }
 
+/**
+ * What the lab says when it has nothing to show on the canvas.
+ *
+ * There are two different nothings here and they want different answers: a
+ * book with no pages yet is waiting to be started, and a filter with no
+ * matches is a filter the user can clear.
+ */
+function emptyPagesHtml(project) {
+  if ((project?.jobs?.length || 0) === 0) {
+    return `<div class="pages-empty">
+      <div class="pages-empty__sheet" aria-hidden="true"></div>
+      <strong>No pages yet</strong>
+      <p>Start pages to generate the artwork for this book.</p>
+    </div>`;
+  }
+  const named = currentFilter === 'attention' ? 'needs attention' : 'incomplete';
+  return `<div class="pages-empty">
+    <div class="pages-empty__sheet" aria-hidden="true"></div>
+    <strong>Nothing ${escapeHtml(named)}</strong>
+    <p>Every page in this book is done. Switch to All to see them.</p>
+  </div>`;
+}
+
+let lastJobsRenderKey = '';
+let jobsPatchLogTick = 0;
+
+function jobsRenderKey(project, { liveIds, queueLocksThisProject } = {}) {
+  const jobs = filterJobs(project?.jobs || []);
+  return [
+    project?.id || '',
+    currentFilter,
+    selectedJobId || '',
+    queueLocksThisProject ? 1 : 0,
+    [...(liveIds || [])].join(','),
+    jobs.map((job) => `${job.id}:${job.status}:${job.updatedAt || ''}:${job.outputPath ? 1 : 0}`).join('|')
+  ].join('/');
+}
+
+function pageImageSrc(job) {
+  return `tpt-image://job/${encodeURIComponent(job.id)}?card=1&v=${encodeURIComponent(job.updatedAt ?? '')}`;
+}
+
+function patchPageCard(card, job, project, { liveIds, queueLocksThisProject } = {}) {
+  if (!card) return;
+  const isBusy = queueLocksThisProject && liveIds.has(job.id);
+  const isLive = observerGenerating(generationActivity.get(job.id));
+  const hasImage = Boolean(job.outputPath);
+  const selected = job.id === selectedJobId;
+  const status = pagesStatusCopy(job, isLive || isBusy);
+  card.classList.toggle('is-selected', selected);
+  card.classList.toggle('is-live', isLive);
+  card.classList.toggle('has-image', hasImage);
+  [...card.classList].filter((name) => name.startsWith('status-')).forEach((name) => card.classList.remove(name));
+  card.classList.add(`status-${job.status}`);
+  card.setAttribute('aria-current', selected ? 'page' : 'false');
+  card.setAttribute('aria-busy', isLive ? 'true' : 'false');
+  const visual = card.querySelector('.page-visual');
+  if (visual) visual.style.setProperty('--page-fill', `${jobFillPercent(job, isLive)}%`);
+  if (hasImage && visual) {
+    const nextSrc = pageImageSrc(job);
+    let image = visual.querySelector('.page-generated-image');
+    if (!image) {
+      image = document.createElement('img');
+      image.className = 'page-generated-image';
+      image.alt = `Page ${job.pageNumber}`;
+      image.decoding = 'async';
+      image.loading = 'lazy';
+      image.dataset.src = nextSrc;
+      image.src = nextSrc;
+      const placeholder = visual.querySelector('.page-placeholder');
+      if (placeholder) {
+        placeholder.hidden = true;
+        visual.insertBefore(image, placeholder);
+      } else {
+        visual.appendChild(image);
+      }
+      bindPageImages(visual);
+    } else if (image.dataset.src !== nextSrc) {
+      image.dataset.src = nextSrc;
+      image.src = nextSrc;
+    }
+  }
+  const statusWrap = card.querySelector('.page-card-status');
+  if (statusWrap) {
+    const statusHtml = job.status === 'complete' && !isLive
+      ? ''
+      : `<i class="page-state-dot" data-state="${isLive ? 'live' : escapeHtml(job.status)}" title="${escapeHtml(status)}"></i>`;
+    if (statusWrap.dataset.html !== statusHtml) {
+      statusWrap.dataset.html = statusHtml;
+      statusWrap.innerHTML = statusHtml;
+    }
+  }
+}
+
+function applyLiveStats(project) {
+  if (!project) return;
+  const { stats } = project;
+  if (elements.statComplete) elements.statComplete.textContent = String(stats.complete);
+  if (elements.statTotal) elements.statTotal.textContent = String(stats.total);
+  if (elements.statRemaining) elements.statRemaining.textContent = String(stats.remaining);
+  const liveOp = activeLiveOperation(project);
+  const pipeline = (typeof computeProductPipeline === 'function' ? computeProductPipeline : window.computeProductPipeline)?.(project, liveOp);
+  if (!pipeline) return;
+  if (elements.statPercent) elements.statPercent.textContent = `${pipeline.percent}%`;
+  setMeterWidth('overview-overall-meter', pipeline.percent);
+  setMeterWidth('overview-interior-meter', pipeline.pagePercent);
+  setMeterWidth('overview-interior-artwork-meter', pipeline.pagePercent);
+  if (elements.heartbeatText) {
+    if (liveOp) elements.heartbeatText.textContent = liveOp.message || liveOp.label || '';
+    else if (state?.queue?.running) elements.heartbeatText.textContent = `${pipeline.pagePercent}%`;
+  }
+}
+
 function renderJobs(project) {
   const jobs = filterJobs(project.jobs);
   const queueLocksThisProject = isGeneratingThisProject(project);
-  const busyBrowser = browserBusy();
   const liveIds = new Set([
     ...(Array.isArray(state?.queue?.activeJobIds) ? state.queue.activeJobIds : []),
-    state?.queue?.activeJobId
+    state?.queue?.activeJobId,
+    state?.liveOperation?.kind === 'editable-generation' ? state.liveOperation.jobId : null
   ].filter(Boolean));
+  const total = project.jobs?.length || 0;
+  if (elements.pagesRailCount) {
+    elements.pagesRailCount.textContent = total === 1 ? '1 page' : `${total} pages`;
+  }
   elements.jobsTable.classList.toggle('is-storybook-grid', project.projectType === 'storybook');
+  elements.jobsTable.classList.toggle('is-empty', jobs.length === 0);
+  const renderKey = jobsRenderKey(project, { liveIds, queueLocksThisProject });
+  const existingCards = [...elements.jobsTable.querySelectorAll('.page-preview-card[data-job-id]')];
+  const sameCardSet = existingCards.length === jobs.length
+    && existingCards.every((card, index) => card.dataset.jobId === jobs[index]?.id);
+  if (sameCardSet && jobs.length) {
+    if (renderKey === lastJobsRenderKey) return;
+    let patched = 0;
+    jobs.forEach((job, index) => {
+      const card = existingCards[index];
+      const cardKey = `${job.status}:${job.updatedAt || ''}:${job.outputPath ? 1 : 0}:${liveIds.has(job.id) ? 1 : 0}:${job.id === selectedJobId ? 1 : 0}`;
+      if (card.dataset.patchKey === cardKey) return;
+      card.dataset.patchKey = cardKey;
+      patchPageCard(card, job, project, { liveIds, queueLocksThisProject });
+      patched += 1;
+    });
+    lastJobsRenderKey = renderKey;
+    return;
+  }
+  if (renderKey === lastJobsRenderKey && elements.jobsTable.querySelector('.page-preview-card, .pages-empty')) {
+    return;
+  }
+  lastJobsRenderKey = renderKey;
+  if (!jobs.length) {
+    elements.jobsTable.innerHTML = emptyPagesHtml(project);
+    if (elements.pagesCanvas) elements.pagesCanvas.hidden = true;
+    renderPagesStage(project, { liveIds, queueLocksThisProject });
+    return;
+  }
+  if (elements.pagesCanvas) elements.pagesCanvas.hidden = true;
   elements.jobsTable.innerHTML = jobs.map((job) => {
-    const storyText = resolvedStoryText(project, job);
-    const isStoryPage = Boolean(storyText) || job.kind === 'story_page';
-    const isLive = queueLocksThisProject && liveIds.has(job.id);
+    const isBusy = queueLocksThisProject && liveIds.has(job.id);
+    const isLive = observerGenerating(generationActivity.get(job.id));
     const hasImage = Boolean(job.outputPath);
     const fill = jobFillPercent(job, isLive);
-    const liveCopy = job.status === 'generating' || job.status === 'submitted'
-      ? 'Filling in'
-      : job.status === 'downloading' || job.status === 'validating'
-        ? 'Almost there'
-        : job.status === 'preparing'
-          ? 'Starting'
-          : statusLabel(job.status);
+    const selected = job.id === selectedJobId;
+    const status = pagesStatusCopy(job, isLive || isBusy);
     return `
-      <article class="page-preview-card status-${escapeHtml(job.status)} ${isStoryPage ? 'story-page-card' : ''} ${job.id === selectedJobId ? 'is-selected' : ''} ${isLive ? 'is-live' : ''} ${hasImage ? 'has-image' : ''}" data-action="select-job" data-job-id="${escapeHtml(job.id)}">
+      <article class="page-preview-card status-${escapeHtml(job.status)} ${selected ? 'is-selected' : ''} ${isLive ? 'is-live' : ''} ${hasImage ? 'has-image' : ''}" data-action="select-job" data-job-id="${escapeHtml(job.id)}" role="listitem" tabindex="0" aria-current="${selected ? 'page' : 'false'}" aria-busy="${isLive ? 'true' : 'false'}" aria-label="${escapeHtml(humanPageLabel(job))}">
         <div class="page-visual" style="--preview-aspect-ratio: ${previewAspectRatio(project)}; --page-fill: ${fill}%;">
-          <div class="page-fill-layer" aria-hidden="true"></div>
-          <div class="page-fill-sheen" aria-hidden="true"></div>
-          ${hasImage ? `
-            <img class="page-generated-image" src="tpt-image://job/${encodeURIComponent(job.id)}?v=${encodeURIComponent(job.updatedAt ?? '')}" alt="Page ${job.pageNumber}">
-            <div class="page-placeholder image-missing-placeholder" hidden>
-              <strong>${String(job.pageNumber).padStart(3, '0')}</strong>
-              <span>File missing</span>
-            </div>
-          ` : `
-            <div class="page-placeholder">
-              <strong>${String(job.pageNumber).padStart(3, '0')}</strong>
-              <span>${escapeHtml(isLive ? liveCopy : statusLabel(job.status))}</span>
-              <em>${fill}%</em>
-            </div>
-          `}
+          ${pageSheetInnerHtml(job, { isLive, hasImage })}
+          ${pageCardActionsHtml(job, { isLive: isLive || isBusy, hasImage, queueLocksThisProject })}
         </div>
         <div class="page-card-body">
           <div class="page-card-heading">
-            <strong class="page-card-title">${escapeHtml(humanPageLabel(job))}</strong>
-            <span class="page-card-status">${statusChip(job.status)}</span>
+            <strong class="page-card-title">${job.pageNumber}</strong>
+            <span class="page-card-status">${job.status === 'complete' && !isLive ? '' : `<i class="page-state-dot" data-state="${isLive ? 'live' : escapeHtml(job.status)}" title="${escapeHtml(status)}"></i>`}</span>
           </div>
-          ${isStoryPage ? `
-            ${storyText ? `
-            <section class="story-page-text-section">
-              <span class="page-content-label">Story text</span>
-              <p>${escapeHtml(storyText)}</p>
-            </section>
-            ` : ''}
-            <details class="story-image-prompt-details">
-              <summary data-action="toggle-page-prompt">
-                <span>Image prompt</span>
-                <span class="prompt-accordion-icon" aria-hidden="true">⌄</span>
-              </summary>
-              <div class="story-image-prompt-body">${escapeHtml(job.imagePrompt || job.prompt)}</div>
-            </details>
-          ` : `
-            <details class="page-card-prompt-wrap">
-              <summary>Prompt</summary>
-              <p class="page-card-prompt">${escapeHtml(job.imagePrompt || job.prompt)}</p>
-            </details>
-          `}
-          <div class="page-card-meta">
-            <span>${job.conversationUrl ? 'Conversation saved' : `Attempt ${job.attempts}/5`}</span>
-          </div>
-        </div>
-        <div class="page-card-actions">
-          <div class="page-card-tools">
-            <button class="row-button" data-action="zoom-job" data-job-id="${escapeHtml(job.id)}" title="Open full-size preview" type="button" ${job.outputPath ? '' : 'disabled'}>⛶</button>
-            <button class="row-button" data-action="open-job" data-job-id="${escapeHtml(job.id)}" title="Open saved conversation" type="button" ${busyBrowser || !job.conversationUrl ? 'disabled' : ''}>↗</button>
-            <button class="row-button" data-action="edit-job" data-job-id="${escapeHtml(job.id)}" title="Edit image in this conversation" type="button" ${queueLocksThisProject || !job.outputPath || job.editInstruction ? 'disabled' : ''}>✎</button>
-            <button class="row-button is-danger" data-action="delete-job-image" data-job-id="${escapeHtml(job.id)}" title="Delete this page image" type="button" ${queueLocksThisProject || !job.outputPath ? 'disabled' : ''}>✕</button>
-          </div>
-          <button class="row-button is-regen" data-action="${job.status === 'complete' ? 'regenerate-job' : 'retry-job'}" data-job-id="${escapeHtml(job.id)}" title="${job.status === 'complete' ? 'Regenerate this page' : 'Retry this page'}" type="button" ${queueLocksThisProject || job.editInstruction || (job.status === 'complete' && !job.conversationUrl) ? 'disabled' : ''}>${job.status === 'complete' ? 'Regenerate' : 'Retry'}</button>
         </div>
       </article>
     `;
-  }).join('') || '<div class="muted">No pages match this filter.</div>';
+  }).join('');
+  bindPageImages(elements.jobsTable);
+  const selectedCard = elements.jobsTable.querySelector('.page-preview-card.is-selected');
+  if (selectedCard && selectedJobId !== lastPagesScrollId) {
+    selectedCard.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    lastPagesScrollId = selectedJobId;
+  }
+  renderPagesStage(project, { liveIds, queueLocksThisProject });
+}
 
-  elements.jobsTable.querySelectorAll('.page-generated-image').forEach((image) => {
-    image.addEventListener('error', () => {
-      image.hidden = true;
-      const placeholder = image.nextElementSibling;
-      if (placeholder) placeholder.hidden = false;
-    }, { once: true });
-  });
+function renderPagesStage(project, { liveIds, queueLocksThisProject } = {}) {
+  const stage = elements.pagesStage;
+  if (!stage) return;
+  void liveIds;
+  void queueLocksThisProject;
+  const jobs = filterJobs(project?.jobs || []);
+  if (!jobs.length) {
+    stage.innerHTML = emptyPagesHtml(project);
+    return;
+  }
+  stage.innerHTML = '';
 }
 
 function renderDetail(project) {
   const job = selectedJob();
   const disabled = !job;
-  // Keep raw prompt data only inside the collapsed disclosure — never in the title.
-  elements.detailTitle.textContent = job ? humanPageLabel(job) : 'Select a page';
-  elements.detailStatusWrap.innerHTML = job ? statusChip(job.status) : '';
+  const queueLocksThisProject = isGeneratingThisProject(project);
+  const isQueued = Boolean(job && queueLocksThisProject && (
+    state?.queue?.activeJobId === job.id
+    || state?.liveOperation?.jobId === job.id
+    || (Array.isArray(state?.queue?.activeJobIds) && state.queue.activeJobIds.includes(job.id))
+  ));
+  const isLive = Boolean(job && observerGenerating(generationActivity.get(job.id)));
+  elements.detailTitle.textContent = job ? `Page ${job.pageNumber}` : 'Select a page';
+  elements.detailStatusWrap.innerHTML = job
+    ? `<span class="pages-status" data-state="${isLive ? 'live' : escapeHtml(job.status)}">${escapeHtml(pagesStatusCopy(job, isLive || isQueued))}</span>`
+    : '';
   const promptText = job?.imagePrompt || job?.prompt || '';
   elements.detailPrompt.textContent = promptText || '—';
   elements.detailError.hidden = !job?.lastError;
@@ -2324,24 +3574,22 @@ function renderDetail(project) {
     ? `${job.lastErrorCode ? `[${job.lastErrorCode}] ` : ''}${translateLegacyText(job.lastError)}`
     : '';
   if (elements.detailStoryTextWrap && elements.detailStoryText) {
-    elements.detailStoryTextWrap.hidden = !job?.storyText;
-    elements.detailStoryText.textContent = job?.storyText || '—';
+    const storyText = job ? resolvedStoryText(project, job) : '';
+    elements.detailStoryTextWrap.hidden = !storyText;
+    elements.detailStoryText.textContent = storyText || '—';
   }
   elements.copyPromptButton.disabled = disabled || !promptText;
-  const queueLocksThisProject = isGeneratingThisProject(project);
   const busyBrowser = browserBusy();
   elements.importImageButton.disabled = disabled || queueLocksThisProject;
   const regeneration = job?.status === 'complete';
   if (elements.adjustCropButton) {
     elements.adjustCropButton.hidden = !regeneration || queueLocksThisProject;
   }
+  elements.openConversationButton.hidden = disabled || !job?.conversationUrl;
   elements.openConversationButton.disabled = disabled || busyBrowser || !job?.conversationUrl;
-  elements.openConversationButton.textContent = job?.conversationUrl ? 'Open saved conversation' : 'No conversation saved yet';
-  elements.retryJobButton.disabled = disabled
-    || queueLocksThisProject
-    || Boolean(job?.editInstruction)
-    || (regeneration && !job?.conversationUrl);
-  elements.retryJobButton.textContent = regeneration ? 'Regenerate' : 'Retry page';
+  elements.openConversationButton.textContent = 'Conversation';
+  elements.retryJobButton.disabled = disabled || isLive || isQueued;
+  elements.retryJobButton.textContent = job?.outputPath ? 'Regenerate' : 'Generate';
   const promptDisclosure = document.getElementById('detail-prompt-disclosure');
   if (promptDisclosure) {
     promptDisclosure.open = false;
@@ -2399,10 +3647,11 @@ function getMissingPublicationFields(listing) {
   const missing = [];
   if (!listing?.title) missing.push('Title');
   if (!listing?.description) missing.push('Description');
-  if (!listing?.isFreeResource && (!listing?.suggestedPrice || !Number.isFinite(Number.parseFloat(listing.suggestedPrice)))) missing.push('Price');
-  if (!listing?.multipleLicensePrice || !Number.isFinite(Number.parseFloat(listing.multipleLicensePrice))) missing.push('Multiple Licenses Price');
-  if (!listing?.taxCode) missing.push('Tax Code');
-  if (!['original', 'licensed'].includes(listing?.copyrightDeclaration)) missing.push('Copyright Declaration');
+  const mVal = projectMarketplace(project).settings;
+  if (!mVal.isFreeResource && (!mVal.suggestedPrice || !Number.isFinite(Number.parseFloat(mVal.suggestedPrice)))) missing.push('Price');
+  if (!mVal.multipleLicensePrice || !Number.isFinite(Number.parseFloat(mVal.multipleLicensePrice))) missing.push('Multiple Licenses Price');
+  if (!mVal.taxCode) missing.push('Tax Code');
+  if (!['original', 'licensed'].includes(mVal.copyrightDeclaration)) missing.push('Copyright Declaration');
   if (!listing?.tags?.length) missing.push('Tags');
   if (!listing?.grades?.length) missing.push('Grades');
   if (!listing?.subjects?.length) missing.push('Subjects');
@@ -2410,7 +3659,8 @@ function getMissingPublicationFields(listing) {
 }
 
 function tptListingReviewApproved(listing) {
-  return Boolean(listing?.reviewApprovedAt || listing?.reviewedAt || listing?.uploadStartedAt);
+  const m = projectMarketplace({ tptListing: listing });
+  return Boolean(m.review.approved || m.review.sellerApproved || m.review.approvedAt || m.upload.startedAt);
 }
 
 function tptListingThumbnailsReady(listing) {
@@ -2419,16 +3669,17 @@ function tptListingThumbnailsReady(listing) {
 }
 
 function tptListingPublicationReady(listing) {
+  const m = projectMarketplace({ tptListing: listing }).settings;
   return Boolean(
     listing?.title
     && listing.description
-    && listing.taxCode
+    && m.taxCode
     && listing.tags?.length
     && listing.grades?.length
     && listing.subjects?.length
-    && (listing.isFreeResource === true || Number.isFinite(Number.parseFloat(listing.suggestedPrice)))
-    && Number.isFinite(Number.parseFloat(listing.multipleLicensePrice))
-    && ['original', 'licensed'].includes(listing.copyrightDeclaration)
+    && (m.isFreeResource === true || Number.isFinite(Number.parseFloat(m.suggestedPrice)))
+    && Number.isFinite(Number.parseFloat(m.multipleLicensePrice))
+    && ['original', 'licensed'].includes(m.copyrightDeclaration)
   );
 }
 
@@ -2448,272 +3699,448 @@ function formatFileSize(bytes) {
   return `${(n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 }
 
-const CANVA_DASH_STEPS = [
-  { id: 'pdf', label: 'Load PDF' },
-  { id: 'import', label: 'Import file' },
-  { id: 'upload', label: 'Upload 100%' },
-  { id: 'thumbnails', label: 'Design ready' },
-  { id: 'template', label: 'Template link' },
-  { id: 'saved', label: 'Link saved' }
-];
+function renderEditableEngineProgress(project) {
+  const op = (state?.liveOperation?.projectId === project?.id ? state.liveOperation : null);
 
-function canvaDashboardFromState(project, canvaOp) {
-  return canvaOp?.canvaDashboard || state?.canvaLiveDashboard || null;
+  if (elements.editableArtworkStatus) {
+    const done = Number(project?.stats?.complete) || 0;
+    const total = Number(project?.stats?.total) || 0;
+    elements.editableArtworkStatus.textContent = op?.kind === 'queue' || state?.queue?.running
+      ? `Artwork ${done} of ${total}.`
+      : total && done === total
+        ? `${total} ready.`
+        : total ? `${done} of ${total} ready.` : 'After analysis.';
+  }
+
+  if (elements.editableTextStatus) {
+    const ready = Number(project?.editableText?.ready) || 0;
+    const total = Number(project?.editableText?.total) || 0;
+    const beat = lastTextLabBeat;
+    elements.editableTextStatus.textContent = op?.kind === 'editable-text'
+      ? (beat?.message || op.message || `Rebuilding ${Math.round(op.percent || 0)}%`)
+      : total && ready === total
+        ? 'Text ready.'
+        : total ? `Text ${ready} of ${total}.` : 'After artwork.';
+  }
+
+  if (elements.editableEngineStatus) {
+    elements.editableEngineStatus.textContent = op?.kind === 'editable-generation'
+      ? `Generating ${Math.round(op.percent || 0)}%`
+      : project?.stepEditableGenerationStatus === 'completed' ? 'PowerPoint ready.' : 'After analysis.';
+  }
+  renderEditableDeck(project, op);
+  renderInteriorTextDeck(project, op);
 }
 
-function lastCanvaError(project, dashboard) {
-  if (dashboard?.lastError) return dashboard.lastError;
-  const events = state?.events || [];
-  const hit = [...events].reverse().find((event) => /canva|editable|print pdf|template link/i.test(String(event?.message || '')) && (event.level === 'error' || event.level === 'warn'));
-  return hit?.message || null;
+// True when the local vision environment is installed and ready. When it is, Interior
+// Text runs entirely on this machine, so none of its controls may be gated on the
+// browser being free - that gate is what left the Run button dead while a queue was
+// still holding Chrome.
+function visionReady() {
+  return Boolean(state?.vision?.ok && state?.vision?.ready);
 }
 
-function renderCanvaProgress(project) {
-  const op = activeLiveOperation(project);
-  const canvaOp = op?.kind === 'canva' ? op : null;
-  const dashboard = canvaDashboardFromState(project, canvaOp);
-  const done = Boolean(project?.canvaTemplateLink);
-  const percent = canvaOp ? canvaOp.percent : done ? 100 : 0;
-  const activeStep = canvaOp?.stepIndex || (done ? 6 : 0);
-  const stepStatus = dashboard?.steps || {};
-  document.querySelectorAll('[data-canva-step]').forEach((item) => {
-    const step = Number(item.dataset.canvaStep);
-    const dashId = item.dataset.canvaDash;
-    const row = dashId ? stepStatus[dashId] : null;
-    const failed = row?.status === 'fail' || (dashboard?.status === 'fail' && dashId && dashboard.step === dashId);
-    const finished = done || row?.status === 'ok' || (activeStep && step < activeStep && !failed);
-    const current = !failed && ((Boolean(canvaOp) && step === activeStep) || row?.status === 'running');
-    item.classList.toggle('is-done', finished && !failed);
-    item.classList.toggle('is-active', current);
-    item.classList.toggle('is-fail', Boolean(failed));
-    item.classList.toggle('is-waiting', !finished && !current && !failed);
-    const fill = item.querySelector('.step-fill');
-    const pct = item.querySelector('.step-percent');
-    const hint = item.querySelector('small');
-    const width = failed ? 100 : finished ? 100 : current ? Math.max(18, dashId === 'upload' && dashboard?.upload?.percent != null ? dashboard.upload.percent : percent) : 8;
-    if (fill) fill.style.width = `${width}%`;
-    if (pct) {
-      if (dashId === 'upload' && dashboard?.upload?.percent != null && (current || failed)) {
-        pct.textContent = `${Math.round(dashboard.upload.percent)}%`;
-      } else {
-        pct.textContent = `${failed ? 0 : finished ? 100 : current ? Math.round(percent) : 0}%`;
+// Interior Text: one card per page showing the artwork it reads and the copy it wrote.
+function renderVisionStatus(project) {
+  const box = elements.visionStatus;
+  if (!box) return;
+  const editable = project?.productFormat === "editable";
+  box.hidden = !editable;
+  if (elements.visionPhases) elements.visionPhases.hidden = !editable;
+  if (elements.visionMetrics) elements.visionMetrics.hidden = !editable;
+
+  const v = state?.vision || null;
+  const ready = Boolean(v?.ok && v?.ready);
+  const op = state?.liveOperation;
+  const running = op?.kind === "editable-text" && op?.projectId === project?.id;
+
+  if (elements.visionEngineState) {
+    elements.visionEngineState.textContent = running ? "Running" : v ? (ready ? "Ready" : "Not installed") : "Checking…";
+  }
+  if (elements.visionDot) {
+    elements.visionDot.dataset.state = running ? "busy" : v ? (ready ? "ok" : "off") : "wait";
+  }
+  const textFree = project?.generationMode === 'editable';
+  if (elements.visionEngineDetail) {
+    elements.visionEngineDetail.textContent = textFree
+      ? "Stamps live text."
+      : ready
+        ? "Reads pages."
+        : (v?.error || "Not installed.");
+  }
+  if (elements.visionHint) elements.visionHint.hidden = ready || textFree;
+
+  // Phase states. The watchdog names the phase; percent is the fallback split.
+  const percent = running ? Number(op.percent) || 0 : null;
+  const livePhase = running ? (lastTextLabBeat?.phase || op?.phase || null) : null;
+  const built = Number(project?.editableText?.pagesBuilt || 0);
+  const read = Number(project?.editableText?.read || 0);
+  const phaseState = (phase) => {
+    if (running) {
+      if (livePhase === 'starting') return phase === 'read' ? 'active' : 'idle';
+      if (livePhase === 'reading') {
+        if (phase === 'read') return 'active';
+        return 'idle';
       }
+      if (livePhase === 'rebuilding') {
+        if (phase === 'read') return 'done';
+        if (phase === 'erase') return 'active';
+        return 'idle';
+      }
+      if (phase === "read") return percent < 50 ? "active" : "done";
+      if (phase === "erase") return percent < 50 ? "idle" : "active";
+      return percent >= 100 ? "active" : "idle";
     }
-    if (hint) {
-      hint.textContent = failed
-        ? 'Failed'
-        : finished
-          ? 'Finished'
-          : current
-            ? (row?.message || canvaOp?.message || 'In progress')
-            : 'Waiting';
+    if (built) return "done";
+    if (phase === "read" && read) return "done";
+    return "idle";
+  };
+  if (elements.visionPhases) {
+    const copy = textFree
+      ? { read: ['Confirm', 'Masters have no letters.'], erase: ['Manifest', 'Copy sits in the template zones.'], build: ['Stamp', 'Live text boxes. No erase.'] }
+      : { read: ['Read', 'Find the words.'], erase: ['Erase', 'Clear them from the art.'], build: ['Rebuild', 'Put live text back.'] };
+    for (const node of elements.visionPhases.querySelectorAll("[data-phase]")) {
+      node.dataset.state = phaseState(node.dataset.phase);
+      const strong = node.querySelector('strong');
+      const small = node.querySelector('small');
+      const next = copy[node.dataset.phase];
+      if (strong && next) strong.textContent = next[0];
+      if (small && next) small.textContent = next[1];
     }
-  });
-  const dashRoot = document.getElementById('canva-live-dashboard');
-  if (dashRoot) {
-    dashRoot.classList.toggle('is-live', Boolean(canvaOp) && !canvaLocked());
-    dashRoot.classList.toggle('is-fail', Boolean(dashboard?.status === 'fail' || (!canvaOp && dashboard?.lastError && !done)));
-  }
-  const title = document.getElementById('canva-dash-title');
-  const status = document.getElementById('canva-dash-status');
-  const attemptEl = document.getElementById('canva-dash-attempt');
-  const clockEl = document.getElementById('canva-dash-clock');
-  const errorEl = document.getElementById('canva-dash-error');
-  const attempt = Number(canvaOp?.attempt || dashboard?.attempt || state?.automation?.stepRetryCount || 0);
-  const autoAttempt = state?.automation?.active && state?.automation?.currentStep === 'editable'
-    ? Number(state.automation.stepRetryCount || 0) + 1
-    : attempt;
-  if (title) {
-    title.textContent = canvaLocked()
-      ? 'Coming soon'
-      : canvaOp
-        ? (CANVA_DASH_STEPS.find((item) => item.id === dashboard?.step)?.label || canvaOp.label || 'Live')
-        : done
-          ? 'Template ready'
-          : dashboard?.status === 'fail'
-            ? 'Stopped — see the error'
-            : 'Waiting';
-  }
-  if (status) {
-    status.textContent = canvaLocked()
-      ? canvaLockMessage()
-      : canvaOp?.message
-        || dashboard?.steps?.[dashboard.step]?.message
-        || (done ? 'Canva editable layer is ready. Open the template link anytime.' : 'Ready when you build. The print PDF is imported once, then Magic Layer runs page by page.');
-  }
-  if (attemptEl) {
-    const showAttempt = autoAttempt > 1 || (canvaOp && autoAttempt >= 1 && state?.automation?.currentStep === 'editable');
-    attemptEl.hidden = !showAttempt;
-    attemptEl.textContent = showAttempt ? `Attempt ${autoAttempt}` : '';
-  }
-  if (clockEl) {
-    clockEl.hidden = !canvaOp?.startedAt;
-    clockEl.textContent = canvaOp?.startedAt ? `Elapsed ${formatElapsedClock(Date.now() - canvaOp.startedAt)}` : '';
-  }
-  const errorText = lastCanvaError(project, dashboard);
-  if (errorEl) {
-    const showError = Boolean(errorText) && (dashboard?.status === 'fail' || !canvaOp) && !done;
-    errorEl.hidden = !showError;
-    errorEl.textContent = showError ? errorText : '';
   }
 
-  const pdfCopy = document.getElementById('canva-dash-pdf-copy');
-  if (pdfCopy) {
-    const compression = dashboard?.compression;
-    if (compression && (compression.originalBytes || compression.reason || compression.path)) {
-      const name = String(compression.path || '').split(/[\\/]/).pop() || 'book.pdf';
-      pdfCopy.textContent = compression.skipped
-        ? `${name} · ${formatFileSize(compression.originalBytes)}${compression.reason ? ` — ${compression.reason}` : ''}`
-        : `${name} · ${formatFileSize(compression.originalBytes)} → ${formatFileSize(compression.outputBytes)}`;
-    } else {
-      pdfCopy.textContent = canvaOp ? 'Loading the Interior print PDF…' : 'Uses book.pdf prepared in Interior.';
-    }
+  const pages = project?.editableText?.pages || [];
+  const sum = (key) => pages.reduce((total, page) => total + (Number(page[key]) || 0), 0);
+  const set = (element, value) => { if (element) element.textContent = String(value); };
+  set(elements.visionMetricPages, read);
+  set(elements.visionMetricLayers, sum("layers"));
+  set(elements.visionMetricText, sum("textRuns"));
+  set(elements.visionMetricBound, Math.max(0, sum("textRuns") - sum("orphans")));
+  set(elements.visionMetricOrphan, sum("orphans"));
+  set(elements.visionMetricBuilt, built);
+
+  const artworkReady = (project?.jobs || []).some((job) => job.status === 'complete' || job.outputPath);
+  if (elements.generateEditableTextButton) {
+    const label = running
+      ? (livePhase === 'rebuilding' || percent >= 50 ? "Rebuilding pages…" : livePhase === 'starting' ? "Starting engine…" : "Reading pages…")
+      : (textFree ? "Confirm masters" : "Write live text");
+    elements.generateEditableTextButton.textContent = label;
+    elements.generateEditableTextButton.disabled = running || !artworkReady;
   }
-  const upload = dashboard?.upload;
-  const uploadPercentEl = document.getElementById('canva-dash-upload-percent');
-  const uploadElapsedEl = document.getElementById('canva-dash-upload-elapsed');
-  const uploadRemainingEl = document.getElementById('canva-dash-upload-remaining');
-  const uploadFill = document.getElementById('canva-dash-upload-fill');
-  const uploadCopy = document.getElementById('canva-dash-upload-copy');
-  const uploadPct = upload?.percent != null ? Math.max(0, Math.min(100, Number(upload.percent))) : (dashboard?.step === 'upload' ? percent : null);
-  if (uploadPercentEl) uploadPercentEl.textContent = uploadPct != null ? `${Math.round(uploadPct)}%` : '—';
-  if (uploadElapsedEl) uploadElapsedEl.textContent = upload?.elapsedMs != null ? `Elapsed ${formatElapsedClock(upload.elapsedMs)}` : '';
-  if (uploadRemainingEl) {
-    const remaining = upload?.idleRemainingMs ?? upload?.remainingMs;
-    uploadRemainingEl.textContent = remaining != null ? `${formatElapsedClock(remaining)} left` : '';
+  if (elements.rebuildEditableTextButton) {
+    elements.rebuildEditableTextButton.disabled = running || !read;
+    elements.rebuildEditableTextButton.hidden = textFree || !ready;
   }
-  if (uploadFill) uploadFill.style.width = `${uploadPct != null ? uploadPct : 0}%`;
-  if (uploadCopy) {
-    uploadCopy.textContent = upload?.fileName
-      ? `File: ${upload.fileName}`
-            : (dashboard?.step === 'upload' ? (canvaOp?.message || 'Waiting for the 100% bar…') : 'The 100% bar appears after Import file.');
+  if (elements.textLabEta) {
+    const eta = running ? (lastTextLabBeat?.etaLabel || (op?.remainingMs != null ? `${Math.max(0, Math.ceil(Number(op.remainingMs) / 1000))}s left` : '')) : '';
+    elements.textLabEta.hidden = !eta;
+    elements.textLabEta.textContent = eta ? `Rebuild ${eta}` : '';
   }
-  const logEl = document.getElementById('canva-dash-log');
-  if (logEl) {
-    const rows = Array.isArray(dashboard?.log) ? dashboard.log.slice(-12).reverse() : [];
-    logEl.innerHTML = rows.map((row) => {
-      const when = row.at ? new Date(row.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
-      return `<li><time>${escapeHtml(when)}</time> ${escapeHtml(row.message || '')}</li>`;
-    }).join('') || '<li class="muted">Step messages show up here while Canva runs.</li>';
-  }
-  if (elements.canvaProgressPercent) elements.canvaProgressPercent.textContent = `${Math.round(percent)}%`;
-  if (elements.canvaProgressFill) elements.canvaProgressFill.style.width = `${percent}%`;
-  if (elements.canvaProgressMessage) {
-    elements.canvaProgressMessage.textContent = canvaLocked()
-      ? canvaLockMessage()
-      : canvaOp?.message
-        || (done ? 'Saved. Open the verified Canva template link anytime.' : 'Ready. Empty page slots fill in as editable vectors are built.');
-  }
-  if (elements.canvaProgressLabel) {
-    elements.canvaProgressLabel.textContent = canvaLocked() ? 'Coming soon' : canvaOp ? 'Live' : done ? 'Ready' : 'Canva editable';
-  }
-  if (elements.canvaProgressElapsed) {
-    elements.canvaProgressElapsed.textContent = canvaOp?.startedAt
-      ? `Working ${formatElapsedClock(Date.now() - canvaOp.startedAt)}`
-      : '';
-  }
-  document.getElementById('canva-live-bar')?.classList.toggle('is-live', Boolean(canvaOp) && !canvaLocked());
-  if (elements.clearCanvaTemplateButton) {
-    elements.clearCanvaTemplateButton.disabled = canvaLocked() || (!project?.canvaTemplateLink && !project?.canvaDesignUrl);
-  }
-  if (elements.openCanvaTemplateButton) {
-    elements.openCanvaTemplateButton.disabled = canvaLocked() || !project?.canvaTemplateLink;
-  }
-  renderCanvaPageBoard(project, canvaOp);
 }
 
-function renderCanvaPageBoard(project, canvaOp) {
-  const grid = document.getElementById('canva-page-grid');
-  const meta = document.getElementById('canva-page-board-meta');
-  const count = document.getElementById('canva-page-board-count');
-  if (!grid) return;
-  const jobs = [...(project?.jobs || [])].sort((left, right) => (Number(left.pageNumber) || 0) - (Number(right.pageNumber) || 0));
-  const progress = Array.isArray(canvaOp?.canvaPageProgress)
-    ? canvaOp.canvaPageProgress
-    : Array.isArray(project?.canvaPageProgress) ? project.canvaPageProgress : [];
-  const byPage = new Map(progress.map((item) => [Number(item.pageNumber), item]));
-  const layered = progress.filter((item) => item?.layered).length;
-  const missed = progress.filter((item) => item?.error && !item?.layered).length;
-  const activeMessage = String(canvaOp?.message || '');
-  const activePage = Number(canvaOp?.activeCanvaPage)
-    || Number((activeMessage.match(/page (\d+)/i) || [])[1])
-    || 0;
-  if (meta) {
-    if (!jobs.length) {
-      meta.textContent = 'Finish interior pages first. Then every page gets an empty slot here, like Interior and Mockups.';
-    } else if (canvaOp) {
-      meta.textContent = layered
-        ? `${layered} of ${jobs.length} done. Each filled card means Magic Layer applied.`
-        : 'Empty slots fill in as Magic Layer runs. Waiting pages stay blank until their turn.';
-    } else if (layered) {
-      meta.textContent = missed
-        ? `${layered} filled with Magic Layer applied. ${missed} not separated.`
-        : `${layered} of ${jobs.length} pages ready. Template link is the buyer editable.`;
-    } else {
-      meta.textContent = 'Same idea as Interior and Mockups: slots stay empty until Magic Layer fills them.';
+function textLabDeckPages(project) {
+  const jobs = [...(project?.jobs || [])].sort((a, b) => (a.pageNumber || 0) - (b.pageNumber || 0));
+  const byId = new Map((project?.editableText?.pages || []).map((page) => [page.jobId, page]));
+  return jobs.map((job) => {
+    const page = byId.get(job.id) || {};
+    return {
+      ...page,
+      jobId: job.id,
+      pageNumber: job.pageNumber,
+      artworkReady: job.status === 'complete' || Boolean(job.outputPath) || Boolean(page.artworkReady),
+      outputPath: job.outputPath,
+      updatedAt: job.updatedAt,
+      status: job.status
+    };
+  });
+}
+
+function textLabPageIsFlat(pages, page) {
+  if (page?.flat) return true;
+  const numbers = (pages || []).map((item) => Number(item.pageNumber) || 0).filter((n) => n > 0);
+  if (numbers.length < 2) return false;
+  const n = Number(page?.pageNumber) || 0;
+  return n === Math.min(...numbers) || n === Math.max(...numbers);
+}
+
+function textLabCardActionsHtml(page, { running } = {}) {
+  const hasImage = Boolean(page.artworkReady);
+  return `<div class="page-card-actions">
+    <div class="page-card-tools">
+      <button class="row-button is-danger" data-action="delete-job-image" data-job-id="${escapeHtml(page.jobId)}" title="Delete" type="button"${hasImage && !running ? '' : ' disabled'}>✕</button>
+    </div>
+    <button class="row-button is-regen" data-action="generate-job" data-job-id="${escapeHtml(page.jobId)}" title="${hasImage ? 'Regenerate' : 'Generate'}" type="button"${running ? ' disabled' : ''}>${hasImage ? 'Regenerate' : 'Generate'}</button>
+    <button class="row-button is-regen" data-action="write-page-text" data-job-id="${escapeHtml(page.jobId)}" type="button"${hasImage && !running ? '' : ' disabled'}>${page.read ? 'Re-read' : 'Read'}</button>
+  </div>`;
+}
+
+function logTextLabCornerChips(deck, pages, runId) {
+  if (!deck) return;
+}
+
+function textLabLiveActivity(jobId) {
+  const beat = lastTextLabBeat;
+  if (beat && beat.jobId === jobId && beat.generating) return beat;
+  const stored = textLabActivity.get(jobId);
+  if (stored && stored.generating) return stored;
+  return null;
+}
+
+function textLabFillPercent(page, activity) {
+  if (activity && activity.jobId === page.jobId && activity.generating) {
+    return Math.max(6, Math.min(92, Number(activity.pageFill) || Number(activity.percent) || 18));
+  }
+  if (page.flat || page.built) return 100;
+  if (page.read) return 50;
+  return 0;
+}
+
+function textLabStatusCopy(page, isLive, activity) {
+  if (isLive) {
+    if (activity?.phase === 'starting') return activity.etaLabel || 'Starting';
+    if (activity?.phase === 'reading') return activity.etaLabel || 'Reading';
+    if (activity?.phase === 'rebuilding') return activity.etaLabel || 'Rebuilding';
+    return activity?.etaLabel || 'Working';
+  }
+  if (page.flat) return 'Ships as drawn';
+  if (page.built) return 'Rebuilt';
+  if (page.read) return 'Read';
+  if (page.artworkReady) return 'Ready to read';
+  return 'Needs artwork';
+}
+
+function textLabImageSrc(page) {
+  return `tpt-image://job/${encodeURIComponent(page.jobId)}?card=1&v=${encodeURIComponent(page.updatedAt ?? '')}`;
+}
+
+function patchTextLabCard(card, page, { running, pages = [] } = {}) {
+  if (!card) return;
+  const activity = textLabLiveActivity(page.jobId);
+  const isLive = Boolean(activity);
+  const hasImage = Boolean(page.artworkReady);
+  const flat = textLabPageIsFlat(pages, page);
+  const state = flat ? 'flat' : page.read ? 'read' : page.artworkReady ? 'ready' : 'blocked';
+  const fill = textLabFillPercent({ ...page, flat }, activity);
+  const status = textLabStatusCopy({ ...page, flat }, isLive, activity);
+  card.classList.toggle('is-live', isLive);
+  card.classList.toggle('has-image', hasImage);
+  card.classList.remove('is-flat', 'is-read', 'is-ready', 'is-blocked');
+  card.classList.add(`is-${state}`);
+  card.setAttribute('aria-busy', isLive ? 'true' : 'false');
+  const visual = card.querySelector('.page-visual');
+  if (visual) visual.style.setProperty('--page-fill', `${fill}%`);
+  if (hasImage && visual) {
+    const nextSrc = textLabImageSrc(page);
+    let image = visual.querySelector('.page-generated-image');
+    if (!image) {
+      image = document.createElement('img');
+      image.className = 'page-generated-image';
+      image.alt = `Page ${page.pageNumber}`;
+      image.decoding = 'async';
+      image.loading = 'lazy';
+      image.dataset.src = nextSrc;
+      image.src = nextSrc;
+      const placeholder = visual.querySelector('.page-placeholder');
+      if (placeholder) {
+        placeholder.hidden = true;
+        visual.insertBefore(image, placeholder);
+      } else {
+        visual.appendChild(image);
+      }
+      bindPageImages(visual);
+    } else if (image.dataset.src !== nextSrc) {
+      image.dataset.src = nextSrc;
+      image.src = nextSrc;
     }
   }
-  if (count) count.textContent = `${layered} / ${jobs.length} Magic Layer applied`;
-  if (!jobs.length) {
-    grid.innerHTML = `<div class="canva-page-empty-state"><strong>No page slots yet</strong><p>Finish interior pages first. The board then shows one empty slot per page, and each slot fills when Magic Layer is applied.</p></div>`;
+  const label = card.querySelector('.page-placeholder span');
+  if (label) label.textContent = status;
+  const eta = card.querySelector('.page-card-eta');
+  if (eta) eta.textContent = isLive ? (activity?.etaLabel || '') : '';
+  const hint = card.querySelector('.page-hint');
+  if (hint) {
+    hint.textContent = flat
+      ? 'Ships as drawn'
+      : page.read
+        ? `${Number(page.layers) || 0} layers · ${Number(page.textRuns) || 0} text runs`
+        : page.artworkReady ? 'Not read yet' : 'Needs artwork';
+    if (state?.activeProject?.generationMode === 'editable') {
+      hint.textContent = page.read
+        ? `${Number(page.zoneCount) || 0} zones ready`
+        : page.artworkReady ? 'Master waiting' : 'Needs artwork';
+    }
+  }
+  let actions = card.querySelector('.page-card-actions');
+  if (flat) {
+    actions?.remove();
+  } else {
+    if (!actions) {
+      const visual = card.querySelector('.page-visual');
+      if (visual) visual.insertAdjacentHTML('beforeend', textLabCardActionsHtml(page, { running }));
+      actions = card.querySelector('.page-card-actions');
+    }
+    const action = card.querySelector('[data-action="write-page-text"]');
+    if (action) {
+      action.disabled = !page.artworkReady || Boolean(running);
+      action.textContent = page.read ? 'Re-read' : 'Read';
+    }
+  }
+}
+
+// Interior Text: one card per page showing the artwork it reads and the copy it wrote.
+function renderInteriorTextDeck(project, op) {
+  renderVisionStatus(project);
+  const deck = elements.textPageDeck;
+  if (!deck) return;
+  const pages = textLabDeckPages(project);
+  const running = op?.kind === 'editable-text';
+  if (!pages.length) {
+    lastTextDeckKey = 'empty';
+    deck.innerHTML = '<p class="ppt-deck-empty">Finish the page art first.</p>';
     return;
   }
-  grid.innerHTML = jobs.map((job) => {
-    const row = byPage.get(Number(job.pageNumber)) || {};
-    const live = Boolean(canvaOp) && !row.layered && !row.error && Number(job.pageNumber) === activePage;
-    const filling = Boolean(!row.layered && !row.error && (live || row.started));
-    const state = row.layered ? 'layered' : row.error ? 'error' : filling ? 'live' : 'waiting';
-    const fill = row.layered
-      ? 100
-      : filling
-        ? Math.max(32, Math.min(88, Number(canvaOp?.percent) || 55))
-        : 8;
-    const label = row.layered
-      ? `Page ${job.pageNumber} done — Magic Layer applied`
-      : row.error
-        ? 'Not separated'
-        : filling
-          ? 'Applying Magic Layer…'
-          : canvaOp
-            ? 'Waiting'
-            : 'Not filled';
-    const visual = row.layered && job.outputPath
-      ? `<img src="tpt-image://job/${encodeURIComponent(job.id)}?v=${encodeURIComponent(job.updatedAt ?? project?.updatedAt ?? '')}" alt="Page ${job.pageNumber}">
-         <span class="canva-page-badge">Magic Layer applied ✓</span>`
-      : row.layered
-        ? `<div class="canva-page-placeholder is-done">
-           <strong>${String(job.pageNumber).padStart(2, '0')}</strong>
-           <span>Magic Layer applied</span>
-           <em>100%</em>
-         </div>`
-      : `<div class="page-fill-layer" aria-hidden="true"></div>
-         <div class="page-fill-sheen" aria-hidden="true"></div>
-         <div class="canva-page-placeholder">
-           <strong>${String(job.pageNumber).padStart(2, '0')}</strong>
-           <span>${escapeHtml(filling ? 'Filling in' : label)}</span>
-           <em>${Math.round(fill)}%</em>
-         </div>`;
-    return `<article class="canva-page-card is-${state}${filling ? ' is-live' : ''}${row.layered ? ' has-image' : ''}" style="--page-fill:${fill}%" data-canva-page="${job.pageNumber}">
-      <div class="canva-page-visual">${visual}</div>
-      <small>Page ${job.pageNumber}</small>
-      <em>${escapeHtml(label)}</em>
+
+  const renderKey = pages.map((page) => `${page.jobId}:${page.artworkReady ? 1 : 0}:${page.read ? 1 : 0}:${page.flat ? 1 : 0}:${page.built ? 1 : 0}:${page.updatedAt || ''}`).join('|');
+  const existingCards = [...deck.querySelectorAll('.page-preview-card[data-job-id]')];
+  const sameCardSet = existingCards.length === pages.length
+    && existingCards.every((card, index) => card.dataset.jobId === pages[index]?.jobId);
+  if (sameCardSet && pages.length) {
+    pages.forEach((page, index) => patchTextLabCard(existingCards[index], page, { running, pages }));
+    lastTextDeckKey = renderKey;
+    logTextLabCornerChips(deck, pages, 'textlab-patch');
+    return;
+  }
+
+  lastTextDeckKey = renderKey;
+
+  // One card per page. Flat pages ship as drawn and offer no edit action.
+  deck.innerHTML = pages.map((page) => {
+    const activity = textLabLiveActivity(page.jobId);
+    const isLive = Boolean(activity);
+    const hasImage = Boolean(page.artworkReady);
+    const flat = textLabPageIsFlat(pages, page);
+    const state = flat ? 'flat' : page.read ? 'read' : page.artworkReady ? 'ready' : 'blocked';
+    const fill = textLabFillPercent({ ...page, flat }, activity);
+    const status = textLabStatusCopy({ ...page, flat }, isLive, activity);
+    const hint = flat
+      ? 'Ships as drawn'
+      : project?.generationMode === 'editable'
+        ? (page.read ? `${Number(page.zoneCount) || 0} zones ready` : page.artworkReady ? 'Master waiting' : 'Needs artwork')
+        : page.read
+          ? `${Number(page.layers) || 0} layers · ${Number(page.textRuns) || 0} text runs`
+          : page.artworkReady ? 'Not read yet' : 'Needs artwork';
+    return `
+    <article class="page-preview-card text-page-card is-${state} ${isLive ? 'is-live' : ''} ${hasImage ? 'has-image' : ''}" data-job-id="${escapeHtml(page.jobId)}" role="listitem" aria-busy="${isLive ? 'true' : 'false'}" aria-label="Page ${escapeHtml(String(page.pageNumber))}">
+      <div class="page-visual" style="--preview-aspect-ratio: ${previewAspectRatio(project)}; --page-fill: ${fill}%;">
+        ${pageSheetInnerHtml({ id: page.jobId, pageNumber: page.pageNumber, outputPath: hasImage ? page.outputPath || true : null, updatedAt: page.updatedAt, status: page.status, title: page.title }, { isLive, hasImage })}
+        ${flat ? '' : textLabCardActionsHtml(page, { running })}
+      </div>
+      <div class="page-card-body">
+        <div class="page-card-heading">
+          <strong class="page-card-title">${escapeHtml(String(page.pageNumber))}</strong>
+          <span class="page-card-eta">${isLive ? escapeHtml(activity?.etaLabel || '') : ''}</span>
+          <span class="page-card-status"><i class="page-state-dot" data-state="${isLive ? 'live' : escapeHtml(state)}" title="${escapeHtml(status)}"></i></span>
+        </div>
+        <p class="page-hint">${escapeHtml(hint)}</p>
+      </div>
     </article>`;
   }).join('');
-  grid.querySelector('.canva-page-card.is-live')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  bindPageImages(deck);
+  logTextLabCornerChips(deck, pages, 'textlab-rebuild');
 }
 
+// The Editable PPT stage: one card per slide, showing the artwork that becomes the
+// background and how many native text boxes sit on top of it.
+function renderEditableDeck(project, op) {
+  const deck = elements.pptSlideDeck;
+  if (!deck) return;
+  const build = project?.editableBuild || { slides: [], totalTextBoxes: 0 };
+  const building = op?.kind === 'editable-generation';
+  const pages = Number(project?.stats?.total) || 0;
+
+  const sourcePages = Number(project?.editableText?.pagesBuilt || 0);
+  const set = (element, value) => { if (element) element.textContent = String(value); };
+  set(elements.pptStatSlides, build.slides.length || sourcePages || pages || 0);
+  set(elements.pptStatBoxes, build.totalTextBoxes || 0);
+  set(elements.pptStatPages, sourcePages);
+  const label = building ? 'Assembling…' : build.built ? 'Ready' : build.stale ? 'Needs rebuild' : 'Not built';
+  set(elements.pptStatState, label);
+  if (elements.editableBuildDot) {
+    elements.editableBuildDot.dataset.state = building ? 'busy' : build.built ? 'ok' : build.stale ? 'off' : 'wait';
+  }
+  if (elements.pptOpenFolderButton) elements.pptOpenFolderButton.hidden = !build.built;
+
+  // Both deliverables come from the same rebuilt pages, so they unlock together the
+  // moment Interior Text has produced any - neither depends on the legacy editable
+  // build having run.
+  const busy = building || op?.kind === 'editable-text';
+  const canExport = sourcePages > 0 && !busy;
+  const blocked = sourcePages > 0
+    ? (busy ? 'Assembly is running.' : '')
+    : 'Run Text Lab first.';
+  for (const [button, note] of [
+    [elements.exportEditablePptxButton, elements.deliverablePptxNote],
+    [elements.exportEditableDocxButton, elements.deliverableDocxNote],
+    [elements.exportEditablePdfButton, elements.deliverablePdfNote]
+  ]) {
+    if (button) {
+      button.disabled = !canExport;
+      button.title = blocked;
+    }
+    if (note) {
+      note.textContent = canExport
+        ? `Built from ${sourcePages} rebuilt page${sourcePages === 1 ? '' : 's'}.`
+        : blocked;
+    }
+  }
+  if (elements.runEditableEngineButton) {
+    elements.runEditableEngineButton.disabled = busy || sourcePages === 0;
+    elements.runEditableEngineButton.textContent = building ? 'Assembling…' : 'Assemble deliverables';
+  }
+
+  if (!build.slides.length) {
+    deck.innerHTML = `<p class="ppt-deck-empty">${building
+      ? 'Assembling slides…'
+      : sourcePages
+        ? 'Assemble first.'
+        : 'Run Text Lab first.'}</p>`;
+    return;
+  }
+  deck.innerHTML = build.slides.map((slide) => `
+    <article class="ppt-slide${build.stale ? ' is-stale' : ''}">
+      <div class="ppt-slide-canvas">
+        ${slide.jobId ? `<img src="tpt-image://job/${encodeURIComponent(slide.jobId)}?card=1&v=${encodeURIComponent(project.updatedAt ?? '')}" alt="Slide ${escapeHtml(String(slide.pageNumber ?? ''))} artwork" loading="lazy">` : ''}
+        <span class="ppt-slide-badge">${slide.textBoxes} text box${slide.textBoxes === 1 ? '' : 'es'}</span>
+      </div>
+      <p class="ppt-slide-caption">Slide ${escapeHtml(String(slide.pageNumber ?? '—'))}</p>
+    </article>`).join('');
+}
+
+/**
+ * One mockup slot.
+ *
+ * The slot is the artifact, so it is also the only surface. It used to be a
+ * bordered figure holding a dashed placeholder box inside a bordered grid
+ * inside a bordered panel, which put the thing the user came to look at three
+ * containers deep and left most of the slot empty.
+ *
+ * An empty slot reports the ordinal and what it is waiting for. It does not
+ * report a percentage, because a slot that has not started is not 10% done.
+ */
 function tptThumbnailSlotHtml(project, listing, index, liveOp) {
   const path = listing?.thumbnailPaths?.[index];
-  const label = index === 0 ? 'Main Cover' : `Optional mockup ${index}`;
+  const label = index === 0 ? 'Cover' : `Mockup ${index + 1}`;
   const completed = (listing?.thumbnailPaths || []).filter(Boolean).length;
   const generating = listing?.status === 'thumbnails_generating' || liveOp?.kind === 'thumbnails';
   const isThis = generating && !path && index === completed;
-  const fill = path ? 100 : isThis ? Math.max(28, Number(liveOp?.percent) || 55) : 10;
+  const fill = path ? 100 : isThis ? Math.max(28, Number(liveOp?.percent) || 55) : 0;
+  const ordinal = String(index + 1).padStart(2, '0');
   if (path) {
     return `<figure class="tpt-thumbnail has-image">
       <img src="tpt-image://thumbnail/${encodeURIComponent(project.id)}/${index}?v=${encodeURIComponent(project.updatedAt ?? '')}" alt="${escapeHtml(label)}">
-      <figcaption>${escapeHtml(label)} ✓
-        <span>
+      <figcaption>
+        <span class="tpt-thumbnail-name">${escapeHtml(label)}</span>
+        <span class="tpt-thumbnail-tools">
           <button class="row-button" data-action="preview-tpt-thumbnail" data-thumbnail-index="${index}" type="button">Preview</button>
           <button class="row-button" data-action="regenerate-tpt-thumbnail" data-thumbnail-index="${index}" type="button">Regenerate</button>
           <button class="row-button" data-action="clear-tpt-thumbnail" data-thumbnail-index="${index}" type="button">Delete</button>
@@ -2725,174 +4152,177 @@ function tptThumbnailSlotHtml(project, listing, index, liveOp) {
     <div class="page-fill-layer" aria-hidden="true"></div>
     <div class="page-fill-sheen" aria-hidden="true"></div>
     <div class="tpt-thumb-placeholder">
+      <span class="tpt-thumb-ordinal">${ordinal}</span>
       <strong>${escapeHtml(label)}</strong>
-      <span>${isThis ? escapeHtml(liveOp?.message || 'Filling in') : generating ? 'Waiting in line' : 'Ready to generate'}</span>
-      <em>${Math.round(fill)}%</em>
+      <span>${isThis ? escapeHtml(liveOp?.message || 'Generating') : generating ? 'Queued' : 'Not generated'}</span>
     </div>
   </figure>`;
 }
 
-function isSeoSkipStub(value) {
-  const text = String(value || '').trim().toLowerCase();
-  if (!text) return false;
-  return text === 'skipped'
-    || text === 'skipped description'
-    || text === 'skipped tags'
-    || text === 'n/a'
-    || text === 'na'
-    || text === 'none';
-}
+/**
+ * Durable stage state, read from the task queue rather than from live events.
+ *
+ * Progress events only exist while the window is open. A restart, or a stage that
+ * ran while the app was closed, left the panels showing whatever they last caught
+ * — usually nothing. The queue is a table, so it can be asked.
+ *
+ * Task state wins where it exists; live events still supply the moment-to-moment
+ * percentage, because a checkpoint is written on a tick and the event is the tick.
+ */
+const TASK_KIND_BY_STAGE = {
+  interior: 'interior',
+  interior_artwork: 'interior',
+  interior_text: 'interior_text',
+  editable_ppt: 'editable_ppt',
+  editable: 'editable_ppt',
+  thumbnails: 'thumbnails',
+  preview: 'preview',
+  export: 'export',
+  overview: 'analysis'
+};
 
-function sanitizeSeoListingForUi(listing = {}) {
-  const titleRaw = String(listing.title || '').trim();
-  const title = isSeoSkipStub(titleRaw) ? '' : titleRaw;
-  const descriptionRaw = String(listing.description || '').trim();
-  const description = isSeoSkipStub(descriptionRaw) ? '' : descriptionRaw;
-  const tags = Array.isArray(listing.tags)
-    ? listing.tags.map((entry) => String(entry || '').trim()).filter((entry) => entry && !isSeoSkipStub(entry))
-    : String(listing.tags || '')
-      .split(/,|\n/)
-      .map((entry) => entry.trim())
-      .filter((entry) => entry && !isSeoSkipStub(entry));
-  return { title, description, tags };
-}
-
-function formatSeoBundleForUi(listing = {}) {
-  const cleaned = sanitizeSeoListingForUi(listing);
-  const title = cleaned.title;
-  const description = cleaned.description;
-  const tags = cleaned.tags.join(', ');
-  if (title || description || tags) {
-    const text = `TITLE\n${title}\n\nDESCRIPTION\n${description}\n\nTAGS\n${tags}`.trim();
-    // #region agent log
-    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify({sessionId:'1c3662',runId:'seo-ui',hypothesisId:'A',location:'renderer.js:formatSeoBundleForUi',message:'seo bundle formatted for UI',data:{titleLen:title.length,descriptionLen:description.length,tagLen:tags.length,rawDescriptionWasStub:isSeoSkipStub(listing.description),rawTagsWereStub:Array.isArray(listing.tags)?listing.tags.some(isSeoSkipStub):isSeoSkipStub(listing.tags),bundleHasSkipped:/skipped/i.test(text)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-    return text;
+/**
+ * What a stage should say about itself.
+ *
+ * The queue knows things the project row does not: that an attempt is in flight,
+ * which attempt it is, and why the last one stopped. Saying so is the difference
+ * between a stage that looks stuck and one that is explaining itself — which is
+ * most of what made this need watching.
+ */
+function stageDetail(project, stage, fallback) {
+  const task = taskStateFor(project, stage);
+  if (!task) return fallback;
+  if (task.state === 'failed') {
+    const reason = String(task.lastError || 'Stopped').replace(/^[A-Z_]+:\s*/, '');
+    return `Failed ${reason.slice(0, 60)}`;
   }
-  const raw = String(listing.seoText || '').replace(/\r\n/g, '\n').trim();
-  if (!raw) return '';
-  const parsed = sanitizeSeoListingForUi(parseSeoBundleForUi(raw));
-  if (!parsed.title && !parsed.description && !parsed.tags.length) return '';
-  const text = `TITLE\n${parsed.title}\n\nDESCRIPTION\n${parsed.description}\n\nTAGS\n${parsed.tags.join(', ')}`.trim();
-  // #region agent log
-  fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify({sessionId:'1c3662',runId:'seo-ui',hypothesisId:'A',location:'renderer.js:formatSeoBundleForUi:seoText',message:'seo bundle from seoText fallback',data:{titleLen:parsed.title.length,descriptionLen:parsed.description.length,tagCount:parsed.tags.length,bundleHasSkipped:/skipped/i.test(text)},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
-  return text;
-}
-
-function parseSeoBundleForUi(rawText = '') {
-  const raw = String(rawText || '').replace(/\r\n/g, '\n').trim();
-  if (!raw) return { title: '', description: '', tags: '' };
-
-  const looksLabeled = /^(TITLE|DESCRIPTION|TAGS)\s*$/im.test(raw.split('\n', 1)[0] || '')
-    || /\n(?:TITLE|DESCRIPTION|TAGS)\s*\n/i.test(raw);
-  if (looksLabeled) {
-    const result = { title: '', description: '', tags: '' };
-    let current = null;
-    for (const line of raw.split('\n')) {
-      const header = line.trim().toUpperCase();
-      if (header === 'TITLE' || header === 'DESCRIPTION' || header === 'TAGS') {
-        current = header.toLowerCase();
-        continue;
-      }
-      if (!current) continue;
-      result[current] = result[current] ? `${result[current]}\n${line}` : line;
-    }
-    return {
-      title: result.title.trim(),
-      description: result.description.trim(),
-      tags: result.tags.trim()
-    };
+  if (task.state === 'leased') {
+    return task.attempts > 1 ? `Running · attempt ${task.attempts}/${task.maxAttempts}` : 'Running';
   }
-
-  const blocks = raw.split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean);
-  if (blocks.length === 1) return { title: blocks[0], description: '', tags: '' };
-  if (blocks.length === 2) return { title: blocks[0], description: blocks[1], tags: '' };
-  return {
-    title: blocks[0],
-    description: blocks.slice(1, -1).join('\n\n').trim(),
-    tags: blocks[blocks.length - 1].replace(/^tags?:\s*/i, '').trim()
-  };
+  if (task.state === 'pending' && task.attempts > 0) {
+    return `Retrying · attempt ${task.attempts + 1}/${task.maxAttempts}`;
+  }
+  if (task.state === 'pending') return 'Queued';
+  return fallback;
 }
 
-function tptListingHtml(project, view = activeWorkspaceView) {
+function taskStateFor(project, stage) {
+  const kind = TASK_KIND_BY_STAGE[stage];
+  if (!kind) return null;
+  return state?.tasks?.byProject?.[project?.id]?.byKind?.[kind] ?? null;
+}
+
+/** True while the queue is actually holding this stage, restart or not. */
+function taskIsRunning(project, stage) {
+  return taskStateFor(project, stage)?.state === 'leased';
+}
+
+/** A stage the queue gave up on, with the reason it gave. */
+function taskFailure(project, stage) {
+  const task = taskStateFor(project, stage);
+  return task && task.state === 'failed' ? task : null;
+}
+
+/**
+ * The percentage the stage committed, which survives a restart.
+ *
+ * Returns null when the queue has nothing to say, so the caller keeps its own
+ * derived figure rather than being told a stage is at zero.
+ */
+function taskPercent(project, stage) {
+  const task = taskStateFor(project, stage);
+  if (!task) return null;
+  if (task.state === 'done') return 100;
+  const percent = Number(task.checkpoint?.percent);
+  return Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : null;
+}
+
+function tptMockupsHtml(project) {
   const listing = project.tptListing || {};
   const liveOp = activeLiveOperation(project);
-  const listingLive = liveOp?.kind === 'listing';
   const thumbnails = Array.from({ length: 4 }, (_, index) => tptThumbnailSlotHtml(project, listing, index, liveOp)).join('');
-  const showListing = view === 'listing';
-  const hasListingDraft = Boolean(project.tptListing);
-  const cleanedListing = sanitizeSeoListingForUi(listing);
-  const hasRealSeo = Boolean(cleanedListing.title && cleanedListing.description && cleanedListing.tags.length);
-  const hasListing = hasListingDraft && (hasRealSeo || Boolean(listing.rawResponse && listing.rawResponse !== '{}'));
-  const seoBundle = formatSeoBundleForUi(listing);
-  const listingMessage = listingLive
-    ? (liveOp.message || 'Drafting best-seller SEO…')
-    : hasRealSeo
-      ? 'Ready'
-      : 'Generate SEO from the finished book PDF.';
-  const listingPercent = listingLive ? Math.round(liveOp.percent || 0) : (hasRealSeo ? 100 : 0);
-  return `<div class="section-header tpt-section-heading"><div><p class="eyebrow">Studio</p><h3>${showListing ? 'SEO' : 'Mockups'}</h3></div>
-      <div class="export-actions">
-        ${showListing ? `<button class="button button-primary" data-action="generate-tpt-listing" type="button"${liveOp?.kind === 'listing' ? ' disabled title="SEO is already running."' : ` title="${escapeHtml(stageStartBlockReason('listing', project) || (hasListing ? 'Regenerate best-seller SEO' : 'Draft best-seller SEO from the finished book PDF'))}"`}>${hasListing ? 'Regenerate SEO' : 'Generate SEO'}</button>
-        <button class="button button-ghost button-danger" data-action="clear-tpt-listing" type="button" ${hasListing ? '' : 'disabled'}>Delete SEO</button>` : (() => {
-          const thumbReason = stageStartBlockReason('thumbnails', project);
-          const thumbBusy = liveOp?.kind === 'thumbnails';
-          const title = thumbBusy ? 'Mockups are already generating.' : (thumbReason || 'Generate four mockups for this book.');
-          return `<button class="button button-gold" data-action="generate-tpt-thumbnails" type="button"${thumbBusy ? ` disabled title="${escapeHtml(title)}"` : ` title="${escapeHtml(title)}"`}>${thumbBusy ? 'Generating…' : 'Generate mockups'}</button>
-        <button class="button button-ghost button-danger" data-action="clear-tpt-thumbnails" type="button" ${(listing.thumbnailPaths || []).some(Boolean) ? '' : 'disabled'} title="${(listing.thumbnailPaths || []).some(Boolean) ? 'Delete all mockups for this book.' : 'No mockups to delete yet.'}">Delete all mockups</button>`;
-        })()}
+  const done = (listing.thumbnailPaths || []).filter(Boolean).length;
+  const percent = Math.round((done / 4) * 100);
+  const thumbBusy = liveOp?.kind === 'thumbnails';
+  const thumbReason = stageStartBlockReason('thumbnails', project);
+  const startTitle = thumbBusy ? 'Generating.' : (thumbReason || 'Generate mockups.');
+  const hasMockups = (listing.thumbnailPaths || []).some(Boolean);
+  const made = listing.thumbnailProgress?.completed ?? done;
+  // The count is a caption on the work, not a headline above it: a progress
+  // meter and a 0/4 tile used to sit between the controls and the mockups,
+  // which put telemetry ahead of the artifacts.
+  const tally = made === 0 ? 'No mockups yet' : `${made} of 4 made`;
+  return `<div class="section-header tpt-section-heading">
+      <!-- The workspace title already reads "Mockups Lab". This heading is the
+           pane's accessible name and the node mountMockupsDashboard() retitles,
+           so it stays in the DOM and is hidden visually. -->
+      <h3 class="lab-heading">Mockups Lab</h3>
+      <p class="lab-tally">${escapeHtml(thumbBusy ? (liveOp.message || 'Generating') : tally)}</p>
+      <div class="lab-actions">
+        <button class="button button-gold" data-action="generate-tpt-thumbnails" type="button"${thumbBusy ? ` disabled title="${escapeHtml(startTitle)}"` : ` title="${escapeHtml(startTitle)}"`}>${thumbBusy ? 'Working…' : hasMockups ? 'Regenerate' : 'Generate'}</button>
+        <button class="button button-ghost button-danger" data-action="clear-tpt-thumbnails" type="button" ${hasMockups ? '' : 'disabled'} title="${hasMockups ? 'Delete all.' : 'No mockups.'}">Delete all</button>
       </div>
+      <div class="lab-meter" role="presentation"><span style="width:${percent}%"></span></div>
     </div>
-    <div class="stage-live-bar ${listingLive || liveOp?.kind === 'thumbnails' ? 'is-live' : ''}">
-      <div class="stage-live-meta">
-        <strong>${showListing ? (listingLive ? 'Drafting' : hasRealSeo ? 'Ready' : 'SEO') : (liveOp?.kind === 'thumbnails' ? 'Filling' : 'Mockups')}</strong>
-        <span>${showListing ? listingPercent : Math.round(((listing.thumbnailPaths || []).filter(Boolean).length / 4) * 100)}%</span>
-      </div>
-      <div class="progress-track"><span style="width:${showListing ? listingPercent : Math.round(((listing.thumbnailPaths || []).filter(Boolean).length / 4) * 100)}%"></span></div>
-      <p>${escapeHtml(showListing ? listingMessage : (liveOp?.kind === 'thumbnails' ? (liveOp.message || 'Filling…') : ''))}</p>
-    </div>
-    ${showListing ? `
-    <section class="tpt-seo-bundle ${seoBundle ? 'is-ready' : listingLive ? 'is-filling' : 'is-empty'}" data-tpt-publication-settings>
-      <div class="tpt-seo-bundle__head">
-        <div>
-          <p class="eyebrow">One copy block</p>
-          <h4>Title · description · tags</h4>
-          <p class="muted">Labeled, paste-ready SEO. Edit here, then Save or Copy.</p>
-        </div>
-        <button class="button button-ghost tpt-seo-bundle__copy" data-action="copy-seo-bundle" type="button" ${seoBundle ? '' : 'disabled'}>Copy SEO</button>
-      </div>
-      <textarea class="tpt-seo-bundle__text" data-tpt-setting="seo-bundle" rows="18" placeholder="${listingLive ? 'Drafting best-seller SEO…' : 'TITLE\n…\n\nDESCRIPTION\n…\n\nTAGS\n…'}">${escapeHtml(seoBundle)}</textarea>
-      <button class="button button-ghost tpt-save-record" data-action="save-tpt-publication-settings" type="button">Save</button>
-    </section>
-    <details class="tpt-source-response"><summary>Source chat</summary><pre class="prompt-box">${escapeHtml(listing.rawResponse || '—')}</pre></details>` : ''}
-    ${showListing ? '' : `<div class="tpt-thumbnails"><div class="tpt-thumbnail-status"><h4>${listing.thumbnailProgress?.completed ?? listing.thumbnailPaths?.filter(Boolean).length ?? 0}/4</h4></div><div class="tpt-thumbnail-grid">${thumbnails}</div></div>`}`;
+    <div class="tpt-thumbnail-grid" data-state="${hasMockups ? 'filled' : thumbBusy ? 'working' : 'empty'}">${thumbnails}</div>`;
 }
 
-function tptPreviewHtml(project) {
+function tptPreviewHtml(project, liveOp = null) {
   const listing = project.tptListing || {};
   const videoPath = listing.videoPreviewPath;
   const status = listing.videoPreviewStatus || (videoPath ? 'ready' : 'pending');
-  const generating = status === 'generating';
+  // A stored status can go stale - a crash or a pause can leave "generating" behind
+  // while nothing is running, and the card then reports work that does not exist. The
+  // live operation is the authority: it only exists while the step is actually running.
+  const op = liveOp?.kind === 'preview' ? liveOp : null;
+  const generating = status === 'generating' && Boolean(op);
+  const staleGenerating = status === 'generating' && !op;
   const failed = status === 'failed';
   const thumbnailCount = listing.thumbnailPaths?.filter(Boolean).length ?? 0;
   const pageCount = project.jobs?.filter((job) => job.outputPath)?.length ?? 0;
-  const statusLabel = videoPath ? 'Saved' : generating ? 'Generating' : failed ? 'Needs retry' : 'Ready';
+  const statusLabel = videoPath ? 'Saved'
+    : generating ? 'Generating'
+    : staleGenerating ? 'Interrupted'
+    : failed ? 'Needs retry' : 'Ready';
+  // While it generates, the card fills like the artwork and mockup cards do. Video is
+  // much slower than an image, so a card that shows nothing moving for ten minutes reads
+  // as a hang - which is exactly how the long Veo renders looked.
+  const percent = generating ? Math.max(4, Math.min(99, Math.round(Number(op?.percent) || 0))) : 0;
+  const elapsed = Number(op?.elapsedMs) || 0;
+  const elapsedLabel = elapsed > 0
+    ? `${Math.floor(elapsed / 60000)}m ${String(Math.floor((elapsed % 60000) / 1000)).padStart(2, '0')}s elapsed`
+    : '';
   const player = videoPath
     ? `<video class="tpt-preview-player" controls src="tpt-image://video-preview/${encodeURIComponent(project.id)}?v=${encodeURIComponent(project.updatedAt ?? '')}"></video>`
-    : `<div class="tpt-preview-empty">
-        <span class="tpt-preview-play" aria-hidden="true"></span>
-        <strong>${generating ? 'Generating…' : 'No video yet'}</strong>
-        <span>${generating ? 'This can take a few minutes.' : 'Generate after mockups.'}</span>
-      </div>`;
+    : generating
+      ? `<div class="tpt-preview-empty is-generating">
+          <div class="tpt-preview-fill" style="height:${percent}%"></div>
+          <div class="tpt-preview-empty-body">
+            <span class="tpt-preview-play is-pulsing" aria-hidden="true"></span>
+            <strong>${escapeHtml(op?.message || 'Generating…')}</strong>
+            <span>${percent}%${elapsedLabel ? ` · ${escapeHtml(elapsedLabel)}` : ''}</span>
+          </div>
+        </div>`
+      : `<div class="tpt-preview-empty">
+          <span class="tpt-preview-play" aria-hidden="true"></span>
+          <strong>${staleGenerating ? 'Interrupted' : 'No video yet'}</strong>
+          <span>${staleGenerating ? 'Generate again.' : 'Mockups first.'}</span>
+        </div>`;
   const error = failed && listing.videoPreviewError
     ? `<p class="error-box">${escapeHtml(listing.videoPreviewError)}</p>`
     : '';
-  const actionLabel = videoPath ? 'Regenerate video' : generating ? 'Generating…' : 'Generate video';
+  // One button, one appearance. It used to switch between button-primary and
+  // button-ghost depending on whether a video already existed, which read as the control
+  // randomly turning dark or blue - and it was only disabled on the listing's stored
+  // status, so it stayed clickable while the browser was busy and then failed.
+  const busyReason = generating
+    ? 'Generating.'
+    : (typeof browserBusyReason === 'function' ? browserBusyReason() : '');
+  const disabled = Boolean(busyReason);
+  const actionLabel = generating ? 'Generating…' : videoPath ? 'Regenerate' : 'Generate';
   return `<div class="section-header tpt-section-heading tpt-preview-heading">
       <div>
-        <p class="eyebrow">Preview</p>
-        <h3>Video</h3>
+        <h3>Preview Lab</h3>
       </div>
     </div>
     ${error}
@@ -2903,7 +4333,8 @@ function tptPreviewHtml(project) {
         <span><strong>${pageCount}</strong> page${pageCount === 1 ? '' : 's'}</span>
         <span class="tpt-preview-status is-${escapeHtml(status)}">${escapeHtml(statusLabel)}</span>
       </div>
-      <button class="button ${videoPath ? 'button-ghost' : 'button-primary'}" data-action="generate-tpt-preview-video" type="button"${generating ? ' disabled' : ''}>${actionLabel}</button>
+      <button class="v-btn v-btn-ghost button-danger" data-action="clear-tpt-preview" type="button"${disabled || !videoPath ? ' disabled' : ''}>Delete all</button>
+      <button class="v-btn v-btn-primary" data-action="generate-tpt-preview-video" type="button"${disabled ? ' disabled' : ''} title="${escapeHtml(busyReason || 'Generate preview.')}">${escapeHtml(actionLabel)}</button>
     </div>
     ${videoPath ? `<p class="tpt-preview-file">${escapeHtml(localFileName(videoPath))}</p>` : ''}`;
 }
@@ -2986,8 +4417,8 @@ function renderBundleQueue() {
     }
 
     const indexDisplay = isDone ? '✓' : isFailed ? '✕' : (index + 1);
-    const publicationLabel = listing.publicationStatus === 'active' ? 'Active listing' : 'Inactive draft';
-    const message = listing.uploadMessage || listing.uploadError || 'Waiting in queue…';
+    const publicationLabel = projectMarketplace(project).settings.publicationStatus === 'active' ? 'Active listing' : 'Inactive draft';
+    const message = projectMarketplace(project).upload.message || projectMarketplace(project).upload.error || 'Waiting in queue…';
 
     return `<div class="${rowClass}">
       <div class="bundle-row-index">${indexDisplay}</div>
@@ -3002,7 +4433,8 @@ function renderBundleQueue() {
 }
 
 function applyWorkspacePanes(view) {
-  const next = WORKSPACE_PANES.includes(view) ? view : 'overview';
+  const requested = view === 'mockups' ? 'thumbnails' : view;
+  const next = WORKSPACE_PANES.includes(requested) ? requested : 'overview';
   const fromIndex = WORKSPACE_PANES.indexOf(lastRenderedWorkspaceView);
   const toIndex = Math.max(0, WORKSPACE_PANES.indexOf(next));
   const dir = fromIndex < 0 || fromIndex === toIndex ? 0 : toIndex > fromIndex ? 1 : -1;
@@ -3039,8 +4471,43 @@ function applyWorkspacePanes(view) {
     }
   });
   document.querySelectorAll('.workspace-tab').forEach((button) => {
+    button.disabled = false;
+    button.removeAttribute('aria-disabled');
     button.classList.toggle('is-active', button.dataset.viewTarget === next);
   });
+  const stageHost = document.getElementById('workspace-stage');
+  if (stageHost) stageHost.classList.toggle('is-text-lab', next === 'interior_text');
+  mountInteriorDashboard(next);
+  mountMockupsDashboard(next);
+  if (typeof window.versaMazeLab?.mountMazeDashboard === 'function') window.versaMazeLab.mountMazeDashboard(next);
+}
+
+// Interior Artwork and Interior Text are the same page studio as the static Interior
+// stage, so they share its one dashboard: the node moves into whichever pane is open.
+// Moving it keeps every cached element reference valid, so rendering is untouched.
+// Interior Text writes copy, not pictures, so it never borrows the artwork grid.
+const INTERIOR_DASHBOARD_TITLES = {
+  interior: 'Pages Lab',
+  interior_artwork: 'Pages Lab'
+};
+function mountInteriorDashboard(view) {
+  const section = document.querySelector('[data-workspace-section="interior"]');
+  if (!section) return;
+  const target = INTERIOR_DASHBOARD_TITLES[view] ? view : 'interior';
+  const host = document.querySelector(`[data-workspace-pane="${target}"]`);
+  if (host && section.parentElement !== host) host.appendChild(section);
+  const heading = section.querySelector('.queue-panel .section-header h3');
+  if (heading) heading.textContent = INTERIOR_DASHBOARD_TITLES[target];
+}
+
+function mountMockupsDashboard(view) {
+  const section = document.querySelector('[data-workspace-section="thumbnails"]');
+  if (!section) return;
+  const host = document.querySelector('[data-workspace-pane="thumbnails"]');
+  if (host && section.parentElement !== host) host.appendChild(section);
+  const heading = section.querySelector('h3');
+  if (heading) heading.textContent = 'Mockups Lab';
+  void view;
 }
 
 function syncWorkspaceStageHeight() {
@@ -3048,9 +4515,18 @@ function syncWorkspaceStageHeight() {
   if (stage) stage.style.height = '';
 }
 
+function visibleWorkspacePanes() {
+  return [...document.querySelectorAll('#project-standard-view .workspace-tab')]
+    .filter((tab) => !tab.hidden && !tab.hasAttribute('hidden') && !tab.hasAttribute('inert') && tab.tabIndex !== -1)
+    .map((tab) => tab.dataset.viewTarget)
+    .filter(Boolean);
+}
+
 function shiftWorkspacePane(delta) {
-  const index = WORKSPACE_PANES.indexOf(activeWorkspaceView);
-  const next = WORKSPACE_PANES[index + delta];
+  if (activeWorkspaceView === 'interior_text') return false;
+  const visible = visibleWorkspacePanes();
+  const index = visible.indexOf(activeWorkspaceView);
+  const next = visible[index + delta];
   if (!next) return false;
   activeWorkspaceView = next;
   renderProject();
@@ -3058,10 +4534,25 @@ function shiftWorkspacePane(delta) {
 }
 
 function renderProject() {
-  const project = activeProject();
+  const selected = activeProject();
+  const mazeReady = selected?.productFormat === 'maze' && (
+    mazeWorkspaceOpen
+    || (selected.mazeProject?.pages || []).some((page) => page.generationStatus === 'ready')
+  );
+  if (incomingMarketBook && mazeReady) {
+    // #region agent log
+    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H161',location:'renderer/renderer.js:renderProject',message:'clearing incoming so Maze Lab can paint ready mazes',data:{projectId:selected.id,ready:(selected.mazeProject?.pages||[]).filter((page)=>page.generationStatus==='ready').length,mazeWorkspaceOpen},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    clearIncomingMarketplace();
+  }
+  if (incomingMarketBook) {
+    paintIncomingMarketplace();
+    return;
+  }
+  const project = selected;
   const hasProject = Boolean(project);
   const hasBooks = (state?.projects?.length || 0) > 0;
-  elements.emptyState.hidden = hasProject || bundleViewActive || hasBooks;
+  elements.emptyState.hidden = hasProject || bundleViewActive;
   elements.projectWorkspace.hidden = !hasProject || bundleViewActive;
   if (elements.bundleUploadView) elements.bundleUploadView.hidden = !bundleViewActive;
   document.body.classList.toggle('has-books', hasBooks);
@@ -3082,7 +4573,21 @@ function renderProject() {
     return;
   }
 
-  const isConceptOnly = project.activityCount === 0 && project.projectType !== 'storybook';
+  const isMazeBook = project.productFormat === 'maze';
+  const liveOp = activeLiveOperation(project);
+  const mazeHasWork = isMazeBook && (
+    mazeWorkspaceOpen
+    || liveOp?.kind === 'maze'
+    || (project.mazeProject?.pages || []).some((page) => page.generationStatus === 'ready')
+  );
+  const isConceptOnly = project.activityCount === 0 && project.projectType !== 'storybook' && !mazeHasWork;
+  // #region agent log
+  fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H60',location:'renderer/renderer.js:renderProject',message:'workspace gate for concept vs maze lab',data:{projectId:project.id,productFormat:project.productFormat||null,activityCount:project.activityCount,isConceptOnly,isMazeBook,mazeWorkspaceOpen,mazeHasWork,activeWorkspaceView},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  if (mazeHasWork && !['maze', 'overview', 'thumbnails', 'preview', 'export'].includes(activeWorkspaceView)) {
+    activeWorkspaceView = 'maze';
+  }
+  applyLiveMazeToRail(project, liveOp);
   if (elements.projectConceptView) elements.projectConceptView.hidden = !isConceptOnly;
   if (elements.projectStandardView) elements.projectStandardView.hidden = isConceptOnly;
   if (elements.storybookResumePhase2Button) {
@@ -3093,15 +4598,32 @@ function renderProject() {
 
   if (isConceptOnly) {
     if (elements.conceptProjectTitle) elements.conceptProjectTitle.textContent = displayProjectName(project.name);
-    if (elements.conceptProjectMeta) elements.conceptProjectMeta.textContent = `Concept Only • 0 pages`;
-    if (elements.conceptDisplayAge) elements.conceptDisplayAge.textContent = project.targetAge || 'Not specified';
-    if (elements.conceptDisplayDescription) elements.conceptDisplayDescription.textContent = project.description || 'No description provided.';
+    if (elements.conceptProjectMeta) elements.conceptProjectMeta.textContent = `Concept · 0 pages`;
+    if (elements.conceptDisplayAge) elements.conceptDisplayAge.textContent = project.targetAge || '—';
+    if (elements.conceptDisplayDescription) elements.conceptDisplayDescription.textContent = project.description || '—';
     if (elements.conceptDisplayHighlights) {
       elements.conceptDisplayHighlights.innerHTML = (Array.isArray(project.highlights) ? project.highlights : [])
         .map((h) => `<li>${escapeHtml(h)}</li>`)
-        .join('') || '<li>No highlights saved</li>';
+        .join('') || '';
     }
     renderConceptMockups(project);
+    seedConceptMarketRail();
+    if (elements.conceptGeneratePromptsBtn) {
+      elements.conceptGeneratePromptsBtn.disabled = false;
+      elements.conceptGeneratePromptsBtn.textContent = isMazeBook ? 'Generate mazes' : 'Generate prompts';
+    }
+    const lede = conceptLede();
+    if (lede) {
+      lede.textContent = 'Saved locally.';
+    }
+    const composeTitle = document.querySelector('.concept-brief__compose h3');
+    const composeHint = document.querySelector('.concept-brief__compose .concept-brief__hint');
+    if (composeTitle) composeTitle.textContent = isMazeBook ? 'Generate mazes' : 'Generate prompts';
+    if (composeHint) {
+      composeHint.textContent = isMazeBook
+        ? 'Builds locally.'
+        : 'One per page.';
+    }
     return;
   }
 
@@ -3117,43 +4639,58 @@ function renderProject() {
 
   chooseDefaultJob(project);
   const { stats } = project;
-  const liveOp = activeLiveOperation(project);
   if (lastRenderedWorkspaceView !== activeWorkspaceView) {
     document.querySelector('.main-content')?.scrollTo({ top: 0, behavior: 'smooth' });
   }
   applyWorkspacePanes(activeWorkspaceView);
+  mountInteriorDashboard(activeWorkspaceView);
+  mountMockupsDashboard(activeWorkspaceView);
+  if (typeof window.versaMazeLab?.mountMazeDashboard === 'function') {
+    window.versaMazeLab.mountMazeDashboard(activeWorkspaceView);
+  }
   const viewChanged = lastRenderedWorkspaceView !== activeWorkspaceView;
   lastRenderedWorkspaceView = activeWorkspaceView;
-  const canvaOnlyTick = liveOp?.kind === 'canva' && !viewChanged;
-  if (elements.tptListingReview) {
-    elements.tptListingReview.hidden = false;
-    if (!canvaOnlyTick || !elements.tptListingReview.dataset.filled) {
-      elements.tptListingReview.innerHTML = tptListingHtml(project, 'listing');
-      elements.tptListingReview.dataset.filled = '1';
-    }
-  }
   if (elements.tptThumbnailsReview) {
+    const mockupsKey = `${project.id}|${(project.tptListing?.thumbnailPaths || []).join(',')}|${liveOp?.kind === 'thumbnails' ? 1 : 0}`;
     elements.tptThumbnailsReview.hidden = false;
-    if (!canvaOnlyTick || !elements.tptThumbnailsReview.dataset.filled) {
-      elements.tptThumbnailsReview.innerHTML = tptListingHtml(project, 'thumbnails');
-      elements.tptThumbnailsReview.dataset.filled = '1';
+    if (elements.tptThumbnailsReview.dataset.mountKey !== mockupsKey) {
+      elements.tptThumbnailsReview.innerHTML = tptMockupsHtml(project);
+      elements.tptThumbnailsReview.dataset.mountKey = mockupsKey;
     }
+    elements.tptThumbnailsReview.dataset.filled = '1';
   }
-  renderCanvaProgress(project);
+  renderEditableEngineProgress(project);
   if (elements.tptPreviewReview) {
+    const previewKey = `${project.id}|${project.tptListing?.videoPreviewPath || ''}|${project.tptListing?.videoPreviewStatus || ''}|${liveOp?.kind === 'preview' ? 1 : 0}`;
     elements.tptPreviewReview.hidden = false;
-    if (!canvaOnlyTick || !elements.tptPreviewReview.dataset.filled) {
-      elements.tptPreviewReview.innerHTML = tptPreviewHtml(project);
-      elements.tptPreviewReview.dataset.filled = '1';
+    if (elements.tptPreviewReview.dataset.mountKey !== previewKey) {
+      elements.tptPreviewReview.innerHTML = tptPreviewHtml(project, liveOp);
+      elements.tptPreviewReview.dataset.mountKey = previewKey;
     }
+    elements.tptPreviewReview.dataset.filled = '1';
   }
   elements.projectMeta.textContent = `${projectSetupLabel(project)} • ${stats.total} ${stats.total === 1 ? 'page' : 'pages'}`;
   elements.projectTitle.textContent = displayProjectName(project.name);
   if (elements.projectFormatToggle) {
     const editable = project.productFormat === 'editable';
-    elements.projectFormatToggle.textContent = editable ? 'Editable' : 'Static';
+    const maze = project.productFormat === 'maze';
+    elements.projectFormatToggle.textContent = maze ? 'Maze' : editable ? 'Editable' : 'Static';
     elements.projectFormatToggle.classList.toggle('is-editable', editable);
     elements.projectFormatToggle.hidden = false;
+    elements.projectFormatToggle.disabled = Boolean(project.productEngine) || maze;
+    elements.projectFormatToggle.title = maze
+      ? 'Maze'
+      : project.productEngine ? 'Locked' : 'Format';
+  }
+  if (elements.projectGenerationModeToggle) {
+    const textFree = project.generationMode === 'editable';
+    const show = project.productFormat === 'editable';
+    elements.projectGenerationModeToggle.hidden = !show;
+    elements.projectGenerationModeToggle.textContent = textFree ? 'Text free' : 'Baked text';
+    elements.projectGenerationModeToggle.classList.toggle('is-editable', textFree);
+    elements.projectGenerationModeToggle.title = textFree
+      ? 'Live text.'
+      : 'Baked text.';
   }
   if (elements.projectTheme) {
     elements.projectTheme.textContent = '';
@@ -3163,21 +4700,19 @@ function renderProject() {
   elements.statTotal.textContent = String(stats.total);
   elements.statComplete.textContent = String(stats.complete);
   if (elements.statRemaining) elements.statRemaining.textContent = String(stats.remaining);
-  const pipeline = (typeof computeProductPipeline === 'function' ? computeProductPipeline : window.computeProductPipeline)(project, liveOp, { canvaLocked: canvaLocked() });
+  const pipeline = (typeof computeProductPipeline === 'function' ? computeProductPipeline : window.computeProductPipeline)(project, liveOp);
   const characterReferences = (project.characterSheets || []).filter((sheet) => sheet.status === 'complete' && sheet.outputPath).length;
   const characterNames = characters.map((character) => character.name).filter(Boolean);
   const listing = project.tptListing;
   const thumbnailCount = pipeline.thumbnailCount;
-  const listingReady = pipeline.listingReady;
   const reviewApproved = tptListingReviewApproved(listing);
   const uploadReady = reviewApproved || ['ready_to_upload', 'uploading_listing', 'listing_form_ready', 'submitting_listing', 'draft_submitted', 'listing_published', 'upload_browser_open'].includes(listing?.status);
   const overviewCanExport = pipeline.pagesDone;
   const characterPct = pipeline.characterPct;
-  const canvaPct = pipeline.canvaPct;
-  const listingPct = pipeline.listingPct;
+  const editablePct = pipeline.editablePct;
   const thumbPct = pipeline.thumbPct;
   const previewPct = pipeline.previewPct;
-  const exportPct = overviewCanExport ? (uploadReady ? 100 : listingReady ? 70 : 55) : pipeline.pagePercent;
+  const exportPct = pipeline.exportPct;
   elements.statPercent.textContent = `${pipeline.percent}%`;
   if (elements.overviewProductRing) elements.overviewProductRing.style.setProperty('--progress', String(pipeline.percent));
   if (elements.overviewOverallCard) elements.overviewOverallCard.dataset.viewTarget = pipeline.nextView;
@@ -3192,49 +4727,74 @@ function renderProject() {
   }
   setMeterWidth('overview-overall-meter', pipeline.percent);
   setMeterWidth('overview-interior-meter', pipeline.pagePercent);
-  setMeterWidth('overview-editable-meter', canvaPct);
-  setMeterWidth('overview-listing-meter', listingPct);
+  setMeterWidth('overview-interior-artwork-meter', pipeline.pagePercent);
+  setMeterWidth('overview-interior-text-meter', pipeline.textPct);
+  setMeterWidth('overview-editable-meter', editablePct);
+  setMeterWidth('overview-maze-meter', pipeline.mazePct ?? 0);
   setMeterWidth('overview-thumbnails-meter', thumbPct);
+  setMeterWidth('overview-mockups-meter', thumbPct);
   setMeterWidth('overview-preview-meter', previewPct);
   setMeterWidth('overview-export-meter', exportPct);
   const queueHere = Boolean(state?.queue?.running && state.queue.activeProjectId === project.id);
+  // A stage is live if the queue is holding it, or if a live operation says so.
+  // The queue is the half that survives a restart; the live op is the half that
+  // knows about work started outside the queue.
   const stageLive = {
-    overall: Boolean(liveOp || queueHere || state?.workBusy?.characters),
+    overall: Boolean(liveOp || queueHere || state?.workBusy?.characters || state?.tasks?.runner?.active?.length),
     characters: Boolean(state?.workBusy?.characters) || (project.characterSheets || []).some((sheet) => sheet.status === 'generating'),
-    interior: queueHere,
-    editable: liveOp?.kind === 'canva',
-    listing: liveOp?.kind === 'listing',
-    thumbnails: liveOp?.kind === 'thumbnails',
-    preview: liveOp?.kind === 'preview',
-    export: liveOp?.kind === 'export'
+    interior: queueHere || taskIsRunning(project, 'interior'),
+    interior_artwork: queueHere || taskIsRunning(project, 'interior_artwork'),
+    interior_text: liveOp?.kind === 'editable-text' || taskIsRunning(project, 'interior_text'),
+    editable_ppt: liveOp?.kind === 'editable-generation' || taskIsRunning(project, 'editable_ppt'),
+    maze: liveOp?.kind === 'maze' || taskIsRunning(project, 'maze'),
+    editable: liveOp?.kind === 'editable-generation' || taskIsRunning(project, 'editable'),
+    thumbnails: liveOp?.kind === 'thumbnails' || taskIsRunning(project, 'thumbnails'),
+    mockups: liveOp?.kind === 'thumbnails' || taskIsRunning(project, 'thumbnails'),
+    preview: liveOp?.kind === 'preview' || taskIsRunning(project, 'preview'),
+    export: liveOp?.kind === 'export' || taskIsRunning(project, 'export')
   };
   const stageBlocked = {
     interior: false,
     editable: false,
-    listing: false,
     thumbnails: false,
     preview: false,
     export: false
   };
   const stageSkipped = {
-    editable: !pipeline.editable
+    editable: !pipeline.editable,
+    interior_text: false,
+    editable_ppt: !pipeline.editable
   };
+  // A stage the queue failed reads as failed even if the project row still says
+  // pending — the queue is what actually ran it, and it recorded why it stopped.
   const stepStatus = {
-    interior: project.stepInteriorStatus,
-    editable: project.stepEditableStatus,
-    listing: project.stepListingStatus,
-    thumbnails: project.stepThumbnailsStatus,
-    preview: project.stepPreviewStatus,
-    export: project.stepExportStatus
+    interior: taskFailure(project, 'interior') ? 'failed' : project.stepInteriorStatus,
+    interior_artwork: taskFailure(project, 'interior_artwork') ? 'failed' : project.stepInteriorStatus,
+    interior_text: taskFailure(project, 'interior_text') ? 'failed' : project.stepEditableStatus,
+    editable_ppt: taskFailure(project, 'editable_ppt') ? 'failed' : project.stepEditableGenerationStatus,
+    maze: taskFailure(project, 'maze') ? 'failed' : project.stepMazeStatus,
+    editable: taskFailure(project, 'editable') ? 'failed' : project.stepEditableGenerationStatus,
+    thumbnails: taskFailure(project, 'thumbnails') ? 'failed' : project.stepThumbnailsStatus,
+    mockups: taskFailure(project, 'thumbnails') ? 'failed' : project.stepThumbnailsStatus,
+    preview: taskFailure(project, 'preview') ? 'failed' : project.stepPreviewStatus,
+    export: taskFailure(project, 'export') ? 'failed' : project.stepExportStatus
   };
+  // The committed percentage wins where the queue has one: it is what the stage
+  // actually reached, and it is still there after a restart. Where it has none the
+  // derived figure stands, so nothing regresses to zero.
+  const withTask = (stage, derived) => taskPercent(project, stage) ?? derived;
   const stagePercent = {
     overall: pipeline.percent,
-    interior: pipeline.pagePercent,
-    editable: canvaPct,
-    listing: listingPct,
-    thumbnails: thumbPct,
-    preview: previewPct,
-    export: exportPct
+    interior: withTask('interior', pipeline.pagePercent),
+    interior_artwork: withTask('interior_artwork', pipeline.pagePercent),
+    interior_text: withTask('interior_text', pipeline.editable ? pipeline.textPct : pipeline.pagePercent),
+    editable_ppt: withTask('editable_ppt', editablePct),
+    maze: withTask('maze', pipeline.mazePct ?? 0),
+    editable: withTask('editable', editablePct),
+    thumbnails: withTask('thumbnails', thumbPct),
+    mockups: withTask('thumbnails', thumbPct),
+    preview: withTask('preview', previewPct),
+    export: withTask('export', exportPct)
   };
   Object.entries(stagePercent).forEach(([id, pct]) => {
     const skipped = Boolean(stageSkipped[id]);
@@ -3242,7 +4802,7 @@ function renderProject() {
     const blocked = Boolean(stageBlocked[id]) && pct < 100 && !live;
     const failed = stepStatus[id] === 'failed' && !live;
     const stateName = skipped ? 'skipped' : failed ? 'error' : live ? 'live' : pct >= 100 ? 'done' : blocked ? 'blocked' : pct > 0 ? 'progress' : 'waiting';
-    setStagePresentation(id, stateName, { filling: live });
+    setStagePresentation(id, stateName, { filling: live, percent: pct });
     if (id !== 'overall') setTabMark(id, stateName);
   });
   // Characters stage removed from product UI.
@@ -3252,16 +4812,53 @@ function renderProject() {
     node.hidden = true;
     node.setAttribute('hidden', '');
   });
-  // Canva stage only for editable books.
-  const showCanvaStage = project.productFormat === 'editable';
-  document.querySelectorAll(
-    '.overview-stage-card[data-stage="editable"], [data-view-target="editable"], [data-workspace-pane="editable"]'
-  ).forEach((node) => {
-    node.hidden = !showCanvaStage;
-    if (showCanvaStage) node.removeAttribute('hidden');
-    else node.setAttribute('hidden', '');
-  });
-  if (!showCanvaStage && activeWorkspaceView === 'editable') {
+  // Editable products run their own pipeline: Interior Artwork -> Interior Text ->
+  // Editable PPT replaces the static "Interior" step entirely, so only one set shows.
+  const showEditableStage = project.productFormat === 'editable';
+  const showMazeStage = project.productFormat === 'maze';
+  const setStageVisible = (stage, visible) => {
+    document.querySelectorAll(
+      `.overview-stage-card[data-stage="${stage}"], [data-view-target="${stage}"], [data-workspace-pane="${stage}"]`
+    ).forEach((node) => {
+      const isTab = node.classList.contains('workspace-tab');
+      node.hidden = !visible;
+      if (visible) {
+        node.removeAttribute('hidden');
+        node.removeAttribute('inert');
+        if (isTab) {
+          node.tabIndex = 0;
+          node.removeAttribute('aria-hidden');
+        }
+      } else {
+        node.setAttribute('hidden', '');
+        node.setAttribute('inert', '');
+        if (isTab) {
+          node.tabIndex = -1;
+          node.setAttribute('aria-hidden', 'true');
+        }
+      }
+    });
+  };
+  setStageVisible('interior_artwork', showEditableStage);
+  setStageVisible('editable_ppt', showEditableStage);
+  setStageVisible('interior_text', showEditableStage);
+  setStageVisible('interior', !showEditableStage && !showMazeStage);
+  setStageVisible('maze', showMazeStage);
+  setStageVisible('editable', false);
+  setStageVisible('mockups', false);
+  const overviewTab = document.getElementById('overview-workspace-tab');
+  if (overviewTab) overviewTab.textContent = showMazeStage ? 'Maze Overview' : 'Overview';
+  renumberPipeline();
+  mountInteriorDashboard(activeWorkspaceView);
+  const hiddenStages = showMazeStage
+    ? ['interior', 'interior_artwork', 'interior_text', 'editable_ppt', 'editable', 'mockups']
+    : showEditableStage
+    ? ['interior', 'editable', 'mockups', 'maze']
+    : ['interior_artwork', 'interior_text', 'editable_ppt', 'editable', 'mockups', 'maze'];
+  if (activeWorkspaceView === 'mockups') {
+    activeWorkspaceView = 'thumbnails';
+    applyWorkspacePanes('thumbnails');
+  } else if (hiddenStages.includes(activeWorkspaceView)) {
     activeWorkspaceView = 'overview';
     applyWorkspacePanes('overview');
   }
@@ -3270,130 +4867,176 @@ function renderProject() {
     applyWorkspacePanes('overview');
   }
   if (elements.overviewInteriorDetail) {
-    elements.overviewInteriorDetail.textContent = stats.remaining === 0 && stats.total > 0
-      ? (project.productPdfPath ? 'PDF ready' : 'Pages done')
-      : `${stats.remaining} left`;
+    elements.overviewInteriorDetail.textContent = stageDetail(project, 'interior',
+      stats.remaining === 0 && stats.total > 0
+        ? (projectPdf(project).productPath ? 'PDF ready' : 'Pages done')
+        : `${stats.remaining} left`);
   }
   if (elements.overviewEditableStatus) {
-    const editable = project.productFormat === 'editable';
-    elements.overviewEditableStatus.textContent = canvaLocked()
-      ? 'Coming soon'
-      : !editable
-        ? 'Static print'
-        : project.canvaTemplateLink
-          ? 'PowerPoint ready'
-          : stats.complete === stats.total && stats.total > 0
-            ? 'Ready to build'
-            : 'Waiting for pages';
-    elements.overviewEditableDetail.textContent = canvaLocked()
-      ? 'Windows — available soon'
-      : !editable
-        ? 'Toggle Editable'
-        : project.canvaTemplateLink
-          ? 'Template link saved'
-          : 'After pages finish';
+    elements.overviewEditableStatus.textContent = project.stepEditableGenerationStatus === 'completed' ? 'PowerPoint ready' : 'Not built';
+    elements.overviewEditableDetail.textContent = 'PowerPoint';
   }
-  if (elements.canvaEditableStatus) {
-    const editable = project.productFormat === 'editable';
-    elements.canvaEditableStatus.textContent = canvaLocked()
-      ? canvaLockMessage()
-      : !editable
-        ? 'Mark Editable to unlock Canva Magic Layer.'
-        : project.canvaTemplateLink
-          ? 'Canva template link saved.'
-          : stats.complete === stats.total && stats.total > 0
-            ? 'Pages ready. Build Canva layer imports the print PDF, then Magic Layer each page.'
-            : 'Finish the pages first.';
+  if (elements.overviewInteriorArtworkStatus) {
+    elements.overviewInteriorArtworkStatus.textContent = `${stats.complete} / ${stats.total} pages`;
+      elements.overviewInteriorArtworkDetail.textContent = stats.total && stats.remaining === 0
+        ? 'Ready' : `${stats.remaining} left`;
   }
-  if (elements.canvaPdfStatus) {
-    const readyPages = (project.jobs || []).filter((job) => job?.status === 'complete' && job?.outputPath).length;
-    elements.canvaPdfStatus.textContent = readyPages
-      ? `${readyPages} interior page${readyPages === 1 ? '' : 's'} ready. Print PDF is the Canva import.`
-      : '';
+  const overviewMazeStatus = document.getElementById('overview-maze-status');
+  const overviewMazeDetail = document.getElementById('overview-maze-detail');
+  if (overviewMazeStatus) {
+    const mazePages = project.mazeProject?.pages || [];
+    const mazeReady = mazePages.filter((page) => page.generationStatus === 'ready').length;
+    const mazeTotal = Number(project.mazeLab?.pageCount) || mazePages.length;
+    overviewMazeStatus.textContent = mazeTotal
+      ? `${mazeReady} / ${mazeTotal} mazes`
+      : project.stepMazeStatus === 'completed' ? 'Ready' : 'Not generated';
+    if (overviewMazeDetail) {
+      const keyword = project.mazeProject?.config?.keyword || project.theme || 'Theme';
+      const tier = project.mazeProject?.config?.difficultyTier;
+      const diff = window.versaMazeLab?.mazeDifficultyLabel(tier) || 'Easy';
+      overviewMazeDetail.textContent = `${keyword} · ${diff}`;
+    }
   }
-  if (elements.canvaEditableLink) {
-    elements.canvaEditableLink.textContent = project.canvaTemplateLink || '';
+  if (elements.overviewInteriorTextStatus) {
+    if (showEditableStage) {
+      const ready = Number(project.editableText?.ready) || 0;
+      const total = Number(project.editableText?.total) || 0;
+      elements.overviewInteriorTextStatus.textContent = `${ready} / ${total} pages`;
+      elements.overviewInteriorTextDetail.textContent = total && ready === total
+        ? 'Ready' : 'Live text';
+    } else {
+      elements.overviewInteriorTextStatus.textContent = `${stats.complete} / ${stats.total} pages`;
+      elements.overviewInteriorTextDetail.textContent = stats.total && stats.remaining === 0
+        ? 'Ready' : 'On the pages';
+    }
   }
-  if (elements.runCanvaEditableButton) {
-    const reason = stageStartBlockReason('editable', project);
-    const canvaRunning = liveOp?.kind === 'canva';
-    elements.runCanvaEditableButton.disabled = canvaRunning || project.productFormat !== 'editable';
-    elements.runCanvaEditableButton.title = canvaRunning
-      ? 'Canva is already running in the background.'
-      : (reason || 'Build the Canva editable layer for this book.');
+  renderEditableEngineProgress(project);
+  if (elements.runEditableEngineButton) {
+    const reason = stageStartBlockReason('editable_generation', project);
+    const editableRunning = liveOp?.kind === 'editable-generation';
+    elements.runEditableEngineButton.disabled = Boolean(reason) || editableRunning || project.productFormat !== 'editable';
+    elements.runEditableEngineButton.title = editableRunning
+      ? 'Generating.'
+      : (reason || 'Generate pages.');
   }
   document.querySelectorAll('[data-action="run-stage"]').forEach((btn) => {
     const step = btn.dataset.stage;
+    const inNode = isOverviewNodeAction(btn);
     if (step === 'characters') {
-      btn.hidden = true;
-      btn.disabled = true;
+      if (inNode) syncOverviewNodeAction(btn, { hide: true, disable: true });
+      else {
+        btn.hidden = true;
+        btn.disabled = true;
+      }
+      return;
+    }
+    // The shared page dashboard carries its own interior run button. Editable books
+    // start that work from their own stage button, so the duplicate is dropped.
+    if (step === 'interior' && project.productFormat === 'editable') {
+      if (inNode) syncOverviewNodeAction(btn, { hide: true, disable: true });
+      else {
+        btn.hidden = true;
+        btn.disabled = true;
+      }
       return;
     }
     const reason = stageStartBlockReason(step, project);
-    const running = (step === 'interior' && isGeneratingThisProject(project))
-      || (step === 'editable' && liveOp?.kind === 'canva')
-      || (step === 'listing' && liveOp?.kind === 'listing')
+    const running = ((step === 'interior' || step === 'interior_artwork') && isGeneratingThisProject(project))
+      || ((step === 'editable_generation' || step === 'editable_ppt') && liveOp?.kind === 'editable-generation')
+      || (step === 'interior_text' && liveOp?.kind === 'editable-text')
       || (step === 'thumbnails' && liveOp?.kind === 'thumbnails')
       || (step === 'preview' && liveOp?.kind === 'preview')
-      || (step === 'export' && liveOp?.kind === 'export');
-    const interiorDone = step === 'interior' && stats.total > 0 && stats.remaining === 0;
+      || (step === 'export' && liveOp?.kind === 'export')
+      || (step === 'maze' && liveOp?.kind === 'maze');
+    const interiorDone = (step === 'interior' || step === 'interior_artwork') && stats.total > 0 && stats.remaining === 0;
     if (interiorDone) {
-      btn.hidden = true;
-      btn.disabled = true;
+      if (inNode) syncOverviewNodeAction(btn, { hide: true, disable: true });
+      else {
+        btn.hidden = true;
+        btn.disabled = true;
+      }
     } else {
       btn.hidden = step === 'editable' && project.productFormat !== 'editable';
-      // Autonomy: keep controls enabled; toast the reason on click if it cannot run.
+      // Autonomy: keep lab/header controls enabled; toast the reason on click if it cannot run.
       btn.disabled = running;
-      btn.title = running ? 'This stage is already running.' : (reason || `Start the ${step} stage.`);
-      if (step === 'interior') btn.textContent = btn.classList.contains('stage-run-btn') ? 'Start pages' : (btn.id === 'run-interior-button' ? 'Start pages' : btn.textContent);
+      if (inNode) {
+        const card = btn.closest('.overview-stage-card');
+        const hasVideo = Boolean(listing?.videoPreviewPath);
+        btn.textContent = overviewNodeActionLabel(step, { running, hasVideo });
+        syncOverviewNodeAction(btn, {
+          hide: Boolean(btn.hidden),
+          disable: running || Boolean(reason)
+        });
+        const hint = card?.querySelector('.stage-run-reason');
+        if (hint) {
+          hint.hidden = true;
+          hint.textContent = '';
+        }
+      } else {
+        btn.title = running ? 'This stage is already running.' : (reason || `Start the ${step} stage.`);
+        if (step === 'interior') {
+          btn.textContent = btn.id === 'run-interior-button' || btn.classList.contains('stage-run-btn')
+            ? 'Start pages'
+            : btn.textContent;
+        }
+      }
     }
   });
   document.querySelectorAll('[data-action="regenerate-interior"]').forEach((btn) => {
     const interiorDone = stats.total > 0 && stats.remaining === 0;
     const running = isGeneratingThisProject(project);
     const regenerable = (project.jobs || []).some((job) => job.status === 'complete' && job.conversationUrl);
-    btn.hidden = !interiorDone;
-    btn.disabled = !interiorDone || running;
-    btn.title = running
-      ? 'Pages are already regenerating.'
-      : !regenerable
-        ? 'No saved conversations to regenerate from.'
-        : 'Regenerate every completed page in its saved conversation.';
+    if (isOverviewNodeAction(btn)) {
+      btn.textContent = running ? 'Generating…' : 'Regenerate';
+      syncOverviewNodeAction(btn, { hide: !interiorDone, disable: !interiorDone || running });
+    } else {
+      btn.hidden = !interiorDone;
+      btn.disabled = !interiorDone || running;
+      btn.title = running
+        ? 'Regenerating.'
+        : !regenerable
+          ? 'No conversations.'
+          : 'Regenerate pages.';
+    }
   });
   document.querySelectorAll('[data-action="start-full-automation"]').forEach((btn) => {
     const running = Boolean(state?.automation?.active && !state?.automation?.paused);
     const reason = running
-      ? 'Full automation is already running. Pause it to start again.'
+      ? 'Automation running.'
       : browserBusyReason();
     btn.disabled = Boolean(reason);
-    btn.title = reason || 'Start the full pipeline for this book.';
+    btn.title = reason || 'Start.';
   });
-  elements.overviewListingStatus.textContent = listingReady ? (uploadReady ? 'Reviewed & ready' : 'SEO ready') : 'Not created';
-  elements.overviewListingDetail.textContent = listingReady
-    ? `${listing?.title || 'Untitled SEO'} • ${listing?.tags?.length ?? 0} tags`
-    : 'Last stage · PDF SEO';
   elements.overviewThumbnailCount.textContent = `${thumbnailCount} / 4`;
   elements.overviewThumbnailDetail.textContent = listing?.status === 'thumbnails_generating'
     ? 'Generating…'
     : thumbnailCount === 4 ? 'Saved' : thumbnailCount > 0 ? `${thumbnailCount} saved` : (pipeline.pagesDone ? 'Ready' : 'After pages');
-  // #region agent log
-  fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify({sessionId:'1c3662',runId:'seo-functional',hypothesisId:'A',location:'renderer.js:overviewThumbnailDetail',message:'overview SEO-safe listing status',data:{listingNull:listing==null,status:listing?.status??null,listingReady:Boolean(listingReady),thumb:thumbnailCount},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
+  if (elements.overviewMockupsStatus) {
+    elements.overviewMockupsStatus.textContent = `${thumbnailCount} / 4`;
+    if (elements.overviewMockupsDetail) {
+      elements.overviewMockupsDetail.textContent = listing?.status === 'thumbnails_generating'
+        ? 'Generating…'
+        : thumbnailCount === 4 ? 'Saved' : thumbnailCount > 0 ? `${thumbnailCount} saved` : (pipeline.pagesDone ? 'Ready' : 'After pages');
+    }
+  }
+  
   if (elements.overviewPreviewStatus) {
     const previewStatus = listing?.videoPreviewStatus || (listing?.videoPreviewPath ? 'ready' : 'pending');
     elements.overviewPreviewStatus.textContent = listing?.videoPreviewPath
       ? 'Saved'
       : previewStatus === 'generating' ? 'Generating…' : previewStatus === 'failed' ? 'Failed' : 'Not generated';
-    elements.overviewPreviewDetail.textContent = listing?.videoPreviewPath
-      ? localFileName(listing.videoPreviewPath)
-      : thumbnailCount === 0 ? 'After mockups' : 'Ready';
+    if (elements.overviewPreviewDetail) {
+      elements.overviewPreviewDetail.textContent = listing?.videoPreviewPath
+        ? localFileName(listing.videoPreviewPath)
+        : '';
+    }
   }
-  const submittedToTpt = ['draft_submitted', 'listing_published'].includes(listing?.status) && listing?.uploadVerified;
+  const submittedToTpt = ['draft_submitted', 'listing_published'].includes(listing?.status) && projectMarketplace(project).upload.verified;
   elements.overviewExportStatus.textContent = !overviewCanExport
     ? 'Book incomplete'
-    : listing?.status === 'draft_submitted' && listing?.uploadVerified
+    : listing?.status === 'draft_submitted' && projectMarketplace(project).upload.verified
       ? 'Draft submitted'
-      : listing?.status === 'listing_published' && listing?.uploadVerified
+      : listing?.status === 'listing_published' && projectMarketplace(project).upload.verified
         ? 'Published & verified'
         : uploadReady ? 'Ready to upload' : 'Ready to export';
   elements.overviewExportDetail.textContent = !overviewCanExport
@@ -3443,11 +5086,32 @@ function renderProject() {
   if (liveOp) elements.heartbeatText.textContent = liveOp.message || liveOp.label;
   else if (generatingHere) elements.heartbeatText.textContent = `${pipeline.pagePercent}%`;
   else elements.heartbeatText.textContent = '';
-  elements.runButton.disabled = Boolean(stageStartBlockReason('interior', project));
+  // The hero transport is the whole-pipeline control. It used to call startQueue, which
+  // only generates the interior pages, while being labelled "Start" at the top of the
+  // book - so there was no visible way to run the pipeline end to end, and the one
+  // obvious button did something narrower than it looked.
+  const automation = state?.automation || {};
+  const pipelineRunning = Boolean(automation.active && !automation.paused);
+  const pipelineOwnsThis = pipelineRunning && automation.currentProjectId === project?.id;
+  const runBlocked = stageStartBlockReason('overview', project) || stageStartBlockReason('interior', project);
+  elements.runButton.disabled = Boolean(runBlocked) || pipelineRunning;
   elements.runButton.hidden = false;
-  elements.runButton.textContent = 'Start';
-  elements.runButton.title = stageStartBlockReason('interior', project) || 'Start interior page generation.';
-  const pauseEnabled = isPipelineBusy();
+  elements.runButton.textContent = automation.paused ? 'Resume pipeline' : 'Run pipeline';
+  elements.runButton.title = pipelineRunning
+    ? (pipelineOwnsThis ? 'Running.' : 'Another book running.')
+    : (runBlocked || 'Run every stage in order.');
+
+  // The step the pipeline is on, so the control says what it is doing rather than only
+  // that it is doing something.
+  if (elements.pipelineStepLabel) {
+    const step = automation.currentStep ? (STEP_LABELS?.[automation.currentStep] || automation.currentStep) : '';
+    elements.pipelineStepLabel.textContent = pipelineOwnsThis && step
+      ? `Pipeline · ${step}`
+      : automation.paused ? 'Pipeline paused' : '';
+    elements.pipelineStepLabel.hidden = !elements.pipelineStepLabel.textContent;
+  }
+
+  const pauseEnabled = isPipelineBusy() || pipelineRunning;
   const pauseLabel = liveOp?.message?.startsWith('Stopping') ? 'Stopping…' : 'Pause';
   elements.pauseButton.disabled = !pauseEnabled;
   elements.pauseButton.hidden = false;
@@ -3469,18 +5133,14 @@ function renderProject() {
   }
   elements.retryAllButton.disabled = generatingHere || stats.remaining === 0;
   elements.outputFolderButton.disabled = false;
-  elements.outputFolderButton.title = 'Choose or change the output folder anytime.';
-  const canExport = Number(stats.complete) > 0 || Boolean(project.productPdfPath || project.tptListing?.productPdfPath);
+  elements.outputFolderButton.title = 'Folder';
+  const canExport = Number(stats.complete) > 0 || Boolean(projectPdf(project).productPath);
   elements.exportAllFilesButton.disabled = !canExport;
-  if (elements.generateTptListingButton) {
-    const reason = stageStartBlockReason('listing', project);
-    elements.generateTptListingButton.disabled = liveOp?.kind === 'listing';
-    elements.generateTptListingButton.title = liveOp?.kind === 'listing' ? 'Listing is already running.' : (reason || 'Start the listing stage.');
-  }
+  if (elements.exportToManagementButton) elements.exportToManagementButton.disabled = !canExport;
   if (elements.generateTptThumbnailsButton) {
     const reason = stageStartBlockReason('thumbnails', project);
     elements.generateTptThumbnailsButton.disabled = liveOp?.kind === 'thumbnails';
-    elements.generateTptThumbnailsButton.title = liveOp?.kind === 'thumbnails' ? 'Mockups are already generating.' : (reason || 'Start mockups.');
+    elements.generateTptThumbnailsButton.title = liveOp?.kind === 'thumbnails' ? 'Generating.' : (reason || 'Start.');
   }
   if (elements.generateTptPreviewVideoButton) {
     const reason = stageStartBlockReason('preview', project);
@@ -3488,7 +5148,7 @@ function renderProject() {
     elements.generateTptPreviewVideoButton.title = liveOp?.kind === 'preview' ? 'Preview is already generating.' : (reason || 'Start the preview video.');
   }
   if (elements.openTptUploadButton) {
-    elements.openTptUploadButton.disabled = !project.tptListing?.productPdfPath;
+    elements.openTptUploadButton.disabled = !projectPdf(project).productPath;
   }
   const completedForUpload = reviewApproved || ['ready_to_upload', 'uploading_listing', 'listing_form_ready', 'submitting_listing', 'draft_submitted', 'listing_published', 'upload_browser_open'].includes(project.tptListing?.status);
   [
@@ -3511,16 +5171,26 @@ function renderProject() {
   elements.exportZipButton.title = canExport ? '' : 'Add pages or a PDF first.';
   elements.exportPptxButton.disabled = !canExport;
   elements.exportPptxButton.title = canExport ? '' : 'Add pages or a PDF first.';
-  elements.exportCaption.textContent = canExport ? 'Ready' : 'Add pages first';
-  if (elements.tptListingCaption) {
-    elements.tptListingCaption.textContent = project.tptListing?.title
-      ? `${project.tptListing.uploadMessage || `Draft ready: ${project.tptListing.title} • ${project.tptListing.thumbnailProgress?.completed ?? project.tptListing.thumbnailPaths?.filter(Boolean).length ?? 0}/4 thumbnails${project.tptListing.status === 'thumbnails_failed' ? ' • retry missing thumbnails' : ''}.`}`
-      : canExport ? 'Create listing.' : 'Finish pages first.';
-  }
+  elements.exportCaption.textContent = canExport
+    ? 'Pick a book.'
+    : 'Add pages first';
   renderEvents(project);
-  if (!canvaOnlyTick) {
-    renderJobs(project);
-    renderDetail(project);
+  renderJobs(project);
+  renderDetail(project);
+  if (showMazeStage && typeof window.versaMazeLab?.renderMazeLab === 'function') {
+    const pages = project.mazeProject?.pages || [];
+    if (selectedMazePageId && !pages.some((page) => page.pageId === selectedMazePageId)) {
+      selectedMazePageId = null;
+    }
+    if (!selectedMazePageId) selectedMazePageId = pages[0]?.pageId || null;
+    mazePreviewVariant = project.mazeLab?.previewVariant === 'solution' ? 'solution' : mazePreviewVariant;
+    window.versaMazeLab.renderMazeLab(project, {
+      view: activeWorkspaceView,
+      selectedPageId: selectedMazePageId,
+      previewVariant: mazePreviewVariant,
+      livePageId: liveOp?.kind === 'maze' ? liveOp.jobId : null,
+      aspect: previewAspectRatio(project)
+    });
   }
   requestAnimationFrame(() => syncWorkspaceStageHeight());
 }
@@ -3537,21 +5207,21 @@ function renderAutomationBar() {
     if (elements.automationStartBtn) elements.automationStartBtn.hidden = false;
     if (elements.automationPauseBtn) elements.automationPauseBtn.hidden = true;
     if (elements.automationResumeBtn) elements.automationResumeBtn.hidden = true;
-    if (elements.automationBarLabel) elements.automationBarLabel.textContent = 'Automation Ready';
+    if (elements.automationBarLabel) elements.automationBarLabel.textContent = 'Ready';
     const dot = bar.querySelector('.automation-pulsing-dot');
     if (dot) dot.style.animation = 'none';
   } else if (autoState.paused) {
     if (elements.automationStartBtn) elements.automationStartBtn.hidden = true;
     if (elements.automationPauseBtn) elements.automationPauseBtn.hidden = true;
     if (elements.automationResumeBtn) elements.automationResumeBtn.hidden = false;
-    if (elements.automationBarLabel) elements.automationBarLabel.textContent = 'Automation Paused';
+    if (elements.automationBarLabel) elements.automationBarLabel.textContent = 'Paused';
     const dot = bar.querySelector('.automation-pulsing-dot');
     if (dot) dot.style.animation = 'none';
   } else {
     if (elements.automationStartBtn) elements.automationStartBtn.hidden = true;
     if (elements.automationPauseBtn) elements.automationPauseBtn.hidden = false;
     if (elements.automationResumeBtn) elements.automationResumeBtn.hidden = true;
-    if (elements.automationBarLabel) elements.automationBarLabel.textContent = 'Automation Active';
+    if (elements.automationBarLabel) elements.automationBarLabel.textContent = 'Running';
     const dot = bar.querySelector('.automation-pulsing-dot');
     if (dot) dot.style.animation = '';
   }
@@ -3559,13 +5229,7 @@ function renderAutomationBar() {
   const { currentBookIndex = 0, totalBooks = 0, currentStep = '' } = autoState;
   
   if (elements.automationBarDetail) {
-    let stepLabel = currentStep;
-    if (stepLabel === 'overview') stepLabel = 'Overview & Idea Extraction';
-    if (stepLabel === 'characters') stepLabel = 'Character Generation';
-    if (stepLabel === 'interior') stepLabel = 'Book Interior Generation';
-    if (stepLabel === 'listing') stepLabel = 'TPT Listing Generation';
-    if (stepLabel === 'thumbnails') stepLabel = 'Marketing Thumbnails Creation';
-    if (stepLabel === 'export') stepLabel = 'PDF, ZIP & PPTX Exporting';
+    const stepLabel = STEP_LABELS[currentStep] || currentStep;
 
     if (totalBooks > 0) {
       const currentName = displayProjectName(
@@ -3577,14 +5241,19 @@ function renderAutomationBar() {
         ? `${currentName} → ${stepLabel}`
         : `Book ${currentBookIndex}/${totalBooks} → ${stepLabel}`;
     } else {
-      elements.automationBarDetail.textContent = 'Starting pipeline...';
+      elements.automationBarDetail.textContent = 'Starting…';
     }
   }
 
   if (elements.automationOverallFill) {
     if (totalBooks > 0) {
-      const stepIndex = ['overview', 'characters', 'interior', 'listing', 'thumbnails', 'export'].indexOf(currentStep);
-      const stepProgress = Math.max(0, stepIndex) / 6;
+      const labOrder = ['interior_artwork', 'interior_text', 'editable_ppt', 'thumbnails', 'preview', 'export'];
+      const staticOrder = ['interior', 'thumbnails', 'preview', 'export'];
+      const mazeOrder = ['maze', 'thumbnails', 'preview', 'export'];
+      const format = activeProject()?.productFormat;
+      const order = format === 'editable' ? labOrder : format === 'maze' ? mazeOrder : staticOrder;
+      const stepIndex = Math.max(0, order.indexOf(currentStep));
+      const stepProgress = stepIndex / Math.max(1, order.length);
       const bookProgress = (currentBookIndex - 1) / totalBooks;
       const pct = Math.min(100, Math.max(0, (bookProgress + (stepProgress / totalBooks)) * 100));
       elements.automationOverallFill.style.width = `${pct}%`;
@@ -3600,22 +5269,24 @@ function renderBackgroundGenerationBar() {
   const viewingOther = Boolean(generating && state.selectedProjectId && generating.id !== state.selectedProjectId);
   elements.backgroundGenerationBar.hidden = !viewingOther;
   if (elements.backgroundGenerationText && viewingOther) {
-    elements.backgroundGenerationText.textContent = `"${displayProjectName(generating.name)}" is generating in the background. This book stays fully open.`;
+    elements.backgroundGenerationText.textContent = `"${displayProjectName(generating.name)}" generating.`;
   }
 }
 
 function render() {
+  const renderStarted = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
   renderUpdate();
   renderBrowser();
   renderAuth();
   renderSettingsConnections();
   renderProjectList();
   renderProject();
+  syncMarketRailFromState(state);
   renderBundleQueue();
   renderAutomationBar();
   renderBackgroundGenerationBar();
   renderWindowsUrlPageSetup();
-  applyCanvaLockUi();
+  applyEditableEngineUi();
   applyAppearanceUi();
 
   // Sync When Complete action dropdown
@@ -3652,7 +5323,7 @@ function openCropDialog() {
   const project = activeProject();
   if (!job || !project) return;
 
-  elements.cropDialogTitle.textContent = `Adjust Page ${job.pageNumber}: ${job.title}`;
+  elements.cropDialogTitle.textContent = `Page ${job.pageNumber}`;
   elements.cropPreviewImage.src = `tpt-image://job/${encodeURIComponent(job.id)}?raw=true&v=${encodeURIComponent(job.updatedAt ?? '')}`;
 
   const container = elements.cropPreviewContainer;
@@ -3723,6 +5394,41 @@ async function saveCropAdjustment() {
   }
 }
 
+// The analysis decides the pipeline. The radios stay in the DOM so the value still
+// reads back, but the choice is made for the user and shown as a decision, not a question.
+function applyDetectedPipeline(detected) {
+  const format = detected?.productFormat === 'editable' || detected?.productFormat === 'maze'
+    ? detected.productFormat
+    : 'static';
+  const radios = [...document.querySelectorAll('input[name="analysisPipelineChoice"]')];
+  for (const radio of radios) radio.checked = radio.value === format;
+
+  const box = radios[0]?.closest('.page-count-selection-box');
+  const heading = document.getElementById('analysis-pipeline-heading');
+  const note = document.getElementById('analysis-pipeline-detected');
+  if (heading) {
+    heading.textContent = format === 'editable'
+      ? 'Editable'
+      : format === 'maze'
+        ? 'Maze'
+        : 'Static';
+  }
+  if (note) {
+    note.hidden = false;
+    note.textContent = format === 'editable'
+      ? 'Editable pipeline.'
+      : format === 'maze'
+        ? 'Maze pipeline.'
+        : 'Print pipeline.';
+  }
+  // Hide the options themselves; the engine is not a user decision any more.
+  for (const radio of radios) {
+    const option = radio.closest('.radio-option');
+    if (option) option.hidden = true;
+  }
+  if (box) box.dataset.detectedFormat = format;
+}
+
 function openProjectDialog() {
   elements.projectForm.reset();
   elements.bulkPromptsText.value = '';
@@ -3730,13 +5436,143 @@ function openProjectDialog() {
   storybookGenerationPending = false;
   storySelectedPhotoPath = null;
   if (elements.storyCharacterPhoto) elements.storyCharacterPhoto.value = '';
-  if (elements.storyUploadFilename) elements.storyUploadFilename.textContent = 'No photo selected';
+  if (elements.storyUploadFilename) elements.storyUploadFilename.textContent = 'No photo';
   if (elements.storyClearUploadBtn) elements.storyClearUploadBtn.classList.add('hidden');
   applyNewProjectDefaults();
-  showProjectMethodStep();
+  showProjectMethodStep('agent');
   renderBulkPromptCount();
   renderPageOutputSpec();
   elements.projectDialog.showModal();
+}
+
+async function persistMazeLabFromForm() {
+  const project = activeProject();
+  if (!project || project.productFormat !== 'maze' || !window.versaMazeLab) return null;
+  const config = window.versaMazeLab.collectMazeConfig();
+  const lab = window.versaMazeLab.collectMazeLab();
+  if (typeof api.setMazeConfig === 'function') await api.setMazeConfig(project.id, config);
+  if (typeof api.setMazeLab === 'function') {
+    return api.setMazeLab(project.id, {
+      ...lab,
+      selectedPageId: selectedMazePageId,
+      previewVariant: mazePreviewVariant
+    });
+  }
+  return null;
+}
+
+async function persistAndGenerateMaze({ resume = false } = {}) {
+  const project = activeProject();
+  if (!project?.id) return;
+  if (typeof api.generateMazeBook !== 'function') {
+    showToast('Restart the app.', 'warning');
+    return;
+  }
+  mazeWorkspaceOpen = true;
+  setMarketLocalStage('prompts', resume ? 'Resuming…' : 'Generating…');
+  return invoke(async () => {
+    await persistMazeLabFromForm();
+    const result = await api.generateMazeBook(project.id, {
+      resume,
+      force: !resume,
+      pageCount: window.versaMazeLab?.collectMazeLab().pageCount
+    });
+    const ready = (result?.mazeProject?.pages || []).filter((page) => page.generationStatus === 'ready').length;
+    await continueMazePipelineFromLab(project, ready);
+    return result;
+  }, { successMessage: resume ? 'Maze generation resumed.' : 'Mazes generated.' });
+}
+
+function resolveMazeGenerateCount(project) {
+  const candidates = [
+    Number.parseInt(analysisResult?.analysis?.pageCount, 10),
+    Number.parseInt(project?.mazeLab?.pageCount, 10),
+    Number.parseInt(elements.conceptGeneratePageCount?.value, 10)
+  ];
+  const picked = candidates.find((value) => Number.isSafeInteger(value) && value > 0 && value <= 50);
+  return picked || 8;
+}
+
+async function generateMazeFromMarketplace(project) {
+  if (!project?.id) return null;
+  if (typeof api.generateMazeBook !== 'function') {
+    showToast('Restart the app.', 'warning');
+    return null;
+  }
+  const pageCount = resolveMazeGenerateCount(project);
+  const livePages = (state?.activeProject?.id === project.id
+    ? state.activeProject?.mazeProject?.pages
+    : project.mazeProject?.pages || []);
+  const liveReady = livePages.filter((page) => page.generationStatus === 'ready').length;
+  const designStale = livePages.some((page) => page.generationStatus === 'ready'
+    && page.topology?.design?.revision !== 3);
+  const lookAlike = liveReady >= 2 && new Set(livePages
+    .filter((page) => page.topology)
+    .map((page) => `${page.topology.shape}|${page.topology.algorithm}|${page.topology.lattice}`)).size < 2;
+  if (liveReady >= pageCount && pageCount > 0 && !designStale && !lookAlike) {
+    await continueMazePipelineFromLab(project, liveReady);
+    return { mazeProject: project.mazeProject || state?.activeProject?.mazeProject || null };
+  }
+  if (state?.liveOperation?.kind === 'maze' && state.liveOperation.projectId === project.id) {
+    return null;
+  }
+  mazeWorkspaceOpen = true;
+  activeWorkspaceView = 'maze';
+  document.body.dataset.studioPin = '';
+  setMarketLocalStage('prompts', `Generating ${pageCount}…`);
+  // #region agent log
+  fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H65',location:'renderer/renderer.js:generateMazeFromMarketplace',message:'marketplace generate started maze book',data:{projectId:project.id,pageCount,productFormat:project.productFormat||null,hasGenerateApi:typeof api.generateMazeBook==='function'},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  const generateBtn = elements.conceptGeneratePromptsBtn;
+  if (generateBtn) {
+    generateBtn.disabled = true;
+    generateBtn.textContent = 'Generating…';
+  }
+  try {
+    if (typeof api.setMazeLab === 'function') {
+      await api.setMazeLab(project.id, { pageCount });
+    }
+    await api.selectProject(project.id);
+    window.__versaSetStudioMode?.('studio', true);
+    if (elements.projectDialog?.open) elements.projectDialog.close();
+    renderProject();
+    const result = await api.generateMazeBook(project.id, {
+      pageCount,
+      brief: {
+        title: project.name || '',
+        description: project.description || '',
+        targetAge: project.targetAge || '',
+        highlights: project.highlights || [],
+        listingTitle: project.tptListing?.title || '',
+        listingDescription: project.tptListing?.description || '',
+        listingGrade: project.tptListing?.grade || project.targetAge || '',
+        keyword: project.tptListing?.title || project.name || '',
+        forceAgeFromListing: true
+      }
+    });
+    const ready = (result?.mazeProject?.pages || []).filter((page) => page.generationStatus === 'ready').length;
+    setMarketLocalStage('lab', `${ready} maze${ready === 1 ? '' : 's'} ready.`);
+    showToast(`${ready} maze${ready === 1 ? '' : 's'} ready.`, 'success');
+    await continueMazePipelineFromLab(project, ready);
+    // #region agent log
+    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H65',location:'renderer/renderer.js:generateMazeFromMarketplace',message:'marketplace generate finished maze book',data:{projectId:project.id,ready,pageCount,cancelled:Boolean(result?.cancelled),failed:Number(result?.failed)||0},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    await refreshState();
+    renderProject();
+    return result;
+  } catch (error) {
+    // #region agent log
+    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H66',location:'renderer/renderer.js:generateMazeFromMarketplace',message:'marketplace generate maze book failed',data:{projectId:project.id,pageCount,error:errorMessage(error)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    failMarketSession(errorMessage(error));
+    showToast(errorMessage(error), 'error');
+    return null;
+  } finally {
+    if (generateBtn) {
+      generateBtn.disabled = false;
+      generateBtn.textContent = 'Generate mazes';
+    }
+  }
 }
 
 async function handleAction(action, target) {
@@ -3744,7 +5580,7 @@ async function handleAction(action, target) {
   const jobId = target.dataset.jobId ?? selectedJobId;
   if (action === 'check-update') {
     return invoke(async () => {
-      showToast('Checking official servers for updates…', 'info');
+      showToast('Checking…', 'info');
       await api.checkForUpdates();
     }, { refresh: false });
   }
@@ -3768,13 +5604,31 @@ async function handleAction(action, target) {
       button.setAttribute('aria-pressed', selected ? 'true' : 'false');
     });
     if (typeof api?.setAppearance !== 'function') {
-      showToast('Restart the app to load appearance settings.', 'warning');
+      showToast('Restart the app.', 'warning');
       return;
     }
-    return invoke(() => api.setAppearance(appearance), { refresh: true });
+    return invoke(() => api.setAppearance(appearance), { refresh: false });
+  }
+  if (action === 'delete-project') {
+    return deleteProjectById(target.dataset.projectId);
   }
   if (action === 'close-settings') return elements.settingsDialog.close();
   if (action === 'select-settings-tab') return selectSettingsTab(target.dataset.settingsTarget);
+  if (action === 'restore-customization-links') {
+    restoreCustomizationLinks();
+    if (elements.settingsSaveNote) elements.settingsSaveNote.textContent = 'Links restored.';
+    return;
+  }
+  if (action === 'restore-customization-prompts') {
+    restoreCustomizationPrompts();
+    if (elements.settingsSaveNote) elements.settingsSaveNote.textContent = 'Prompts restored.';
+    return;
+  }
+  if (action === 'restore-customization-field') {
+    restoreCustomizationField(target);
+    if (elements.settingsSaveNote) elements.settingsSaveNote.textContent = 'Field restored.';
+    return;
+  }
   if (action === 'test-sound') {
     const soundType = target.dataset.soundType || 'success';
     playChime(soundType);
@@ -3798,16 +5652,6 @@ async function handleAction(action, target) {
     if (elements.settingsDialog.open) elements.settingsDialog.close();
     return openAuthManager('meta');
   }
-  if (action === 'settings-manage-canva') {
-    if (canvaLocked()) {
-      showToast(canvaLockMessage(), 'warning');
-      return;
-    }
-    return invoke(() => openLoginSession({ target: 'canva' }), {
-      successMessage: 'Chrome Canary opened on Canva. Sign in to Canva Pro, then click Verify Canva.',
-      refresh: false
-    });
-  }
   if (action === 'set-ai-engine') {
     const requested = String(target.dataset.engine || '').toLowerCase();
     const engine = requested === 'gemini' || requested === 'meta' ? requested : 'chatgpt';
@@ -3825,10 +5669,10 @@ async function handleAction(action, target) {
     const originalText = target.textContent;
     target.disabled = true;
     target.textContent = 'Verifying…';
-    elements.settingsChatgptStatus.textContent = 'Checking Gemini in the background';
+    elements.settingsChatgptStatus.textContent = 'Checking Gemini';
     try {
       const result = await invoke(() => verifyLoginSession({ target: 'gemini' }));
-      if (result?.authenticated) showToast('Gemini session verified.', 'success');
+      if (result?.authenticated) showToast('Gemini verified.', 'success');
       return result;
     } finally {
       target.disabled = false;
@@ -3839,10 +5683,10 @@ async function handleAction(action, target) {
     const originalText = target.textContent;
     target.disabled = true;
     target.textContent = 'Verifying…';
-    if (elements.settingsMockupsStatus) elements.settingsMockupsStatus.textContent = 'Checking ChatGPT in the background';
+    if (elements.settingsMockupsStatus) elements.settingsMockupsStatus.textContent = 'Checking ChatGPT';
     try {
       const result = await invoke(() => verifyLoginSession({ target: 'chatgpt' }));
-      if (result?.authenticated) showToast('ChatGPT session verified for mockups.', 'success');
+      if (result?.authenticated) showToast('ChatGPT verified.', 'success');
       await populateSettingsForm();
       return result;
     } finally {
@@ -3854,36 +5698,37 @@ async function handleAction(action, target) {
     const originalText = target.textContent;
     target.disabled = true;
     target.textContent = 'Verifying…';
-    if (elements.settingsMetaStatus) elements.settingsMetaStatus.textContent = 'Checking Meta in the background';
+    if (elements.settingsMetaStatus) elements.settingsMetaStatus.textContent = 'Checking Meta AI.';
     try {
       const result = await invoke(() => verifyLoginSession({ target: 'meta' }));
-      if (result?.authenticated) showToast('Meta session verified. Turn it On to generate images.', 'success');
+      if (result?.authenticated) showToast('Meta AI verified.', 'success');
       return result;
     } finally {
       target.disabled = false;
       target.textContent = originalText;
     }
   }
-  if (action === 'settings-verify-canva') {
-    if (canvaLocked()) {
-      showToast(canvaLockMessage(), 'warning');
-      return;
-    }
-    const originalText = target.textContent;
-    target.disabled = true;
-    target.textContent = 'Verifying…';
-    if (elements.settingsCanvaStatus) elements.settingsCanvaStatus.textContent = 'Checking Canva in the background';
-    try {
-      const result = await invoke(() => verifyLoginSession({ target: 'canva' }));
-      if (result?.authenticated) showToast('Canva Pro session verified.', 'success');
-      return result;
-    } finally {
-      target.disabled = false;
-      target.textContent = originalText;
-    }
+  if (action === 'ui-toggle-sidebar') {
+    const sidebar = document.getElementById('ui-sidebar');
+    const toggle = document.getElementById('ui-sidebar-toggle');
+    if (!sidebar) return;
+    const collapsed = sidebar.classList.toggle('is-collapsed');
+    // The button advertises aria-pressed and the sidebar aria-expanded; both have to
+    // follow the actual state or the control lies to assistive tech.
+    toggle?.setAttribute('aria-pressed', String(collapsed));
+    sidebar.setAttribute('aria-expanded', String(!collapsed));
+    try { localStorage.setItem('versa.sidebarCollapsed', collapsed ? '1' : '0'); } catch { /* private mode */ }
+    return;
+  }
+  if (action === 'ui-focus-search') {
+    const search = document.getElementById('ui-global-search');
+    if (!search) return;
+    search.focus();
+    search.select?.();
+    return;
   }
   if (action === 'settings-logout-openai') {
-    const confirmed = confirm('Log out of the verified ChatGPT mockup session? Gemini stays connected.');
+    const confirmed = confirm('Log out of ChatGPT?');
     if (!confirmed) return;
     const btn = elements.settingsOpenaiLogout;
     const originalText = btn?.textContent;
@@ -3892,8 +5737,10 @@ async function handleAction(action, target) {
       btn.textContent = 'Logging out…';
     }
     try {
-      await invoke(() => api.logoutOpenAi());
-      showToast('Logged out of ChatGPT mockup session.', 'success');
+      // preload exposes logoutChatGpt; logoutOpenAi never existed, so this button
+      // threw a TypeError instead of ending the session.
+      await invoke(() => api.logoutChatGpt());
+      showToast('Logged out.', 'success');
       await populateSettingsForm();
     } finally {
       if (btn) {
@@ -3909,10 +5756,10 @@ async function handleAction(action, target) {
       return openAuthManager('chatgpt');
     }
     if (elements.settingsDialog.open) elements.settingsDialog.close();
-    return invoke(() => api.openMockupsGpt(), { successMessage: 'Mockups Custom GPT opened with the verified ChatGPT profile.', refresh: false });
+    return invoke(() => api.openMockupsGpt(), { successMessage: 'ChatGPT opened with the verified profile.', refresh: false });
   }
   if (action === 'settings-logout-chatgpt') {
-    const confirmed = confirm('Are you sure you want to log out of your Gemini session? This will clear the imported session cookies from the app.');
+    const confirmed = confirm('Log out of Gemini?');
     if (!confirmed) return;
     const btn = elements.settingsChatgptLogout;
     const originalText = btn.textContent;
@@ -3920,7 +5767,7 @@ async function handleAction(action, target) {
     btn.textContent = 'Logging out…';
     try {
       await invoke(() => api.logoutChatGpt());
-      showToast('Logged out of Gemini session.', 'success');
+      showToast('Logged out.', 'success');
       await populateSettingsForm();
     } finally {
       btn.disabled = false;
@@ -3929,7 +5776,7 @@ async function handleAction(action, target) {
     return;
   }
   if (action === 'settings-logout-meta') {
-    const confirmed = confirm('Log out of Meta only? ChatGPT and Gemini stay signed in.');
+    const confirmed = confirm('Log out of Meta AI?');
     if (!confirmed) return;
     const btn = elements.settingsMetaLogout;
     const originalText = btn?.textContent;
@@ -3940,33 +5787,7 @@ async function handleAction(action, target) {
     try {
       if (typeof api.logoutMeta !== 'function') throw new Error('Restart the app to load Meta logout.');
       await invoke(() => api.logoutMeta());
-      showToast('Logged out of Meta. ChatGPT and Gemini were not signed out.', 'success');
-      await populateSettingsForm();
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = originalText;
-      }
-    }
-    return;
-  }
-  if (action === 'settings-logout-canva') {
-    if (canvaLocked()) {
-      showToast(canvaLockMessage(), 'warning');
-      return;
-    }
-    const confirmed = confirm('Log out of Canva only? ChatGPT, Gemini, and Meta stay signed in.');
-    if (!confirmed) return;
-    const btn = elements.settingsCanvaLogout;
-    const originalText = btn?.textContent;
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = 'Logging out…';
-    }
-    try {
-      if (typeof api.logoutCanva !== 'function') throw new Error('Restart the app to load Canva logout.');
-      await invoke(() => api.logoutCanva());
-      showToast('Logged out of Canva. Other sessions were not signed out.', 'success');
+      showToast('Logged out.', 'success');
       await populateSettingsForm();
     } finally {
       if (btn) {
@@ -3978,7 +5799,7 @@ async function handleAction(action, target) {
   }
   if (action === 'run-stage') {
     const step = target.dataset.stage || 'editable';
-    const view = step === 'editable' ? 'editable' : step;
+    const view = step === 'editable_generation' ? 'editable' : step;
     if (WORKSPACE_PANES.includes(view)) activeWorkspaceView = view;
     const reason = stageStartBlockReason(step, project);
     if (reason) {
@@ -3993,22 +5814,23 @@ async function handleAction(action, target) {
         return api.generateAllCharacterSheets(project.id);
       }, { successMessage: 'Character references finished.' });
     }
-    if (step === 'interior') return handleAction('start', target);
-    if (step === 'editable') return handleAction('run-canva-editable', target);
-    if (step === 'listing') return handleAction('generate-tpt-listing', target);
+    if (step === 'interior' || step === 'interior_artwork') return handleAction('start', target);
+    if (step === 'interior_text') return handleAction('generate-editable-text', target);
+    if (step === 'editable_generation' || step === 'editable_ppt') return handleAction('run-editable-engine', target);
     if (step === 'thumbnails') return handleAction('generate-tpt-thumbnails', target);
     if (step === 'preview') return handleAction('generate-tpt-preview-video', target);
     if (step === 'export') return handleAction('export-all-files', target);
+    if (step === 'maze') return handleAction('generate-maze', target);
     showToast(`Unknown stage "${step}".`, 'warning');
     return;
   }
   if (action === 'start-full-automation') {
     if (!project?.id) {
-      showToast('Select a book first.', 'warning');
+      showToast('Select a book.', 'warning');
       return;
     }
     const reason = state?.automation?.active && !state?.automation?.paused
-      ? 'Full automation is already running. Pause it to start again.'
+      ? 'Automation running.'
       : browserBusyReason();
     if (reason) {
       showToast(reason, 'warning');
@@ -4016,47 +5838,84 @@ async function handleAction(action, target) {
     }
     return invoke(() => api.startAutomation(project.id), { successMessage: 'Full automation started for this book.' });
   }
-  if (action === 'run-canva-editable') {
+  if (action === 'run-editable-engine') {
     if (!project) return;
-    if (canvaLocked()) {
-      showToast(canvaLockMessage(), 'warning');
-      return;
-    }
-    const reason = stageStartBlockReason('editable', project);
+    return invoke(() => api.runEditableGeneration(project.id), {successMessage:'Native editable pages generated.'});
+  }
+  if (action === 'open-output-folder') {
+    // The project's own output folder, which is where every deliverable is written.
+    // This used to reveal editableBuild.pptxPath - the legacy engine's book-editable.pptx
+    // - so "Show files" opened a stale file in a different place from the exports.
+    if (!project?.outputDir) return showToast('No output folder.', 'warning');
+    return api.revealPath(project.outputDir);
+  }
+  if (action === 'write-page-text') {
+    if (!project) return;
+    // The local engine needs no browser; only the gem fallback does.
+    const reason = visionReady() ? '' : browserBusyReason();
     if (reason) {
       showToast(reason, 'warning');
       return;
     }
-    return invoke(() => {
-      if (typeof api.runCanvaEditable !== 'function') throw new Error('Restart the app to load Canva editable.');
-      return api.runCanvaEditable(project.id);
-    }, { successMessage: 'Canva Magic Layer finished. Template link saved.' });
+    const jobIds = [target.dataset.jobId];
+    return invoke(() => api.generateEditablePageText(project.id, { jobIds, force: true }), {successMessage:'Page text written from this page artwork.'});
   }
-  if (action === 'open-canva-template') {
-    if (!project?.canvaTemplateLink) {
-      showToast('No template link yet. Build Canva layer first.', 'warning');
+  if (action === 'generate-editable-text') {
+    if (!project) return;
+    const reason = visionReady() ? '' : browserBusyReason();
+    if (reason) {
+      showToast(reason, 'warning');
       return;
     }
-    return invoke(() => api.openExternal(project.canvaTemplateLink), { refresh: false });
+    return invoke(() => api.generateEditablePageText(project.id), {
+      successMessage: visionReady()
+        ? 'Pages read and rebuilt with live, editable text.'
+        : 'Page text written from the page artwork.'
+    });
   }
-  if (action === 'clear-canva-template') {
-    if (!window.confirm('Clear the Canva template link so you can rebuild Magic Layers?')) return;
-    return invoke(() => api.clearCanvaTemplate(project.id), { successMessage: 'Canva template cleared.' });
+  if (action === 'rebuild-editable-text') {
+    if (!project) return;
+    if (!window.confirm('Rebuild pages?')) return;
+    const reason = visionReady() ? '' : browserBusyReason();
+    if (reason) { showToast(reason, 'warning'); return; }
+    return invoke(() => api.generateEditablePageText(project.id, { force: true }), {
+      successMessage: 'Pages re-read and rebuilt.'
+    });
   }
-  if (action === 'clear-tpt-listing') {
-    if (!window.confirm('Delete this listing, its mockups, and preview video? You can generate them again.')) return;
-    return invoke(() => api.clearTptListing(project.id), { successMessage: 'Listing deleted.' });
+  if (action === 'export-editable-pptx') {
+    if (!project) return;
+    const path = await invoke(() => api.exportPptx(project.id, {}), {
+      successMessage: 'Editable PowerPoint exported.'
+    });
+    if (path) openItem(path);
+    return;
+  }
+  if (action === 'export-editable-docx') {
+    if (!project) return;
+    const path = await invoke(() => api.exportDocx(project.id, {}), {
+      successMessage: 'Word document exported.'
+    });
+    if (path) openItem(path);
+    return;
+  }
+  if (action === 'export-editable-pdf') {
+    if (!project) return;
+    const path = await invoke(() => api.exportPdf(project.id, {}), {
+      successMessage: 'Layered PDF exported.'
+    });
+    if (path) openItem(path);
+    return;
   }
   if (action === 'clear-tpt-thumbnails') {
-    if (!window.confirm('Delete all listing mockups? The four slots stay so you can generate them again.')) return;
+    if (!window.confirm('Delete all mockups?')) return;
     return invoke(() => api.clearTptThumbnails(project.id), { successMessage: 'Mockups deleted.' });
   }
   if (action === 'clear-tpt-thumbnail') {
-    if (!window.confirm('Delete this mockup? The slot stays empty until you regenerate it.')) return;
+    if (!window.confirm('Delete this mockup?')) return;
     return invoke(() => api.clearTptThumbnail(project.id, Number.parseInt(target.dataset.thumbnailIndex, 10)), { successMessage: 'Mockup deleted.' });
   }
   if (action === 'clear-competitor-mockups') {
-    if (!window.confirm('Delete the competitor listing mockups for this book?')) return;
+    if (!window.confirm('Delete competitor mockups?')) return;
     return invoke(() => api.clearCompetitorMockups(project.id), { successMessage: 'Competitor mockups deleted.' });
   }
   if (action === 'settings-open-custom-gpt') {
@@ -4088,15 +5947,106 @@ async function handleAction(action, target) {
   if (action === 'toggle-product-format') {
     const project = state?.activeProject;
     if (!project?.id || typeof api.setProjectFormat !== 'function') return;
+    if (project.productFormat === 'maze') return;
     const next = project.productFormat === 'editable' ? 'static' : 'editable';
-    if (next === 'editable' && canvaLocked()) {
-      showToast(canvaLockMessage(), 'warning');
-    }
     return invoke(() => api.setProjectFormat(project.id, next), {
       successMessage: next === 'editable'
-        ? (canvaLocked() ? 'Marked editable. Build Editable will create PowerPoint + SVG pages.' : 'Marked editable (PowerPoint + SVG).')
+        ? 'Marked editable (PowerPoint + SVG).'
         : 'Marked static (print only).'
     });
+  }
+  if (action === 'toggle-generation-mode') {
+    const project = state?.activeProject;
+    if (!project?.id || typeof api.setProjectGenerationMode !== 'function') return;
+    const next = project.generationMode === 'editable' ? 'fixed' : 'editable';
+    return invoke(() => api.setProjectGenerationMode(project.id, next), {
+      successMessage: next === 'editable'
+        ? 'Text free next.'
+        : 'Baked text next.'
+    });
+  }
+  if (action === 'generate-maze' || action === 'resume-maze') {
+    if (!project || project.productFormat !== 'maze') return;
+    return persistAndGenerateMaze({ resume: action === 'resume-maze' });
+  }
+  if (action === 'cancel-maze') {
+    if (!project?.id || typeof api.cancelMaze !== 'function') return;
+    return invoke(() => api.cancelMaze(project.id), { successMessage: 'Maze generation stopped. Finished pages were kept.' });
+  }
+  if (action === 'pick-management-folders') {
+    if (typeof window.versaBookManagement?.chooseFolders === 'function') {
+      return window.versaBookManagement.chooseFolders();
+    }
+    if (typeof api.chooseBookManagementRoot === 'function') {
+      return invoke(() => api.chooseBookManagementRoot(), { successMessage: 'Folders saved.' });
+    }
+    return;
+  }
+  if (action === 'delete-all-maze-pages') {
+    if (!project || project.productFormat !== 'maze' || typeof api.clearMazePages !== 'function') return;
+    if (!window.confirm('Delete all mazes?')) return;
+    return invoke(() => api.clearMazePages(project.id), { successMessage: 'Mazes deleted.' });
+  }
+  if (action === 'delete-all-job-images') {
+    if (!project || typeof api.clearJobImages !== 'function') return;
+    if (!window.confirm('Delete all pages?')) return;
+    return invoke(() => api.clearJobImages(project.id), { successMessage: 'Pages deleted.' });
+  }
+  if (action === 'delete-all-text-lab') {
+    if (!project || typeof api.clearTextLab !== 'function') return;
+    if (!window.confirm('Delete all text?')) return;
+    return invoke(() => api.clearTextLab(project.id), { successMessage: 'Text deleted.' });
+  }
+  if (action === 'delete-all-editable') {
+    if (!project || typeof api.clearEditableLab !== 'function') return;
+    if (!window.confirm('Delete all files?')) return;
+    return invoke(() => api.clearEditableLab(project.id), { successMessage: 'Files deleted.' });
+  }
+  if (action === 'delete-maze-page') {
+    if (!project || project.productFormat !== 'maze' || typeof api.clearMazePage !== 'function') return;
+    const pageId = target.dataset.pageId || selectedMazePageId || project.mazeProject?.pages?.[0]?.pageId;
+    if (!pageId) return showToast('Select a maze.', 'warning');
+    if (!window.confirm('Delete this maze?')) return;
+    selectedMazePageId = pageId;
+    return invoke(() => api.clearMazePage(project.id, pageId), { successMessage: 'Maze deleted.' });
+  }
+  if (action === 'regenerate-maze-page') {
+    if (!project || project.productFormat !== 'maze' || typeof api.generateMazePage !== 'function') return;
+    const pageId = target.dataset.pageId || selectedMazePageId || project.mazeProject?.pages?.[0]?.pageId;
+    if (!pageId) return showToast('Select a maze.', 'warning');
+    selectedMazePageId = pageId;
+    return invoke(async () => {
+      await persistMazeLabFromForm();
+      return api.generateMazePage(project.id, { pageId });
+    }, { successMessage: 'Maze regenerated.' });
+  }
+  if (action === 'select-maze-page') {
+    selectedMazePageId = target.dataset.pageId || null;
+    return renderProject();
+  }
+  if (action === 'maze-preview-variant') {
+    mazePreviewVariant = target.dataset.variant === 'solution' ? 'solution' : 'student';
+    if (project?.id && typeof api.setMazeLab === 'function') {
+      api.setMazeLab(project.id, { previewVariant: mazePreviewVariant }).catch(() => {});
+    }
+    return renderProject();
+  }
+  if (action === 'copy-maze-seed') {
+    const seed = document.getElementById('maze-seed')?.value;
+    if (!seed) return showToast('Generate first.', 'warning');
+    return invoke(() => api.copyToClipboard(seed), { successMessage: 'Seed copied.', refresh: false });
+  }
+  if (action === 'toggle-maze-seed-lock') {
+    if (!project?.id || typeof api.setMazeLab !== 'function') return;
+    const next = !(project.mazeLab?.seedLocked);
+    return invoke(() => api.setMazeLab(project.id, { seedLocked: next }), {
+      successMessage: next ? 'Seed locked.' : 'Seed unlocked.'
+    });
+  }
+  if (action === 'reroll-maze-seed') {
+    if (!project?.id || typeof api.rerollMazeSeed !== 'function') return;
+    if (project.mazeLab?.seedLocked) return showToast('Unlock seed.', 'warning');
+    return invoke(() => api.rerollMazeSeed(project.id), { successMessage: 'New seed ready.' });
   }
   if (action === 'new-project') return openProjectDialog();
   if (action === 'close-dialog') return elements.projectDialog.close();
@@ -4129,7 +6079,7 @@ async function handleAction(action, target) {
       storybookGenerationPending = false;
       await refreshState();
       renderStorybookReviewModal(result, 'complete');
-      showToast(`Storybook workflow recovered ${result.parsed.pages.length} story pages and both covers.`, 'success');
+      showToast('Storybook recovered.', 'success');
       return result;
     } catch (error) {
       storybookGenerationPending = false;
@@ -4142,7 +6092,7 @@ async function handleAction(action, target) {
     const projectId = target.dataset.projectId;
     const characterIndex = Number.parseInt(target.dataset.characterIndex, 10);
     target.disabled = true;
-    target.textContent = 'Generating Character Reference…';
+    target.textContent = 'Generating…';
     try {
       const updatedProject = await invoke(() => api.generateCharacterSheet(projectId, characterIndex), {
         successMessage: 'Character reference generated and saved with the storybook.'
@@ -4156,12 +6106,15 @@ async function handleAction(action, target) {
       return updatedProject;
     } catch {
       target.disabled = false;
-      target.textContent = 'Generate Character Reference';
+      target.textContent = 'Generate';
       return;
     }
   }
   if (action === 'choose-prompt-method') return showProjectPromptStep();
   if (action === 'choose-analysis-method') return showProjectAnalysisInputStep();
+  if (action === 'choose-agent-method') return showProjectAgentStep();
+  if (action === 'agent-back') return showProjectMethodStep();
+  if (action === 'run-agent') return runVersaAgent(target);
   if (action === 'back-to-methods') return showProjectMethodStep();
   if (action === 'back-to-analysis-input') return showProjectAnalysisInputStep();
   if (action === 'close-image-preview') return elements.imagePreviewDialog.close();
@@ -4190,9 +6143,9 @@ async function handleAction(action, target) {
     const characterItems = context.project.characterSheets.map((sheet, index) => sheet.status === 'complete' && sheet.outputPath ? ({
       src: `tpt-image://character/${encodeURIComponent(context.project.id)}/${index}?v=${encodeURIComponent(context.project.updatedAt ?? '')}`,
       alt: `${context.project.highlights?.characters?.[index]?.name || `Character ${index + 1}`} character reference at full size`,
-      title: `${context.project.highlights?.characters?.[index]?.name || `Character ${index + 1}`} — Character Reference`
+      title: `${context.project.highlights?.characters?.[index]?.name || `Character ${index + 1}`}`
     }) : null).filter(Boolean);
-    showImagePreview(characterItems, characterItems.findIndex((item) => item.title.startsWith(`${context.character.name} —`)));
+    showImagePreview(characterItems, characterItems.findIndex((item) => item.title.startsWith(`${context.character.name}`)));
     return;
   }
   if (action === 'toggle-page-prompt') {
@@ -4203,10 +6156,15 @@ async function handleAction(action, target) {
   if (action === 'close-edit-dialog') return elements.editPageDialog.close();
   if (action === 'select-project') {
     selectedJobId = null;
-    activeWorkspaceView = 'overview';
+    const picked = (state?.projects || []).find((item) => item.id === target.dataset.projectId);
+    mazeWorkspaceOpen = picked?.productFormat === 'maze';
+    activeWorkspaceView = mazeWorkspaceOpen ? 'maze' : 'overview';
     lastRenderedWorkspaceView = null;
     bundleViewActive = false; // exit bundle view when switching to a project
     document.body.dataset.studioPin = '';
+    // #region agent log
+    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H62',location:'renderer/renderer.js:select-project',message:'library open chose workspace',data:{projectId:target.dataset.projectId||null,productFormat:picked?.productFormat||null,activeWorkspaceView},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     return invoke(() => api.selectProject(target.dataset.projectId));
   }
   if (action === 'jump-generating-project') {
@@ -4219,7 +6177,10 @@ async function handleAction(action, target) {
     return invoke(() => api.selectProject(id));
   }
   if (action === 'select-workspace-view') {
-    activeWorkspaceView = target.dataset.viewTarget || 'overview';
+    const next = target.dataset.viewTarget === 'mockups' ? 'thumbnails' : (target.dataset.viewTarget || 'overview');
+    const tab = document.querySelector(`#project-standard-view .workspace-tab[data-view-target="${next}"]`);
+    if (tab && (tab.hidden || tab.hasAttribute('hidden') || tab.hasAttribute('inert'))) return;
+    activeWorkspaceView = next;
     return renderProject();
   }
   if (action === 'reveal-project-folder') {
@@ -4249,9 +6210,9 @@ async function handleAction(action, target) {
   }
   if (action === 'open-job') return invoke(() => api.openJobConversation(jobId), { refresh: false });
   if (action === 'import-job') return invoke(() => api.importPageImage(jobId), { successMessage: 'Image linked to this page.' });
-  if (action === 'retry-job') return invoke(() => api.retryJob(jobId), { successMessage: 'This page will retry in the same ordered slot.' });
+  if (action === 'generate-job' || action === 'retry-job') return invoke(() => api.generateJob(jobId), { successMessage: 'Image generation queued.' });
   if (action === 'delete-job-image') {
-    if (!window.confirm('Delete this page image? You can regenerate it after.')) return;
+    if (!window.confirm('Delete this page?')) return;
     return invoke(() => api.clearJobImage(jobId), { successMessage: 'Page image deleted.' });
   }
   if (action === 'regenerate-job') {
@@ -4267,23 +6228,31 @@ async function handleAction(action, target) {
   }
   if (action === 'start') {
     if (isGeneratingElsewhere(project)) {
-      showToast(`"${displayProjectName(generatingProjectRecord()?.name || 'Another book')}" is generating in the background. Pause it only if you want to generate this book instead.`, 'info');
+      showToast(`"${displayProjectName(generatingProjectRecord()?.name || 'Another book')}" generating.`, 'info');
       return;
     }
-    const result = await invoke(() => api.startQueue(project.id), { refresh: true });
-    if (!result?.cancelled) showToast('Generation started.', 'success');
+    // Runs every stage in order. Individual stages still have their own buttons; this
+    // one is the pipeline, which is what a Run control at the top of the book should be.
+    const result = await invoke(() => api.startAutomation(project.id), { refresh: true });
+    showToast('Pipeline started.', 'success');
     return result;
   }
-  if (action === 'pause') return invoke(() => api.pauseQueue(), { successMessage: 'Stopped. Start again when you are ready.' });
-  if (action === 'retry-all') return invoke(() => api.retryAll(project.id), { successMessage: 'Incomplete pages reset and ready.' });
+  if (action === 'pause') {
+    // Pause both: the pipeline must stop advancing, and whatever stage is mid-flight
+    // must stop too, or the pipeline halts while a queue keeps generating behind it.
+    const automation = state?.automation || {};
+    if (automation.active && !automation.paused) await invoke(() => api.pauseAutomation());
+    return invoke(() => api.pauseQueue(), { successMessage: 'Paused.' });
+  }
+  if (action === 'retry-all') return invoke(() => api.retryAll(project.id), { successMessage: 'Reset.' });
   if (action === 'regenerate-interior') {
     if (!project?.jobs?.length) return;
     const targets = project.jobs.filter((job) => job.status === 'complete' && job.conversationUrl);
     if (!targets.length) {
-      showToast('No saved conversations to regenerate from.', 'warning');
+      showToast('No conversations.', 'warning');
       return;
     }
-    if (!window.confirm(`Regenerate ${targets.length} page${targets.length === 1 ? '' : 's'} in their saved conversations?`)) return;
+    if (!window.confirm(`Regenerate ${targets.length} page${targets.length === 1 ? '' : 's'}?`)) return;
     let queued = 0;
     for (const job of targets) {
       try {
@@ -4301,8 +6270,14 @@ async function handleAction(action, target) {
       }
     }
     await refreshState();
-    showToast(queued ? `Regenerating ${queued} page${queued === 1 ? '' : 's'}.` : 'Could not queue regenerate.', queued ? 'success' : 'warning');
+    showToast(queued ? `Regenerating ${queued}.` : 'Could not queue.', queued ? 'success' : 'warning');
     return renderProject();
+  }
+  if (action === 'open-versa-management') {
+    if (!window.versaBookManagement?.openChannel) {
+      return showToast('Restart the app.', 'warning');
+    }
+    return window.versaBookManagement.openChannel();
   }
   if (action === 'choose-output') return invoke(() => api.chooseOutputDirectory(project.id));
   if (action === 'launch-browser') return openAuthManager(activeEngine() === 'meta' ? 'meta' : 'gemini');
@@ -4333,19 +6308,29 @@ async function handleAction(action, target) {
     if (path) api.revealPath(path);
     return path;
   }
-  if (action === 'export-all-files') {
+  if (action === 'export-all-files' || action === 'export-to-management') {
     const exportMode = elements.exportModeSelect?.value || 'STANDARD_SEQUENTIAL';
-    const path = await invoke(() => api.exportAllFiles(project.id, { exportMode }), { successMessage: 'Complete book folder exported.' });
-    if (path) api.revealPath(path);
-    return path;
-  }
-  if (action === 'generate-tpt-listing') {
-    const reason = stageStartBlockReason('listing', project);
-    if (reason) {
-      showToast(reason, 'warning');
+    if (!window.versaBookManagement?.pickAndExport) {
+      showToast('Restart the app.', 'warning');
       return;
     }
-    return invoke(() => api.generateTptListing(project.id), { successMessage: 'Best-seller SEO saved (title, description, tags).' });
+    try {
+      const path = await window.versaBookManagement.pickAndExport({
+        project,
+        exportMode,
+        onSuccess: () => showToast('Exported.', 'success')
+      });
+      if (path) await refreshState();
+      return path;
+    } catch (error) {
+      const message = errorMessage(error);
+      if (error?.code === 'MANAGEMENT_UNAVAILABLE' || /Open Versa Management/i.test(message)) {
+        showToast(message, 'error');
+        return;
+      }
+      showToast(message, 'error');
+      throw error;
+    }
   }
   if (action === 'generate-tpt-thumbnails') {
     const reason = stageStartBlockReason('thumbnails', project);
@@ -4354,6 +6339,15 @@ async function handleAction(action, target) {
       return;
     }
     return invoke(() => api.generateTptThumbnails(project.id), { successMessage: 'Four mockups generated and saved.' });
+  }
+  if (action === 'clear-tpt-preview') {
+    if (!project?.id) return;
+    if (!window.confirm('Delete all previews?')) return;
+    if (typeof api.clearTptPreview === 'function') {
+      return invoke(() => api.clearTptPreview(project.id), { successMessage: 'Preview deleted.' });
+    }
+    if (typeof api.clearTptAsset !== 'function') return;
+    return invoke(() => api.clearTptAsset(project.id, 'videoPreview'), { successMessage: 'Preview deleted.' });
   }
   if (action === 'generate-tpt-preview-video') {
     const reason = stageStartBlockReason('preview', project);
@@ -4366,45 +6360,6 @@ async function handleAction(action, target) {
       successMessage: 'Preview video saved for teachers.'
     });
   }
-  if (action === 'regenerate-tpt-field') return invoke(() => api.regenerateTptField(project.id, target.dataset.tptField), { successMessage: 'Listing field regenerated.' });
-  if (action === 'copy-seo-bundle') {
-    const root = document.querySelector('[data-workspace-pane="listing"]') || target.closest('.tpt-seo-bundle');
-    const text = root?.querySelector('[data-tpt-setting="seo-bundle"]')?.value?.trim() || '';
-    // #region agent log
-    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify({sessionId:'1c3662',runId:'seo-ui',hypothesisId:'E',location:'renderer.js:copy-seo-bundle',message:'copy SEO clicked',data:{textLen:text.length,hasSkipped:/skipped/i.test(text),head:text.slice(0,120)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-    if (!text) {
-      showToast('Generate SEO first.', 'warning');
-      return;
-    }
-    if (/skipped/i.test(text)) {
-      showToast('SEO still has skip stubs. Regenerate SEO first.', 'warning');
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast('SEO copied.', 'success');
-    } catch {
-      showToast('Could not copy SEO.', 'error');
-    }
-    return;
-  }
-  if (action === 'save-tpt-publication-settings') {
-    const root = document.querySelector('[data-workspace-pane="listing"]') || target.closest('[data-tpt-publication-settings]');
-    if (!root) return;
-    const seoRaw = root.querySelector('[data-tpt-setting="seo-bundle"]')?.value;
-    const parsedSeo = seoRaw != null ? parseSeoBundleForUi(seoRaw) : null;
-    if (!parsedSeo || (!parsedSeo.title && !parsedSeo.description && !parsedSeo.tags && !String(seoRaw || '').trim())) {
-      showToast('Generate or paste SEO first.', 'warning');
-      return;
-    }
-    return invoke(() => api.updateTptPublication(project.id, {
-      title: parsedSeo.title,
-      description: parsedSeo.description,
-      tags: parsedSeo.tags,
-      seoText: String(seoRaw || '').trim()
-    }), { successMessage: 'SEO saved.' });
-  }
   if (action === 'choose-tpt-asset') {
     return invoke(() => api.chooseTptAsset(project.id, target.dataset.tptAsset), { successMessage: 'Optional TPT asset saved locally.' });
   }
@@ -4412,16 +6367,16 @@ async function handleAction(action, target) {
     return invoke(() => api.clearTptAsset(project.id, target.dataset.tptAsset), { successMessage: 'Optional TPT asset removed from this listing record.' });
   }
   if (action === 'mark-tpt-ready') {
-    if (!window.confirm('Confirm that you reviewed the product PDF, full TPT metadata, all commercial fields, tax code, taxonomy, thumbnail mode, optional assets, standards, copyright declaration, and Draft/Active status. Mark this listing ready for upload? Starting upload will prepare and submit an INACTIVE DRAFT automatically. Active publication still keeps its separate final confirmation.')) return;
+    if (!window.confirm('Mark ready?')) return;
     return invoke(() => api.markTptReady(project.id), { successMessage: 'Project marked ready to upload.' });
   }
   if (action === 'preview-tpt-thumbnail') {
     const index = Number.parseInt(target.dataset.thumbnailIndex, 10);
     const items = thumbnailPreviewItems(project);
-    showImagePreview(items, items.findIndex((item) => item.title === `TPT Thumbnail ${index + 1}`));
+    showImagePreview(items, items.findIndex((item) => item.title === `TPT Mockup ${index + 1}`));
     return;
   }
-  if (action === 'regenerate-tpt-thumbnail') return invoke(() => api.regenerateTptThumbnail(project.id, Number.parseInt(target.dataset.thumbnailIndex, 10)), { successMessage: 'Thumbnail regeneration started.' });
+  if (action === 'regenerate-tpt-thumbnail') return invoke(() => api.regenerateTptThumbnail(project.id, Number.parseInt(target.dataset.thumbnailIndex, 10)), { successMessage: 'Mockup regeneration started.' });
   if (action === 'open-tpt-upload') {
     return invoke(() => api.openTptUpload(), { successMessage: 'TPT upload page opened. Review the draft before uploading.' }, { refresh: false });
   }
@@ -4434,7 +6389,7 @@ async function handleAction(action, target) {
     target.disabled = true;
     target.textContent = 'Opening TPT upload…';
     try {
-      return await invoke(() => api.startTptUploading(project.id), { successMessage: project.tptListing?.publicationStatus === 'active'
+      return await invoke(() => api.startTptUploading(project.id), { successMessage: projectMarketplace(project).settings.publicationStatus === 'active'
         ? 'TPT upload workspace opened and the reviewed active-listing workflow started.'
         : 'TPT inactive draft submitted and verified automatically.' });
     } catch (error) {
@@ -4446,13 +6401,13 @@ async function handleAction(action, target) {
   if (action === 'submit-tpt-listing') {
     const listing = project.tptListing || {};
     const imageCount = listing.thumbnailMode === 'manual' ? (listing.thumbnailPaths || []).filter(Boolean).length : 0;
-    const statusLabel = listing.publicationStatus === 'active' ? 'ACTIVE and PUBLIC' : 'an INACTIVE DRAFT';
-    const confirmation = `Final confirmation: click Submit on Teachers Pay Teachers and save “${listing.title || project.name}” as ${statusLabel}? The product PDF, ${imageCount} manual listing image${imageCount === 1 ? '' : 's'}, optional previews, and reviewed listing metadata have been transmitted to TPT. This action will create the listing.`;
+    const statusLabel = projectMarketplace(project).settings.publicationStatus === 'active' ? 'Active' : 'Draft';
+    const confirmation = `Submit “${listing.title || project.name}” as ${statusLabel}?`;
     if (!window.confirm(confirmation)) return;
-    return invoke(() => api.submitTptListing(project.id), { successMessage: `TPT ${listing.publicationStatus === 'active' ? 'active listing' : 'draft'} submitted and verified.` });
+    return invoke(() => api.submitTptListing(project.id), { successMessage: `TPT ${projectMarketplace(project).settings.publicationStatus === 'active' ? 'active listing' : 'draft'} submitted and verified.` });
   }
   if (action === 'submit-tpt-draft') {
-    if (!window.confirm('Submit this prepared product to Teachers Pay Teachers as an INACTIVE DRAFT? The selected product files, listing images, and reviewed metadata will be sent to TPT.')) return;
+    if (!window.confirm('Submit draft?')) return;
     return invoke(() => api.submitTptDraft(project.id), { successMessage: 'TPT draft submitted and kept inactive.' });
   }
 }
@@ -4488,7 +6443,10 @@ if (elements.studioBannerPause) {
   let tracking = false;
   let lastSwipeAt = 0;
   const interactive = (node) => node.closest?.('input, textarea, select, [contenteditable="true"]');
+  const swipeBlocked = (node) => activeWorkspaceView === 'interior_text'
+    || Boolean(node?.closest?.('#text-page-deck, [data-workspace-pane="interior_text"]'));
   const swipe = (delta) => {
+    if (activeWorkspaceView === 'interior_text') return;
     const now = Date.now();
     if (now - lastSwipeAt < 380) return;
     lastSwipeAt = now;
@@ -4496,7 +6454,7 @@ if (elements.studioBannerPause) {
   };
   stage.addEventListener('pointerdown', (event) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
-    if (interactive(event.target)) return;
+    if (interactive(event.target) || swipeBlocked(event.target)) return;
     startX = event.clientX;
     startY = event.clientY;
     tracking = true;
@@ -4504,6 +6462,7 @@ if (elements.studioBannerPause) {
   stage.addEventListener('pointerup', (event) => {
     if (!tracking) return;
     tracking = false;
+    if (swipeBlocked(event.target)) return;
     const dx = event.clientX - startX;
     const dy = event.clientY - startY;
     if (Math.abs(dx) < 72 || Math.abs(dx) < Math.abs(dy)) return;
@@ -4511,18 +6470,21 @@ if (elements.studioBannerPause) {
   });
   stage.addEventListener('pointercancel', () => { tracking = false; });
   stage.addEventListener('wheel', (event) => {
-    if (interactive(event.target)) return;
+    if (interactive(event.target) || swipeBlocked(event.target)) return;
     if (Math.abs(event.deltaX) < 50 || Math.abs(event.deltaX) < Math.abs(event.deltaY)) return;
     event.preventDefault();
     swipe(event.deltaX > 0 ? 1 : -1);
   }, { passive: false });
   window.addEventListener('resize', () => {
-    requestAnimationFrame(() => syncWorkspaceStageHeight());
+    requestAnimationFrame(() => {
+      syncWorkspaceStageHeight();
+      layoutPipelineRail();
+    });
   });
   document.addEventListener('keydown', (event) => {
     if (event.defaultPrevented) return;
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-    if (interactive(event.target)) return;
+    if (interactive(event.target) || swipeBlocked(event.target)) return;
     if (document.querySelector('dialog[open]')) return;
     if (elements.projectWorkspace?.hidden) return;
     event.preventDefault();
@@ -4536,13 +6498,14 @@ elements.copyPromptButton.addEventListener('click', () => handleAction('copy-pro
 elements.importImageButton.addEventListener('click', () => handleAction('import-job', elements.importImageButton).catch(() => {}));
 elements.openConversationButton.addEventListener('click', () => handleAction('open-job', elements.openConversationButton).catch(() => {}));
 elements.retryJobButton.addEventListener('click', () => {
-  const action = selectedJob()?.status === 'complete' ? 'regenerate-job' : 'retry-job';
+  const action = 'generate-job';
   handleAction(action, elements.retryJobButton).catch(() => {});
 });
 elements.exportPdfButton.addEventListener('click', () => handleAction('export-pdf', elements.exportPdfButton).catch(() => {}));
 elements.exportZipButton.addEventListener('click', () => handleAction('export-zip', elements.exportZipButton).catch(() => {}));
 elements.exportPptxButton.addEventListener('click', () => handleAction('export-pptx', elements.exportPptxButton).catch(() => {}));
 elements.exportAllFilesButton.addEventListener('click', () => handleAction('export-all-files', elements.exportAllFilesButton).catch(() => {}));
+elements.exportToManagementButton?.addEventListener('click', () => handleAction('export-to-management', elements.exportToManagementButton).catch(() => {}));
 
 
 document.addEventListener('generate-tpt-preview-video', () => handleAction('generate-tpt-preview-video', elements.generateTptPreviewVideoButton).catch(() => {}));
@@ -4629,15 +6592,15 @@ elements.promptFileInput.addEventListener('change', async () => {
   const [file] = elements.promptFileInput.files ?? [];
   if (!file) return;
   if (file.size > 5 * 1024 * 1024) {
-    showToast('The TXT file is larger than 5 MB.', 'error');
+    showToast('File too large.', 'error');
     return;
   }
   try {
     elements.bulkPromptsText.value = await file.text();
     const count = renderBulkPromptCount();
-    showToast(`Loaded ${count} ${count === 1 ? 'prompt' : 'prompts'} from ${file.name}.`, 'success');
+    showToast(`Loaded ${count} ${count === 1 ? 'prompt' : 'prompts'}.`, 'success');
   } catch (error) {
-    showToast(`Could not read the file: ${errorMessage(error)}`, 'error');
+    showToast(errorMessage(error), 'error');
   }
 });
 
@@ -4649,7 +6612,7 @@ elements.analysisTabs.addEventListener('click', (event) => {
 
 elements.startAnalysisButton.addEventListener('click', async () => {
   if (state?.app?.loginRequired) {
-    showToast('Connect Gemini before starting analysis.', 'error');
+    showToast('Connect Gemini.', 'error');
     openAuthManager();
     return;
   }
@@ -4661,22 +6624,22 @@ elements.startAnalysisButton.addEventListener('click', async () => {
     const storyLanguage = elements.storyLanguage ? elements.storyLanguage.value.trim() : '';
 
     if (!storyIdea) {
-      showToast('Enter your story idea first.', 'error');
+      showToast('Enter an idea.', 'error');
       elements.storyIdea?.focus();
       return;
     }
     if (!storyPageCountVal || storyPageCountVal < 1 || storyPageCountVal > 100) {
-      showToast('Enter a valid page count between 1 and 100.', 'error');
+      showToast('Enter page count.', 'error');
       elements.storyPageCount?.focus();
       return;
     }
     if (!storyAgeRange) {
-      showToast('Enter the target age range.', 'error');
+      showToast('Enter age.', 'error');
       elements.storyAgeRange?.focus();
       return;
     }
     if (!storyLanguage) {
-      showToast('Enter the story language.', 'error');
+      showToast('Enter language.', 'error');
       elements.storyLanguage?.focus();
       return;
     }
@@ -4704,7 +6667,7 @@ elements.startAnalysisButton.addEventListener('click', async () => {
 
     showProjectAnalysisLoadingStep();
     if (elements.projectDialogTitle) {
-      elements.projectDialogTitle.textContent = 'Building Storybook in 5 Stages…';
+      elements.projectDialogTitle.textContent = 'Building…';
     }
 
     storybookGenerationPending = true;
@@ -4714,7 +6677,7 @@ elements.startAnalysisButton.addEventListener('click', async () => {
       storybookGenerationPending = false;
       storySelectedPhotoPath = null;
       if (elements.storyCharacterPhoto) elements.storyCharacterPhoto.value = '';
-      if (elements.storyUploadFilename) elements.storyUploadFilename.textContent = 'No photo selected';
+      if (elements.storyUploadFilename) elements.storyUploadFilename.textContent = 'No photo';
       if (elements.storyClearUploadBtn) elements.storyClearUploadBtn.classList.add('hidden');
       await refreshState();
       if (elements.projectDialog.open) {
@@ -4722,7 +6685,7 @@ elements.startAnalysisButton.addEventListener('click', async () => {
       } else if (result.project?.id) {
         await api.selectProject(result.project.id);
       }
-      showToast(`Storybook Studio saved ${result.parsed.pages.length + 2} official pages.`, 'success');
+      showToast('Storybook saved.', 'success');
     } catch (error) {
       storybookGenerationPending = false;
       if (storybookReviewState?.project) {
@@ -4743,12 +6706,12 @@ elements.startAnalysisButton.addEventListener('click', async () => {
   const ideaText = elements.analysisBuilderIdea ? elements.analysisBuilderIdea.value.trim() : '';
 
   if (isUrl && !productUrl) {
-    showToast('Enter a competitor product URL first.', 'error');
+    showToast('Enter a URL.', 'error');
     elements.analysisProductUrl.focus();
     return;
   }
   if (!isUrl && !ideaText) {
-    showToast('Describe your book idea first.', 'error');
+    showToast('Enter an idea.', 'error');
     elements.analysisBuilderIdea?.focus();
     return;
   }
@@ -4774,24 +6737,7 @@ elements.startAnalysisButton.addEventListener('click', async () => {
   showProjectAnalysisLoadingStep(isUrl);
   try {
     const result = await invoke(() => api.analyzeProduct(payload), { refresh: false });
-    analysisResult = result;
-    const { analysis } = result;
-
-    elements.resultTitle.textContent = displayProjectName(analysis.title);
-    elements.resultTargetAge.textContent = analysis.targetAge || 'Pre-K / Grade 1';
-    elements.resultDescription.textContent = analysis.description || 'Printable workbook based on analyzed product.';
-    elements.resultHighlightsList.innerHTML = (analysis.keyHighlights || [])
-      .map((item) => `<li>${escapeHtml(item)}</li>`)
-      .join('');
-    const resolvedCount = (Number.isFinite(analysis.pageCount) && analysis.pageCount > 0) ? analysis.pageCount : 1;
-    elements.resultCompetitorCount.textContent = String(resolvedCount);
-    elements.resultCustomCountInput.value = String(resolvedCount);
-
-    if (isUrl && runningOnWindows()) {
-      syncAnalysisPageSetup(result.project?.format, result.project?.orientation);
-    }
-
-    showProjectAnalysisResultStep();
+    renderAnalysisResult(result, isUrl);
   } catch (error) {
     if (elements.analysisErrorBox) {
       elements.analysisErrorBox.hidden = false;
@@ -4844,7 +6790,7 @@ elements.analysisProjectOrientation?.addEventListener('change', () => {
 
 elements.generatePromptsButton.addEventListener('click', async () => {
   if (!analysisResult?.conversationUrl) {
-    showToast('No active analysis session found.', 'error');
+    showToast('No analysis.', 'error');
     showProjectAnalysisInputStep();
     return;
   }
@@ -4858,10 +6804,17 @@ elements.generatePromptsButton.addEventListener('click', async () => {
   const checkedFormatRadio = elements.projectDialog?.querySelector('input[name="analysisPageFormat"]:checked');
   const format = checkedFormatRadio?.value || elements.analysisPageFormat?.value || 'LETTER';
 
-  const includeCompetitorMockups = Boolean(elements.resultIncludeMockups?.checked);
+    const includeCompetitorMockups = Boolean(elements.resultIncludeMockups?.checked);
   const mockupCount = includeCompetitorMockups
     ? (analysisResult?.competitorMockups?.images?.length || analysisResult?.project?.competitorMockups?.images?.length || 0)
     : 0;
+  
+  const selectedPipeline = elements.projectDialog.querySelector('input[name="analysisPipelineChoice"]:checked')?.value || 'static';
+  if (selectedPipeline === 'maze' || analysisResult?.project?.productFormat === 'maze') {
+    await generateMazeFromMarketplace(analysisResult.project);
+    return;
+  }
+
   const payload = {
     projectId: analysisResult?.project?.id,
     conversationUrl: analysisResult.conversationUrl,
@@ -4871,7 +6824,8 @@ elements.generatePromptsButton.addEventListener('click', async () => {
     name: analysisResult.analysis?.title,
     theme: analysisResult.analysis?.title,
     niche: analysisResult.analysis?.description,
-    includeCompetitorMockups
+    includeCompetitorMockups,
+    productFormat: selectedPipeline
   };
 
   showProjectPromptsLoadingStep(pageCount, mockupCount);
@@ -4883,7 +6837,9 @@ elements.generatePromptsButton.addEventListener('click', async () => {
     if (project?.id) {
       await api.selectProject(project.id);
     }
+    finishMarketSession('lab', `${pageCount} pages ready.`);
   } catch (error) {
+    failMarketSession(errorMessage(error));
     showProjectAnalysisResultStep();
   }
 });
@@ -4892,8 +6848,12 @@ if (elements.conceptGeneratePromptsBtn) {
   elements.conceptGeneratePromptsBtn.addEventListener('click', async () => {
     const project = activeProject();
     if (!project) return;
+    if (project.productFormat === 'maze') {
+      await generateMazeFromMarketplace(project);
+      return;
+    }
     if (state?.app?.loginRequired) {
-      showToast('Connect Gemini before generating prompts.', 'error');
+      showToast('Connect Gemini.', 'error');
       openAuthManager();
       return;
     }
@@ -4911,20 +6871,29 @@ if (elements.conceptGeneratePromptsBtn) {
       includeCompetitorMockups: mockupCount > 0
     };
 
-    elements.projectDialog.showModal();
-    showProjectPromptsLoadingStep(pageCount, mockupCount);
+    const generateBtn = elements.conceptGeneratePromptsBtn;
+    if (generateBtn) {
+      generateBtn.disabled = true;
+      generateBtn.textContent = 'Generating…';
+    }
+    setMarketLocalStage('prompts', `Generating ${pageCount}…`);
 
     try {
       const updatedProject = await invoke(() => api.generatePromptsAndCreateProject(payload), {
         successMessage: `Generated ${pageCount} page prompts for this project!`
       });
-      elements.projectDialog.close();
       if (updatedProject?.id) {
         await api.selectProject(updatedProject.id);
       }
+      finishMarketSession('lab', `${pageCount} pages ready.`);
     } catch (error) {
-      elements.projectDialog.close();
-      showToast(`Prompt generation failed: ${errorMessage(error)}`, 'error');
+      failMarketSession(errorMessage(error));
+      showToast(errorMessage(error), 'error');
+    } finally {
+      if (generateBtn) {
+        generateBtn.disabled = false;
+        generateBtn.textContent = 'Generate prompts';
+      }
     }
   });
 }
@@ -4935,6 +6904,14 @@ elements.filterTabs.addEventListener('click', (event) => {
   currentFilter = button.dataset.filter;
   elements.filterTabs.querySelectorAll('[data-filter]').forEach((item) => item.classList.toggle('is-active', item === button));
   if (activeProject()) renderJobs(activeProject());
+});
+
+elements.jobsTable?.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  const card = event.target.closest('[data-action="select-job"]');
+  if (!card || event.target !== card) return;
+  event.preventDefault();
+  card.click();
 });
 
 if (elements.storyUploadBtn) {
@@ -4958,7 +6935,7 @@ if (elements.storyClearUploadBtn) {
   elements.storyClearUploadBtn.addEventListener('click', () => {
     storySelectedPhotoPath = null;
     elements.storyCharacterPhoto.value = '';
-    elements.storyUploadFilename.textContent = 'No photo selected';
+    elements.storyUploadFilename.textContent = 'No photo';
     elements.storyClearUploadBtn.classList.add('hidden');
   });
 }
@@ -4972,7 +6949,7 @@ elements.settingsForm.addEventListener('submit', async (event) => {
       successMessage: 'Profile and default settings saved.'
     });
     await populateSettingsForm();
-    elements.settingsSaveNote.textContent = 'Saved locally. New listing and workflow defaults are active.';
+    elements.settingsSaveNote.textContent = 'Saved.';
   } catch (error) {
     elements.settingsSaveNote.textContent = errorMessage(error);
   } finally {
@@ -4982,7 +6959,7 @@ elements.settingsForm.addEventListener('submit', async (event) => {
 });
 
 elements.settingsDialog.addEventListener('cancel', () => {
-  elements.settingsSaveNote.textContent = 'Changes are saved locally and used for future projects.';
+  if (elements.settingsSaveNote) elements.settingsSaveNote.textContent = '';
 });
 
 elements.settingsChatgptProfileSelect.addEventListener('change', async () => {
@@ -4996,13 +6973,29 @@ elements.settingsChatgptProfileSelect.addEventListener('change', async () => {
   renderSelectedProfileSessions(lastSystemProfiles);
 });
 
+// New Book pipeline choice (Static vs Editable) -> sets hidden productFormat input.
+document.querySelectorAll('[data-pipeline-choice]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const choice = btn.getAttribute('data-pipeline-choice');
+    const pipeline = choice === 'editable' || choice === 'maze' ? choice : 'static';
+    const hidden = document.getElementById('project-pipeline-input');
+    if (hidden) hidden.value = pipeline;
+    document.querySelectorAll('[data-pipeline-choice]').forEach((b) => b.classList.toggle('method-card-active', b === btn));
+    
+    const analysisRadios = document.querySelectorAll('input[name="analysisPipelineChoice"]');
+    analysisRadios.forEach((r) => {
+      r.checked = (r.value === pipeline);
+    });
+  });
+});
+
 elements.projectForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const formData = new FormData(elements.projectForm);
   const payload = Object.fromEntries(formData.entries());
   payload.sourceMode = 'bulk';
   if (renderBulkPromptCount() === 0) {
-    showToast('Paste at least one prompt.', 'error');
+    showToast('Paste a prompt.', 'error');
     elements.bulkPromptsText.focus();
     return;
   }
@@ -5012,7 +7005,7 @@ elements.projectForm.addEventListener('submit', async (event) => {
     });
     storySelectedPhotoPath = null;
     if (elements.storyCharacterPhoto) elements.storyCharacterPhoto.value = '';
-    if (elements.storyUploadFilename) elements.storyUploadFilename.textContent = 'No photo selected';
+    if (elements.storyUploadFilename) elements.storyUploadFilename.textContent = 'No photo';
     if (elements.storyClearUploadBtn) elements.storyClearUploadBtn.classList.add('hidden');
     elements.projectDialog.close();
   } catch {}
@@ -5034,18 +7027,23 @@ elements.editPageForm.addEventListener('submit', async (event) => {
 elements.authOpenButton.addEventListener('click', async () => {
   const chatgpt = authTarget === 'chatgpt';
   const meta = authTarget === 'meta';
+  const geminiReady = Boolean(state?.integrations?.gemini?.connected);
   elements.authStatusText.textContent = chatgpt
-    ? 'Opening ChatGPT in Google Chrome Canary…'
-    : (meta ? 'Opening Meta in Google Chrome Canary…' : 'Opening Gemini in Google Chrome Canary…');
+      ? 'Opening ChatGPT…'
+      : (meta
+        ? 'Opening Meta AI…'
+        : (geminiReady
+          ? 'Opening…'
+          : 'Opening Gemini…'));
   try {
     const result = await invoke(() => openLoginSession({ target: authTarget }), { refresh: false });
     elements.authStatusText.textContent = chatgpt
-      ? `${result?.browserLabel || 'Google Chrome Canary'} is ready for ChatGPT sign-in. Finish login, then click Verify ChatGPT. The window hides after that.`
+      ? 'Sign in, then Verify.'
       : (meta
-        ? `${result?.browserLabel || 'Google Chrome Canary'} is ready for Meta sign-in. Finish login, then click Verify Meta.`
-        : `${result?.browserLabel || 'Google Chrome Canary'} is ready for Gemini sign-in. Finish login, then click Verify Gemini. The window hides after that.`);
+        ? 'Sign in, then Verify.'
+        : 'Sign in, then Verify.');
   } catch (error) {
-    elements.authStatusText.textContent = `Could not open the browser: ${errorMessage(error)}`;
+    elements.authStatusText.textContent = errorMessage(error);
   }
 });
 
@@ -5053,14 +7051,14 @@ elements.authVerifyButton.addEventListener('click', async () => {
   const chatgpt = authTarget === 'chatgpt';
   const meta = authTarget === 'meta';
   elements.authStatusText.textContent = chatgpt
-    ? 'Checking your ChatGPT login in the background…'
-    : (meta ? 'Checking your Meta login in the background…' : 'Checking your Gemini login in the background…');
+    ? 'Checking ChatGPT…'
+    : (meta ? 'Checking Meta AI…' : 'Checking Gemini…');
   elements.authVerifyButton.disabled = true;
   try {
     const result = await invoke(() => verifyLoginSession({ target: authTarget }));
     elements.authStatusText.textContent = result?.authenticated
-      ? (chatgpt ? 'ChatGPT connected for mockups.' : (meta ? 'Meta connected for page images.' : 'Gemini connected for listing and page text.'))
-      : (chatgpt ? 'ChatGPT is not valid yet. Stay signed in, then verify again.' : (meta ? 'Meta is not valid yet. Stay signed in, then verify again.' : 'Gemini is not valid yet. Stay signed in, then verify again.'));
+      ? (chatgpt ? 'ChatGPT connected.' : (meta ? 'Meta AI connected.' : 'Gemini connected.'))
+      : (chatgpt ? 'Not verified.' : (meta ? 'Not verified.' : 'Not verified.'));
     if (result?.authenticated) {
       authManagerOpenedManually = false;
       if (elements.authDialog.open) elements.authDialog.close();
@@ -5095,10 +7093,69 @@ if (typeof api.onStorybookPhase1 === 'function') {
   });
 }
 
+function isAppearanceOnlyStateChange(prev, next) {
+  if (!prev || !next) return false;
+  const prevResolved = prev.app?.appearance?.resolved;
+  const nextResolved = next.app?.appearance?.resolved;
+  const prevPref = prev.app?.appearance?.preference;
+  const nextPref = next.app?.appearance?.preference;
+  if (prevResolved === nextResolved && prevPref === nextPref) return false;
+  return prev.selectedProjectId === next.selectedProjectId
+    && prev.activeProject?.id === next.activeProject?.id
+    && prev.activeProject?.updatedAt === next.activeProject?.updatedAt
+    && Boolean(prev.queue?.running) === Boolean(next.queue?.running)
+    && prev.queue?.activeJobId === next.queue?.activeJobId
+    && (prev.projects || []).length === (next.projects || []).length;
+}
+
+let lastUiRenderKey = '';
+let automationProgressLogTick = 0;
+
+function structuralUiKey(next) {
+  const project = next?.activeProject;
+  const jobIds = (project?.jobs || []).map((job) => job.id).join(',');
+  return [
+    next?.selectedProjectId || '',
+    project?.id || '',
+    jobIds,
+    next?.queue?.running ? 1 : 0
+  ].join('/');
+}
+
 api.onStateChanged((nextState) => {
+  if (isAppearanceOnlyStateChange(state, nextState)) {
+    state = nextState;
+    applyAppearanceUi();
+    return;
+  }
+  const nextKey = structuralUiKey(nextState);
+  const hadLayout = Boolean(lastUiRenderKey);
+  const layoutChanged = nextKey !== lastUiRenderKey;
   state = nextState;
-  render();
+  if (!hadLayout || layoutChanged) {
+    lastUiRenderKey = nextKey;
+    render();
+    return;
+  }
+  const project = activeProject();
+  if (project) {
+    renderJobs(project);
+    applyLiveStats(project);
+    renderInteriorTextDeck(project, activeLiveOperation(project));
+  }
+  renderAutomationBar();
+  syncMarketRailFromState(nextState);
 });
+
+if (typeof api.onQueueLog === 'function') {
+  api.onQueueLog((event) => {
+    if (!event || !state) return;
+    const events = Array.isArray(state.events) ? state.events : [];
+    state = { ...state, events: [event, ...events].slice(0, 80) };
+    const project = activeProject();
+    if (project) renderEvents(project);
+  });
+}
 
 if (typeof api.onLoginProgress === 'function') {
   api.onLoginProgress(({ message }) => {
@@ -5107,21 +7164,79 @@ if (typeof api.onLoginProgress === 'function') {
   });
 }
 
-api.onHeartbeat(({ elapsedMs, jobId, phase, remainingMs, pageNumber: heartbeatPageNumber }) => {
+// Activity fill is observer-backed: generating true/false comes from the browser
+// controller heartbeat, not a guessed timer. The fill height still eases on elapsed
+// time because the model does not report a percentage.
+function updateLiveImageFill() {
+  const project=activeProject();
+  if (!project || !isGeneratingThisProject(project) || state?.queue?.pauseRequested) return;
+  const cards = [
+    ...(elements.jobsTable?.querySelectorAll('.page-preview-card') || []),
+    ...(elements.pagesStage?.querySelectorAll('.page-preview-card') || [])
+  ];
+  for (const card of cards) {
+    const activity=generationActivity.get(card.dataset.jobId);
+    if (!activity) continue;
+    const generating = activity.generating === false
+      ? false
+      : (activity.generating === true || activity.phase === 'generating');
+    const visual=card.querySelector('.page-visual');
+    if (!generating) {
+      card.classList.remove('is-live');
+      card.removeAttribute('aria-busy');
+      if (activity.phase === 'image_ready') visual?.style.setProperty('--page-fill', '96%');
+      const label=card.querySelector('.page-placeholder span');
+      if (label) label.textContent = activity.phase === 'failed' ? 'Needs attention' : activity.phase === 'image_ready' ? 'Almost there' : 'Ready';
+      const dot = card.querySelector('.page-state-dot');
+      if (dot?.dataset) {
+        dot.dataset.state = activity.phase === 'failed' ? 'needs_user_action' : activity.phase === 'image_ready' ? 'validating' : 'complete';
+        dot.title = label?.textContent || '';
+      }
+      continue;
+    }
+    const elapsed=Math.max(0,(activity.elapsedMs || 0) + Math.min(2000,Date.now()-(activity.receivedAt || Date.now())));
+    const fill=`${Math.min(92,20+65*(1-Math.exp(-elapsed/90000)))}%`;
+    card.classList.add('is-live');
+    card.setAttribute('aria-busy','true');
+    visual?.style.setProperty('--page-fill', fill);
+    const label=card.querySelector('.page-placeholder span');
+    if (label) label.textContent = activity.phase || 'Processing';
+    const caption = card.querySelector('.pages-hero__caption span');
+    if (caption && caption !== label) caption.textContent = 'Processing';
+    const dot = card.querySelector('.page-state-dot');
+    if (dot?.dataset) {
+      dot.dataset.state = 'live';
+      dot.title = 'Processing';
+    }
+  }
+}
+
+api.onHeartbeat(({ elapsedMs = 0, jobId, projectId, phase, remainingMs, pageNumber: heartbeatPageNumber, generating }) => {
+  if (projectId && projectId !== activeProject()?.id) return;
+  if (jobId) {
+    const prev = generationActivity.get(jobId) || {};
+    generationActivity.set(jobId, {
+      elapsedMs,
+      phase: phase || prev.phase,
+      receivedAt: Date.now(),
+      generating: typeof generating === 'boolean' ? generating : prev.generating
+    });
+  }
+  updateLiveImageFill();
   lastHeartbeatAt = Date.now();
   if (phase === 'preparing_next') {
     const pageNumber = heartbeatPageNumber
       ?? activeProject()?.jobs.find((job) => job.id === jobId)?.pageNumber;
-    elements.heartbeatText.textContent = `Preparing page ${pageNumber ?? ''} in the next chat • prompt will not be submitted yet…`;
+    elements.heartbeatText.textContent = `Preparing page ${pageNumber ?? ''}`;
     return;
   }
   if (phase === 'conversation_refresh') {
     const pageNumber = activeProject()?.jobs.find((job) => job.id === jobId)?.pageNumber;
-    elements.heartbeatText.textContent = `Refreshing the saved conversation${pageNumber ? ` for page ${pageNumber}` : ''} to check for the completed image…`;
+    elements.heartbeatText.textContent = pageNumber ? `Refreshing page ${pageNumber}` : 'Refreshing';
     return;
   }
   if (phase === 'request_check') {
-    elements.heartbeatText.textContent = 'Checking whether Gemini has removed the temporary restriction…';
+    elements.heartbeatText.textContent = 'Checking…';
     return;
   }
   if (phase === 'request_cooldown' || phase === 'submission_pacing') {
@@ -5142,15 +7257,52 @@ api.onHeartbeat(({ elapsedMs, jobId, phase, remainingMs, pageNumber: heartbeatPa
   elements.heartbeatText.textContent = `${activeCount} background ${activeCount === 1 ? 'job' : 'jobs'}${pageNumber ? ` • page ${pageNumber}` : ''}… ${minutes}:${seconds}`;
 });
 
-setInterval(() => {
-  if (state?.queue?.running && lastHeartbeatAt && Date.now() - lastHeartbeatAt > 15_000) {
-    elements.heartbeatText.textContent = 'Engine connected and waiting for a Gemini page update…';
+function updateLiveTextFill() {
+  const deck = elements.textPageDeck;
+  if (!deck) return;
+  const project = activeProject();
+  if (!project) return;
+  const pages = textLabDeckPages(project);
+  for (const card of deck.querySelectorAll('.page-preview-card[data-job-id]')) {
+    const page = pages.find((entry) => entry.jobId === card.dataset.jobId);
+    if (!page) continue;
+    patchTextLabCard(card, page, { running: lastTextLabBeat?.generating || state?.liveOperation?.kind === 'editable-text' });
   }
-  const canvaOp = state?.liveOperation?.kind === 'canva' ? state.liveOperation : null;
-  if (elements.canvaProgressElapsed) {
-    elements.canvaProgressElapsed.textContent = canvaOp?.startedAt
-      ? `Working ${formatElapsedClock(Date.now() - canvaOp.startedAt)}`
-      : '';
+}
+
+if (typeof api.onTextLabHeartbeat === 'function') {
+  api.onTextLabHeartbeat((snap) => {
+    if (!snap) return;
+    lastTextLabBeat = snap;
+    if (snap.jobId) {
+      textLabActivity.set(snap.jobId, {
+        ...snap,
+        receivedAt: Date.now()
+      });
+    }
+    if (snap.generating === false) {
+      textLabActivity.forEach((value, key) => {
+        textLabActivity.set(key, { ...value, generating: false, phase: 'done' });
+      });
+    }
+    const project = activeProject();
+    if (project) {
+      if (elements.editableTextStatus && snap.message) elements.editableTextStatus.textContent = snap.message;
+      if (elements.textLabEta) {
+        elements.textLabEta.hidden = !snap.generating;
+        elements.textLabEta.textContent = snap.generating ? `Rebuild ${snap.etaLabel}` : '';
+      }
+      if (elements.heartbeatText && snap.message) elements.heartbeatText.textContent = snap.message;
+      updateLiveTextFill();
+    }
+  });
+}
+
+setInterval(() => {
+  updateLiveImageFill();
+  updateLiveTextFill();
+  if (state?.queue?.running && lastHeartbeatAt && Date.now() - lastHeartbeatAt > 15_000) {
+    elements.heartbeatText.textContent = 'Engine waiting.';
   }
 }, 1_000);
 
@@ -5177,7 +7329,7 @@ if (elements.renameProjectForm) {
     if (!project) return;
     const trimmed = elements.renameProjectInput.value.trim();
     if (!trimmed) {
-      showToast('Project name cannot be empty.', 'error');
+      showToast('Enter a name.', 'error');
       return;
     }
     try {
@@ -5185,22 +7337,32 @@ if (elements.renameProjectForm) {
       await refreshState();
       elements.renameProjectDialog.close();
     } catch (err) {
-      showToast(`Failed to rename project: ${errorMessage(err)}`, 'error');
+      showToast(errorMessage(err), 'error');
     }
   });
+}
+
+async function deleteProjectById(projectId) {
+  const id = String(projectId || '').trim();
+  if (!id) return;
+  const project = (state?.projects || []).find((item) => item.id === id)
+    || (activeProject()?.id === id ? activeProject() : null);
+  const name = displayProjectName(project?.name || 'this book');
+  if (!confirm(`Delete “${name}”?`)) return;
+  try {
+    await api.deleteProject(id);
+    if (incomingMarketBook) clearIncomingMarketplace();
+    await refreshState();
+    showToast(`Deleted “${name}”.`, 'success');
+  } catch (err) {
+    showToast(errorMessage(err), 'error');
+  }
 }
 
 async function deleteActiveProject() {
   const project = activeProject();
   if (!project) return;
-  const confirmMessage = `Are you sure you want to permanently delete "${project.name}"?\n\nThis will delete the project record and all of its generated page images on disk. This action CANNOT be undone.`;
-  if (!confirm(confirmMessage)) return;
-  try {
-    await api.deleteProject(project.id);
-    await refreshState();
-  } catch (err) {
-    showToast(`Failed to delete project: ${errorMessage(err)}`, 'error');
-  }
+  return deleteProjectById(project.id);
 }
 
 // Wire rename/delete buttons
@@ -5210,6 +7372,15 @@ if (elements.conceptDeleteBtn) elements.conceptDeleteBtn.addEventListener('click
 if (elements.projectDeleteBtn) elements.projectDeleteBtn.addEventListener('click', deleteActiveProject);
 if (elements.conceptDeleteButton) elements.conceptDeleteButton.addEventListener('click', deleteActiveProject);
 
+document.getElementById('maze-detail-panel')?.addEventListener('change', () => {
+  persistMazeLabFromForm().catch(() => {});
+});
+document.getElementById('maze-detail-panel')?.addEventListener('focusout', (event) => {
+  if (event.target?.id === 'maze-keyword' || event.target?.id === 'maze-page-count') {
+    persistMazeLabFromForm().catch(() => {});
+  }
+});
+
 // Wire When Complete action dropdown change
 if (elements.whenCompleteAction) {
   elements.whenCompleteAction.addEventListener('change', async () => {
@@ -5217,7 +7388,7 @@ if (elements.whenCompleteAction) {
     try {
       await api.setWhenCompleteAction(val);
     } catch (err) {
-      showToast(`Failed to set completion action: ${errorMessage(err)}`, 'error');
+      showToast(errorMessage(err), 'error');
     }
   });
 }
@@ -5228,7 +7399,7 @@ if (elements.cancelCountdownBtn) {
     try {
       await api.cancelSystemAction();
     } catch (err) {
-      showToast(`Failed to cancel action: ${errorMessage(err)}`, 'error');
+      showToast(errorMessage(err), 'error');
     }
   });
 }
@@ -5257,9 +7428,9 @@ if (elements.automationStartBtn) {
     try {
       await api.startAutomation(activeProject()?.id);
       await refreshState();
-      showToast('Full automation started for this book.', 'success');
+      showToast('Automation started.', 'success');
     } catch (err) {
-      showToast(`Failed to start automation: ${errorMessage(err)}`, 'error');
+      showToast(errorMessage(err), 'error');
     }
   });
 }
@@ -5271,7 +7442,7 @@ if (elements.automationPauseBtn) {
       await refreshState();
       showToast('Paused.', 'success');
     } catch (err) {
-      showToast(`Failed to pause automation: ${errorMessage(err)}`, 'error');
+      showToast(errorMessage(err), 'error');
     }
   });
 }
@@ -5283,14 +7454,14 @@ if (elements.automationResumeBtn) {
       await refreshState();
       showToast('Automation resumed.', 'success');
     } catch (err) {
-      showToast(`Failed to resume automation: ${errorMessage(err)}`, 'error');
+      showToast(errorMessage(err), 'error');
     }
   });
 }
 
 const autoStepSelects = [
   elements.autoStepOverview, elements.autoStepCharacters, elements.autoStepInterior,
-  elements.autoStepEditable, elements.autoStepListing, elements.autoStepThumbnails, elements.autoStepPreview, elements.autoStepExport
+  elements.autoStepEditable, elements.autoStepThumbnails, elements.autoStepPreview, elements.autoStepExport
 ];
 autoStepSelects.forEach((select) => {
   if (select) {
@@ -5301,7 +7472,7 @@ autoStepSelects.forEach((select) => {
         await api.updateAutomationSetting(stepName, mode);
         await refreshState();
       } catch (err) {
-        showToast(`Failed to update setting: ${errorMessage(err)}`, 'error');
+        showToast(errorMessage(err), 'error');
       }
     });
   }
@@ -5314,7 +7485,7 @@ if (elements.automationAskProceed) {
       await api.resolveAutomationAsk('proceed');
       await refreshState();
     } catch (err) {
-      showToast(`Failed to proceed: ${errorMessage(err)}`, 'error');
+      showToast(errorMessage(err), 'error');
     }
   });
 }
@@ -5326,16 +7497,37 @@ if (elements.automationAskSkip) {
       await api.resolveAutomationAsk('skip');
       await refreshState();
     } catch (err) {
-      showToast(`Failed to skip: ${errorMessage(err)}`, 'error');
+      showToast(errorMessage(err), 'error');
     }
   });
 }
 
+if (typeof api.onAnalysisFinished === 'function') {
+  api.onAnalysisFinished((payload) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H131',location:'renderer/renderer.js:onAnalysisFinished',message:'renderer received analysis:finished',data:{projectId:payload?.project?.id||null,productFormat:payload?.project?.productFormat||payload?.detectedFormat?.productFormat||null,incoming:Boolean(incomingMarketBook)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    if (payload?.project?.id) adoptedAnalysisTaskId = adoptedAnalysisTaskId || payload.project.id;
+    void finishGateAnalysis(payload);
+  });
+}
+
+if (typeof api.onPromptProgress === 'function') {
+  api.onPromptProgress((payload) => {
+    applyPromptProgressToRail(payload);
+  });
+}
+
 if (typeof api.onAutomationProgress === 'function') {
-  api.onAutomationProgress(async (payload) => {
-    // Optionally log or handle granular progress here.
-    // The main state is synced via 'state:changed' event, so we just trigger a refresh.
-    await refreshState();
+  api.onAutomationProgress((payload) => {
+    const step = payload?.activeStep || payload?.currentStep || '';
+    const pct = Number(payload?.stepProgressPercentage);
+    if (elements.automationBarLabel && Number.isFinite(pct)) {
+      elements.automationBarLabel.textContent = `${step || 'Running'} ${Math.round(pct)}%`;
+    }
+    if (elements.heartbeatText && Number.isFinite(pct)) {
+      elements.heartbeatText.textContent = `${step || 'Automation'} • ${Math.round(pct)}%`;
+    }
   });
 }
 
@@ -5345,15 +7537,17 @@ if (typeof api.onAutomationAskRequired === 'function') {
       const stepName = payload?.stepName || payload?.step || '';
       const project = payload?.project || (state?.projects || []).find((p) => p.id === payload?.projectId);
       let stepLabel = stepName;
-      if (stepLabel === 'overview') stepLabel = 'Overview & Idea Extraction';
-      if (stepLabel === 'characters') stepLabel = 'Character Generation';
-      if (stepLabel === 'interior') stepLabel = 'Book Interior Generation';
-      if (stepLabel === 'listing') stepLabel = 'TPT Listing Generation';
-      if (stepLabel === 'thumbnails') stepLabel = 'Marketing Thumbnails Creation';
-      if (stepLabel === 'export') stepLabel = 'PDF, ZIP & PPTX Exporting';
+      if (stepLabel === 'overview') stepLabel = STEP_LABELS.overview;
+      if (stepLabel === 'characters') stepLabel = STEP_LABELS.characters;
+      if (stepLabel === 'interior' || stepLabel === 'interior_artwork') stepLabel = STEP_LABELS.interior_artwork;
+      if (stepLabel === 'interior_text') stepLabel = STEP_LABELS.interior_text;
+      if (stepLabel === 'editable_ppt' || stepLabel === 'editable_generation') stepLabel = STEP_LABELS.editable_ppt;
+      if (stepLabel === 'thumbnails') stepLabel = STEP_LABELS.thumbnails;
+      if (stepLabel === 'preview') stepLabel = STEP_LABELS.preview;
+      if (stepLabel === 'export') stepLabel = STEP_LABELS.export;
 
-      elements.automationAskTitle.textContent = `Proceed with ${stepLabel}?`;
-      elements.automationAskBody.textContent = `The pipeline is ready to start ${stepLabel} for "${project?.name || 'the project'}".`;
+      elements.automationAskTitle.textContent = `${stepLabel}?`;
+      elements.automationAskBody.textContent = `Start ${stepLabel}?`;
       elements.automationAskOverlay.classList.remove('hidden');
     }
   });
@@ -5405,7 +7599,215 @@ async function initStartupAnnouncementModal() {
   return;
 }
 
+const GATE_STATUS_IDS = ['studio-intro-agent-status', 'canvas-agent-status'];
+
+function setGateStatus(text) {
+  const message = String(text || '').trim();
+  GATE_STATUS_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.hidden = !message;
+    el.textContent = message;
+  });
+  if (message && marketSession.active) {
+    const detailRoots = document.querySelectorAll('[data-market-detail]');
+    detailRoots.forEach((el) => { el.textContent = message; });
+  }
+}
+
+function looksLikeProductUrl(value) {
+  const text = String(value || '').trim();
+  if (/^https?:\/\//i.test(text)) return true;
+  return /teacherspayteachers\.com\/Product\//i.test(text) || /amazon\.[^/\s]+\/(?:dp|gp)\//i.test(text);
+}
+
+function handleGateError(error) {
+  const message = errorMessage(error);
+  failMarketSession(message);
+  setGateStatus(message);
+  if (incomingMarketBook) {
+    incomingMarketBook.lede = message;
+    incomingMarketBook.description = message;
+    paintIncomingMarketplace();
+  }
+  showToast(message, 'error');
+}
+
+async function openCreatedMazeProject(project) {
+  mazeWorkspaceOpen = true;
+  activeWorkspaceView = 'maze';
+  document.body.dataset.studioPin = '';
+  // #region agent log
+  fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H60',location:'renderer/renderer.js:openCreatedMazeProject',message:'opening maze book into Maze Lab',data:{projectId:project?.id||null,productFormat:project?.productFormat||null,activityCount:project?.activityCount},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  if (project?.id) {
+    await api.selectProject(project.id);
+    window.__versaSetStudioMode?.('studio', true);
+  }
+  if (elements.projectDialog?.open) elements.projectDialog.close();
+  if (typeof renderProject === 'function') renderProject();
+}
+
+async function finishGateAnalysis(result) {
+  analysisResult = result;
+  clearIncomingMarketplace();
+  if (result?.project?.id) adoptedAnalysisTaskId = adoptedAnalysisTaskId || `project:${result.project.id}`;
+  if (!result?.conversationUrl && !result?.project?.id) {
+    setMarketLocalStage('extract', 'Analysis finished.');
+    setGateStatus('Analysis finished.');
+    showToast('Analysis finished.', 'info');
+    return;
+  }
+  const productFormat = result.project?.productFormat
+    || document.querySelector('input[name="analysisPipelineChoice"]:checked')?.value
+    || 'editable';
+  // #region agent log
+  fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'pre-fix',hypothesisId:'H4',location:'renderer/renderer.js:finishGateAnalysis',message:'gate continue path after analysis',data:{productFormat,detectedFormat:result.detectedFormat||null,projectFormat:result.project?.productFormat||null,pageCount:Number(result.analysis?.pageCount)||20,title:result.analysis?.title||''},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  if (productFormat === 'maze' || result.detectedFormat?.productFormat === 'maze') {
+    const project = result.project;
+    const livePages = (state?.activeProject?.id === project?.id
+      ? state.activeProject?.mazeProject?.pages
+      : null) || project?.mazeProject?.pages || [];
+    const readyCount = livePages.filter((page) => page.generationStatus === 'ready').length;
+    if (project?.id && mazeAutoGenerateId === project.id) {
+      // #region agent log
+      fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H165',location:'renderer/renderer.js:finishGateAnalysis',message:'skipped duplicate maze auto-generate',data:{projectId:project.id,readyCount},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      return;
+    }
+    mazeWorkspaceOpen = true;
+    activeWorkspaceView = 'maze';
+    if (project?.id) mazeAutoGenerateId = project.id;
+    const briefCount = Number.parseInt(result.analysis?.pageCount, 10);
+    if (elements.conceptGeneratePageCount && Number.isSafeInteger(briefCount) && briefCount > 0) {
+      elements.conceptGeneratePageCount.value = String(Math.min(50, briefCount));
+    }
+    if (project?.id) {
+      await api.selectProject(project.id);
+      window.__versaSetStudioMode?.('studio', true);
+    }
+    if (elements.projectDialog?.open) elements.projectDialog.close();
+    if (readyCount > 0) {
+      setGateStatus(`${readyCount} mazes ready.`);
+      showToast(`${readyCount} mazes ready.`, 'success');
+      await continueMazePipelineFromLab(project, readyCount);
+      renderProject();
+      return;
+    }
+    markConceptReadyFromAnalysis('Generating…');
+    setGateStatus('Generating…');
+    await generateMazeFromMarketplace(project);
+    return;
+  }
+  markConceptReadyFromAnalysis('Analysis saved.');
+  if (result.project?.id) {
+    await api.selectProject(result.project.id);
+    window.__versaSetStudioMode?.('studio', true);
+  }
+  if (elements.projectDialog?.open) elements.projectDialog.close();
+  setGateStatus('Concept ready.');
+  showToast('Concept saved.', 'success');
+}
+
+async function runGateUrlAnalysis(productUrl) {
+  try {
+    setMarketLocalStage('analyze', 'Analyzing.');
+    const result = await api.analyzeProduct({
+      sourceMode: 'url',
+      productUrl,
+      keyword: '',
+      tptNiche: '',
+      activityType: '',
+      metadataText: '',
+      title: '',
+      niche: ''
+    });
+    await finishGateAnalysis(result);
+  } catch (error) {
+    handleGateError(error);
+  }
+}
+
+async function runGateKeywordScan(query) {
+  try {
+    const started = await api.scanTrends({ query, marketplace: 'tpt' });
+    if (!started?.taskId) throw new Error('Scan failed.');
+    const deadline = Date.now() + 11 * 60_000;
+    const poll = async () => {
+      const scan = await api.agentScanResult(started.taskId);
+      if (!scan) return;
+      if (scan.state === 'done') {
+        const chosen = normalizeAgentAnalysisInput(scan.result);
+        if (!chosen) throw new Error('No product URL.');
+        applyIncomingListing(chosen);
+        setMarketLocalStage('analyze', 'Analyzing…');
+        setGateStatus('Analyzing…');
+        if (state?.app?.loginRequired) {
+          showToast('Connect Gemini.', 'error');
+          openAuthManager();
+          return;
+        }
+        const result = await api.analyzeProduct(chosen);
+        await finishGateAnalysis(result);
+        return;
+      }
+      if (scan.state === 'failed' || scan.state === 'cancelled') {
+        throw new Error(scan.lastError || 'Scan failed.');
+      }
+      setMarketStage('scan', { detail: agentPhaseMessage(scan.checkpoint), session: 'running' });
+      setGateStatus(agentPhaseMessage(scan.checkpoint));
+      if (Date.now() < deadline) setTimeout(() => { void poll().catch(handleGateError); }, 1000);
+    };
+    void poll();
+  } catch (error) {
+    handleGateError(error);
+  }
+}
+
+function startGateIngestion(rawQuery) {
+  window.__versaEnterDoor?.();
+  const query = String(rawQuery || '').trim();
+  if (marketSession.active && ['scan', 'analyze', 'extract', 'prompts', 'capture'].includes(marketSession.localStage)) {
+    // #region agent log
+    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H163',location:'renderer/renderer.js:startGateIngestion',message:'ignored duplicate marketplace start while a job is live',data:{query,localStage:marketSession.localStage,active:marketSession.active,mazeAutoGenerateId},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    return;
+  }
+  mazeAutoGenerateId = null;
+  openIncomingMarketplace(query);
+  beginMarketSession({
+    marketplace: 'tpt',
+    query,
+    stage: looksLikeProductUrl(query) ? 'analyze' : 'scan',
+    detail: query
+      ? (looksLikeProductUrl(query) ? 'Analyzing…' : `Scanning "${query}"`)
+      : 'Scanning…'
+  });
+  setGateStatus(query
+    ? `Searching "${query}"`
+    : 'Searching…');
+  if (looksLikeProductUrl(query)) {
+    if (state?.app?.loginRequired) {
+      showToast('Connect Gemini.', 'error');
+      openAuthManager();
+      return;
+    }
+    void runGateUrlAnalysis(query);
+    return;
+  }
+  void runGateKeywordScan(query);
+}
+
+[['studio-intro-prompt', 'studio-intro-route'], ['canvas-agent-prompt', 'canvas-agent-route']]
+  .forEach(([formId, inputId]) => {
+    document.getElementById(formId)?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      startGateIngestion(document.getElementById(inputId)?.value || '');
+    });
+  });
+
 refreshState()
   .then(() => initStartupAnnouncementModal())
   .catch((error) => showToast(errorMessage(error), 'error'));
-

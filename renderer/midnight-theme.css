@@ -93,7 +93,6 @@ html[data-theme="dark"] .tpt-fields article p {
 }
 
 html[data-theme="dark"] .eyebrow,
-html[data-theme="dark"] .overview-stage-label,
 html[data-theme="dark"] .page-content-label,
 html[data-theme="dark"] .about-kicker {
   color: var(--muted) !important;
@@ -104,8 +103,6 @@ html[data-theme="dark"] .connection-pill,
 html[data-theme="dark"] .privacy-card p,
 html[data-theme="dark"] .integration-copy p,
 html[data-theme="dark"] .log-time,
-html[data-theme="dark"] .page-card-prompt,
-html[data-theme="dark"] .page-card-meta,
 html[data-theme="dark"] .about-copyright {
   color: var(--muted);
 }
@@ -139,24 +136,18 @@ html[data-theme="dark"] .project-item.is-active {
 html[data-theme="dark"] .glass-panel,
 html[data-theme="dark"] .stat-card,
 html[data-theme="dark"] .privacy-card,
-html[data-theme="dark"] .queue-panel,
-html[data-theme="dark"] .detail-panel,
 html[data-theme="dark"] .live-dock,
 html[data-theme="dark"] .export-panel,
 html[data-theme="dark"] .logs-panel,
-html[data-theme="dark"] .overview-stage-card,
-html[data-theme="dark"] .page-preview-card,
-html[data-theme="dark"] .canva-page-card,
+html[data-theme="dark"] .editable-engine-page-card,
 html[data-theme="dark"] .integration-card,
 html[data-theme="dark"] .settings-toggle-card,
 html[data-theme="dark"] .settings-slider-card,
 html[data-theme="dark"] .automation-step-row,
-html[data-theme="dark"] .tpt-listing-review,
 html[data-theme="dark"] .storybook-page-record,
 html[data-theme="dark"] .prompt-box,
 html[data-theme="dark"] .studio-row,
 html[data-theme="dark"] .method-card,
-html[data-theme="dark"] .filter-tab,
 html[data-theme="dark"] .radio-option,
 html[data-theme="dark"] .empty-state,
 html[data-theme="dark"] .bundle-upload-header,
@@ -168,37 +159,14 @@ html[data-theme="dark"] .tpt-preview-stats > span {
   color: var(--text);
 }
 
-html[data-theme="dark"] .overview-stage-card.is-live,
-html[data-theme="dark"] .page-preview-card.is-live,
 html[data-theme="dark"] .live-dock.is-live {
   background: linear-gradient(180deg, rgba(10, 132, 255, 0.14), rgba(22, 23, 30, 0.9));
   border-color: rgba(100, 210, 255, 0.32);
   box-shadow: 0 0 0 1px rgba(100, 210, 255, 0.12), 0 12px 40px rgba(0, 0, 0, 0.35);
 }
 
-html[data-theme="dark"] .overview-stage-grid .overview-stage-card:nth-child(1) { background: rgba(10, 132, 255, 0.14); border-color: rgba(10, 132, 255, 0.28); }
-html[data-theme="dark"] .overview-stage-grid .overview-stage-card:nth-child(2) { background: rgba(191, 90, 242, 0.14); border-color: rgba(191, 90, 242, 0.28); }
-html[data-theme="dark"] .overview-stage-grid .overview-stage-card:nth-child(3) { background: rgba(48, 209, 88, 0.12); border-color: rgba(48, 209, 88, 0.28); }
-html[data-theme="dark"] .overview-stage-grid .overview-stage-card:nth-child(4) { background: rgba(255, 159, 10, 0.14); border-color: rgba(255, 159, 10, 0.28); }
-html[data-theme="dark"] .overview-stage-grid .overview-stage-card:nth-child(5) { background: rgba(100, 210, 255, 0.12); border-color: rgba(100, 210, 255, 0.26); }
-html[data-theme="dark"] .overview-stage-grid .overview-stage-card:nth-child(6) { background: rgba(255, 55, 95, 0.12); border-color: rgba(255, 55, 95, 0.26); }
-html[data-theme="dark"] .overview-stage-grid .overview-stage-card:nth-child(7) { background: rgba(64, 200, 224, 0.12); border-color: rgba(64, 200, 224, 0.26); }
-html[data-theme="dark"] .overview-stage-grid .overview-stage-card:nth-child(8) { background: rgba(255, 214, 10, 0.12); border-color: rgba(255, 214, 10, 0.26); }
-
-html[data-theme="dark"] .overview-stage-card,
-html[data-theme="dark"] .overview-stage-card strong,
-html[data-theme="dark"] .product-ring strong {
-  color: var(--text-bright);
-}
-
-html[data-theme="dark"] .overview-stage-card:hover {
-  filter: brightness(1.08);
-}
-
-html[data-theme="dark"] .overview-stage-overall {
-  background: linear-gradient(180deg, rgba(10, 132, 255, 0.18), rgba(48, 209, 88, 0.1));
-  border-color: rgba(10, 132, 255, 0.32);
-}
+/* The Overview pipeline states live in refined.css, keyed off data-state, so
+ * night and day are two lightings of one composition rather than two sheets. */
 
 html[data-theme="dark"] .workspace-command-strip {
   background: linear-gradient(180deg, rgba(20, 21, 28, 0.94) 60%, rgba(10, 11, 16, 0.78));
@@ -214,8 +182,8 @@ html[data-theme="dark"] .field textarea,
 html[data-theme="dark"] .settings-field-grid .field input,
 html[data-theme="dark"] .settings-field-grid .field select,
 html[data-theme="dark"] .settings-field-grid .field textarea,
-html[data-theme="dark"] .canva-template-row input,
-html[data-theme="dark"] .canva-template-row select,
+html[data-theme="dark"] .editable-engine-template-row input,
+html[data-theme="dark"] .editable-engine-template-row select,
 html[data-theme="dark"] .auto-step-select,
 html[data-theme="dark"] .when-complete-field select,
 html[data-theme="dark"] .tpt-publication-fields input,
@@ -230,7 +198,6 @@ html[data-theme="dark"] .tpt-standard-fields textarea {
 
 html[data-theme="dark"] .button:not(.button-primary):not(.button-gold):not(.button-danger):not(.button-pause),
 html[data-theme="dark"] .icon-button,
-html[data-theme="dark"] .page-card-actions .row-button,
 html[data-theme="dark"] .background-generation-bar button {
   color: var(--text-bright);
   background: rgba(255, 255, 255, 0.06);
@@ -337,7 +304,6 @@ html[data-theme="dark"] .jobs-table td {
 }
 
 html[data-theme="dark"] .progress-track,
-html[data-theme="dark"] .stage-meter,
 html[data-theme="dark"] .automation-overall-bar {
   background: rgba(255, 255, 255, 0.08);
 }
@@ -358,54 +324,33 @@ html[data-theme="dark"] .appearance-chooser {
 }
 
 html[data-theme="dark"] .workspace-tab.is-locked::after,
-html[data-theme="dark"] body.canva-locked .workspace-tab[data-view-target="editable"]::after {
+html[data-theme="dark"] body.editable-engine-locked .workspace-tab[data-view-target="editable"]::after {
   background: rgba(255, 214, 10, 0.16);
   color: #FFD60A;
 }
 
-html[data-theme="dark"] .canva-coming-soon {
+html[data-theme="dark"] .editable-engine-coming-soon {
   border-color: rgba(255, 214, 10, 0.28);
   background: rgba(255, 214, 10, 0.08);
 }
 
-html[data-theme="dark"] .canva-path-steps li,
-html[data-theme="dark"] .canva-editable-link,
-html[data-theme="dark"] .canva-page-board,
-html[data-theme="dark"] .canva-live-dashboard,
-html[data-theme="dark"] .canva-dash-card,
-html[data-theme="dark"] .canva-dash-details {
+html[data-theme="dark"] .editable-engine-path-steps li,
+html[data-theme="dark"] .editable-engine-editable-link,
+html[data-theme="dark"] .editable-engine-page-board,
+html[data-theme="dark"] .editable-engine-live-dashboard,
+html[data-theme="dark"] .editable-engine-dash-card,
+html[data-theme="dark"] .editable-engine-dash-details {
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
   border-color: rgba(255, 255, 255, 0.08);
 }
 
-html[data-theme="dark"] .canva-page-visual,
-html[data-theme="dark"] .page-visual {
+html[data-theme="dark"] .editable-engine-page-visual {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(10, 132, 255, 0.06)),
     repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0 12px, transparent 12px 24px),
     #101117;
   border-color: rgba(255, 255, 255, 0.06);
-}
-
-html[data-theme="dark"] .page-placeholder,
-html[data-theme="dark"] .page-placeholder span {
-  color: #8E8E93;
-}
-html[data-theme="dark"] .page-placeholder strong,
-html[data-theme="dark"] .page-placeholder em {
-  color: var(--muted);
-  text-shadow: none;
-}
-
-html[data-theme="dark"] .page-visual img {
-  background: #0B0C12;
-}
-
-html[data-theme="dark"] .page-preview-card:hover,
-html[data-theme="dark"] .page-preview-card.is-selected {
-  border-color: rgba(10, 132, 255, 0.5);
-  box-shadow: 0 0 0 1px rgba(10, 132, 255, 0.18), 0 16px 36px rgba(0, 0, 0, 0.35);
 }
 
 html[data-theme="dark"] .log-row {
@@ -478,20 +423,6 @@ html[data-theme="dark"] .background-generation-bar {
   border-color: rgba(48, 209, 88, 0.28);
 }
 
-html[data-theme="dark"] .filter-tabs {
-  background: rgba(255, 255, 255, 0.04);
-}
-
-html[data-theme="dark"] .filter-tab {
-  color: var(--muted);
-  background: transparent;
-  box-shadow: none;
-}
-
-html[data-theme="dark"] .filter-tab.is-active {
-  color: var(--text-bright);
-  background: rgba(255, 255, 255, 0.1);
-}
 
 html[data-theme="dark"] .status-pending,
 html[data-theme="dark"] .status-retry_wait {
@@ -559,35 +490,19 @@ html[data-theme="dark"] .stage-live-bar {
   border-color: rgba(255, 255, 255, 0.1);
 }
 
-html[data-theme="dark"] .product-ring {
-  background:
-    radial-gradient(circle at center, #16171E 0 58%, transparent 59%),
-    conic-gradient(#0A84FF calc(var(--progress, 0) * 1%), rgba(255, 255, 255, 0.08) 0);
-  box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.22);
-}
-
-html[data-theme="dark"] .overview-stage-overall.is-done .product-ring {
-  background:
-    radial-gradient(circle at center, #16171E 0 58%, transparent 59%),
-    conic-gradient(#7dba8c calc(var(--progress, 0) * 1%), rgba(48, 209, 88, 0.16) 0);
-}
-
-html[data-theme="dark"] .tpt-thumb-placeholder strong,
-html[data-theme="dark"] .canva-page-placeholder strong,
-html[data-theme="dark"] .overview-open-stages {
+html[data-theme="dark"] .editable-engine-page-placeholder strong {
   color: var(--text-bright);
 }
 
-html[data-theme="dark"] .tpt-thumb-placeholder em,
-html[data-theme="dark"] .canva-page-board-head strong {
+html[data-theme="dark"] .editable-engine-page-board-head strong {
   color: var(--muted);
 }
 
-html[data-theme="dark"] .canva-page-placeholder {
+html[data-theme="dark"] .editable-engine-page-placeholder {
   color: var(--muted);
 }
 
-html[data-theme="dark"] .canva-page-visual img {
+html[data-theme="dark"] .editable-engine-page-visual img {
   background: #0B0C12;
 }
 

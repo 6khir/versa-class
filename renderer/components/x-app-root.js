@@ -18,7 +18,6 @@ class XAppRoot extends HTMLElement {
     import('./x-sidebar.js');
     import('./x-content.js');
     import('./x-footer.js');
-    import('./x-canva-dashboard.js');
   }
 }
 customElements.define('x-app-root', XAppRoot);

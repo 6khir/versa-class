@@ -11,7 +11,7 @@ const {
   FileManager,
   allInteriorPagesComplete,
   compressedPrintPdfDest,
-  prepareCanvaImportPdf,
+  prepareProductReferencePdf,
   printPdfPageChecksum
 } = require('../src/file-manager.cjs');
 
@@ -124,7 +124,7 @@ test('after the last interior page completes, the compressed print PDF exists', 
     const pdf = await PDFDocument.load(readFileSync(pkg.compressedPdfPath));
     assert.equal(pdf.getPageCount(), 2);
 
-    const reused = await prepareCanvaImportPdf(
+    const reused = await prepareProductReferencePdf(
       pkg.compressedPdfPath,
       dir,
       'A4',
@@ -133,13 +133,13 @@ test('after the last interior page completes, the compressed print PDF exists', 
       jobs.map((job) => job.outputPath)
     );
     assert.equal(reused, pkg.compressedPdfPath);
-    assert.equal(compressCalls, 1, 'Canva import must not compress again');
+    assert.equal(compressCalls, 1, 'product reference preparation must not compress again');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('Canva import reuses the Interior PDF with zero extra compressPdf calls', async () => {
+test('product reference reuses the Interior PDF with zero extra compressPdf calls', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'versa-print-pdf-reuse-'));
   let compressCalls = 0;
   const compressPdf = async (inputPath) => {
@@ -168,8 +168,8 @@ test('Canva import reuses the Interior PDF with zero extra compressPdf calls', a
     const manager = new FileManager({ nativeImage: {} });
     const pkg = await manager.buildPrintPdfPackage(project, { compressPdf });
     assert.equal(compressCalls, 1);
-    const importPath = await prepareCanvaImportPdf(pkg.compressedPdfPath, dir, 'A4', 'portrait', 1, [pagePath]);
-    const importAgain = await prepareCanvaImportPdf(pkg.productPdfPath, dir, 'A4', 'portrait', 1, [pagePath]);
+    const importPath = await prepareProductReferencePdf(pkg.compressedPdfPath, dir, 'A4', 'portrait', 1, [pagePath]);
+    const importAgain = await prepareProductReferencePdf(pkg.productPdfPath, dir, 'A4', 'portrait', 1, [pagePath]);
     assert.equal(importPath, compressedPrintPdfDest(dir, project));
     assert.equal(importAgain, compressedPrintPdfDest(dir, project));
     assert.equal(compressCalls, 1);
@@ -178,13 +178,13 @@ test('Canva import reuses the Interior PDF with zero extra compressPdf calls', a
   }
 });
 
-test('queue completion and Canva paths keep conversion in Interior', () => {
+test('Normal conversion stays in Interior and editable generation has a separate route', () => {
   const { readFileSync: read } = require('node:fs');
   const { join: joinPath } = require('node:path');
   const root = joinPath(__dirname, '..');
   const queue = read(joinPath(root, 'src/queue-engine.cjs'), 'utf8');
   const main = read(joinPath(root, 'src/main.cjs'), 'utf8');
-  const canva = read(joinPath(root, 'src/browser-controller.cjs'), 'utf8');
+  const browserController = read(joinPath(root, 'src/browser-controller.cjs'), 'utf8');
   const fileManager = read(joinPath(root, 'src/file-manager.cjs'), 'utf8');
   const renderer = read(joinPath(root, 'renderer/renderer.js'), 'utf8');
   const html = read(joinPath(root, 'renderer/index.html'), 'utf8');
@@ -196,15 +196,12 @@ test('queue completion and Canva paths keep conversion in Interior', () => {
   assert.match(main, /buildPrintPdfPackage/);
   assert.match(main, /finishPrintPdf/);
   assert.match(main, /compressedPdfPath/);
-  assert.match(main, /Using the print PDF prepared in Interior/);
-  assert.doesNotMatch(main, /interior:[\s\S]{0,400}runCanvaEditableForProject/);
+  assert.match(main, /editable_generation: runNativeEditableForProject/);
+  assert.match(main, /await runEditableProject/);
   assert.match(fileManager, /async buildPrintPdfPackage/);
   assert.match(fileManager, /Does not rasterize pages and does not call compressPdf/);
-  assert.doesNotMatch(canva, /#canvaImportPdfAsDesign[\s\S]{0,8000}compressPdf/);
-  assert.match(canva, /Using the prepared print PDF/);
-  assert.match(html, /id="print-pdf-status"/);
+  assert.doesNotMatch(browserController, /external template import[\s\S]{0,8000}compressPdf/);
   assert.match(html, /data-workspace-pane="interior"/);
-  assert.match(html, /Conversion and compression start after every interior page is finished/);
-  assert.match(renderer, /function renderPrintPdfStatus/);
-  assert.match(renderer, /Using the print PDF prepared in Interior/);
+  assert.match(renderer, /projectPdf\(project\)\.productPath/);
+  assert.match(renderer, /api.runEditableGeneration/);
 });

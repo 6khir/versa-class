@@ -12,8 +12,24 @@ function installApp(appPath, destDir, appFile) {
   console.log(`installed ${dest}`);
 }
 
+/**
+ * Copy the freshly packed app into the Applications folders.
+ *
+ * This is opt-in. It used to run on every build, which meant packaging silently
+ * rm -rf'd whatever was installed and left two more copies behind — so "build a
+ * DMG so I can install it" produced three installs, and the count grew every
+ * time. Packaging should produce an artifact and change nothing else on the
+ * machine.
+ *
+ * Set VERSA_INSTALL_AFTER_PACK=1 to get the old behaviour back for a local
+ * build you want on the Dock immediately.
+ */
 exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== 'darwin') return;
+  if (process.env.VERSA_INSTALL_AFTER_PACK !== '1') {
+    console.log('afterPack: not installing (set VERSA_INSTALL_AFTER_PACK=1 to install into /Applications)');
+    return;
+  }
   const appName = context.packager.appInfo.productFilename;
   const appFile = `${appName}.app`;
   const appPath = join(context.appOutDir, appFile);

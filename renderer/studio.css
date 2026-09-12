@@ -44,7 +44,7 @@ html body.ui-redesign.versa-studio {
   --studio-royal: #023085;
   --studio-sky: #73b8fb;
   --studio-fill: #5ec8f0;
-  --studio-mint: #48ce89;
+  --studio-mint: var(--accent-token);
   --studio-skin: #f8a050;
   --studio-paper: #f4f8ff;
   --studio-lift: #ffffff;
@@ -221,7 +221,10 @@ html body.ui-redesign.versa-studio .ui-canvas-column {
 }
 
 html body.ui-redesign.versa-studio .ui-sidebar__extras {
-  display: none;
+  display: flex;
+  flex-direction: column;
+  margin-top: auto;
+  padding-top: 12px;
 }
 
 /* —— LIBRARY HOME —— */
@@ -669,60 +672,6 @@ html body.ui-redesign.versa-studio[data-mode="studio"] #automation-bar:not([hidd
   display: none !important;
 }
 
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-overall .stage-run-btn {
-  display: none;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-board {
-  padding: 16px;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  border: 1px solid var(--studio-line);
-  border-radius: 18px;
-  overflow: hidden;
-  background: color-mix(in srgb, white 88%, transparent);
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
-  gap: 4px 12px;
-  margin: 0;
-  padding: 14px 16px;
-  border: 0;
-  border-block-end: 1px solid var(--studio-line);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  min-block-size: 0;
-  cursor: pointer;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card:last-child {
-  border-block-end: 0;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card .product-ring,
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card .stage-meter {
-  display: none;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-overall {
-  background: color-mix(in srgb, var(--studio-sky) 16%, white);
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card .stage-run-btn {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  align-self: center;
-  margin: 0;
-}
-
 html body.ui-redesign.versa-studio[data-mode="concept"] #ui-sidebar {
   position: absolute;
   width: 1px;
@@ -745,7 +694,7 @@ html body.ui-redesign.versa-studio .ui-footer {
   border-radius: 999px;
   background: color-mix(in srgb, white 86%, transparent);
   border: 1px solid var(--studio-line);
-  box-shadow: 0 12px 32px rgba(0, 64, 155, 0.14);
+  box-shadow: var(--e1);
   z-index: 80;
   display: flex;
   gap: 16px;
@@ -812,31 +761,6 @@ html body.ui-redesign.versa-studio .ui-footer__hints span:nth-child(n+3) {
   html body.ui-redesign.versa-studio[data-mode="studio"] .project-workspace-nav::before {
     display: none;
   }
-}
-
-/* =====================================================================
-   MAGIC PATTERNS COCKPIT — nuclear overrides (studio.css loads last)
-   Fight styles.css overview-stage-card (~557–737), mac-theme.css,
-   and leftover Mini Canva chrome. Do not restyle the engine.
-   ===================================================================== */
-
-html body.ui-redesign #mini-canva-dashboard,
-html body.ui-redesign.versa-studio #mini-canva-dashboard,
-html body.ui-redesign #mini-canva-dashboard.is-open {
-  display: none !important;
-  width: 0 !important;
-  min-width: 0 !important;
-  max-width: 0 !important;
-  height: 0 !important;
-  overflow: hidden !important;
-  pointer-events: none !important;
-  visibility: hidden !important;
-}
-
-html body.ui-redesign.is-mini-open .ui-canvas-column,
-html body.ui-redesign.versa-studio.is-mini-open .ui-canvas-column {
-  margin-inline-end: 0 !important;
-  margin-bottom: 0 !important;
 }
 
 html body.ui-redesign #automation-bar,
@@ -923,189 +847,8 @@ html body.ui-redesign.versa-studio[data-mode="studio"] .when-complete-field span
 }
 
 html body.ui-redesign.versa-studio[data-mode="studio"] .overview-board {
-  display: block !important;
-  grid-template-columns: none !important;
   padding: 12px 14px 16px !important;
   margin: 0 !important;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-grid {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 0 !important;
-  counter-reset: none !important;
-  border: 1px solid var(--studio-line) !important;
-  border-radius: 18px !important;
-  overflow: hidden !important;
-  background: color-mix(in srgb, white 88%, transparent) !important;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card,
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-grid .overview-stage-card,
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card.overview-stage-overall {
-  appearance: none !important;
-  position: relative !important;
-  display: grid !important;
-  grid-template-columns: 7.75rem auto minmax(0, 1fr) auto !important;
-  grid-template-rows: auto auto !important;
-  grid-template-areas: none !important;
-  align-items: center !important;
-  column-gap: 12px !important;
-  row-gap: 2px !important;
-  min-height: 0 !important;
-  margin: 0 !important;
-  padding: 12px 14px !important;
-  overflow: visible !important;
-  border: 0 !important;
-  border-block-end: 1px solid var(--studio-line) !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  transform: none !important;
-  cursor: pointer !important;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-grid .overview-stage-card:nth-child(n) {
-  background: transparent !important;
-  border-color: transparent !important;
-  border-block-end: 1px solid var(--studio-line) !important;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card:last-child {
-  border-block-end: 0 !important;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card:hover {
-  transform: none !important;
-  filter: none !important;
-  background: color-mix(in srgb, var(--studio-sky) 10%, white) !important;
-  box-shadow: none !important;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card:not(.overview-stage-overall)::before {
-  content: none !important;
-  display: none !important;
-  width: 0 !important;
-  height: 0 !important;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card .product-progress-copy {
-  display: contents !important;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card .product-ring,
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card .stage-meter,
-html body.ui-redesign.versa-studio[data-mode="studio"] #overview-product-ring,
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-overall .product-ring {
-  display: none !important;
-  width: 0 !important;
-  height: 0 !important;
-  overflow: hidden !important;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-label {
-  grid-column: 1 !important;
-  grid-row: 1 / span 2 !important;
-  align-self: center !important;
-  justify-self: start !important;
-  margin: 0 !important;
-  color: var(--studio-navy) !important;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .stage-state {
-  grid-column: 2 !important;
-  grid-row: 1 / span 2 !important;
-  justify-self: start !important;
-  align-self: center !important;
-  z-index: 1 !important;
-  white-space: nowrap !important;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card > strong,
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card .product-progress-copy > strong {
-  grid-column: 3 !important;
-  grid-row: 1 !important;
-  max-width: none !important;
-  margin: 0 !important;
-  font-size: 14px !important;
-  line-height: 1.25 !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card > small,
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card .product-progress-copy > small,
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-open-stages {
-  grid-column: 3 !important;
-  grid-row: 2 !important;
-  min-height: 0 !important;
-  margin: 0 !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card .stage-run-btn,
-html body.ui-redesign.versa-studio[data-mode="studio"] .stage-run-btn {
-  grid-column: 4 !important;
-  grid-row: 1 / span 2 !important;
-  justify-self: end !important;
-  align-self: center !important;
-  z-index: 1 !important;
-  position: static !important;
-  margin: 0 !important;
-  min-height: 28px !important;
-  white-space: nowrap !important;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-overall .stage-run-btn {
-  display: none !important;
-}
-
-html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-overall {
-  background: color-mix(in srgb, var(--studio-sky) 14%, white) !important;
-}
-
-@media (max-width: 880px) {
-  html body.ui-redesign.versa-studio[data-mode="studio"] .studio-now-column {
-    display: grid !important;
-    grid-area: now !important;
-  }
-  html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card,
-  html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-grid .overview-stage-card {
-    grid-template-columns: minmax(0, 1fr) auto !important;
-    grid-template-rows: auto auto auto !important;
-  }
-  html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-label {
-    grid-column: 1 !important;
-    grid-row: 1 !important;
-  }
-  html body.ui-redesign.versa-studio[data-mode="studio"] .stage-state {
-    grid-column: 2 !important;
-    grid-row: 1 !important;
-  }
-  html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card > strong,
-  html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card .product-progress-copy > strong,
-  html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card > small,
-  html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card .product-progress-copy > small,
-  html body.ui-redesign.versa-studio[data-mode="studio"] .overview-open-stages {
-    grid-column: 1 / span 2 !important;
-  }
-  html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card > strong,
-  html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card .product-progress-copy > strong {
-    grid-row: 2 !important;
-  }
-  html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card > small,
-  html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card .product-progress-copy > small,
-  html body.ui-redesign.versa-studio[data-mode="studio"] .overview-open-stages {
-    grid-row: 3 !important;
-  }
-  html body.ui-redesign.versa-studio[data-mode="studio"] .overview-stage-card .stage-run-btn {
-    grid-column: 1 / span 2 !important;
-    grid-row: 4 !important;
-    justify-self: start !important;
-  }
 }
 
 /* =====================================================================
@@ -1136,7 +879,6 @@ html body.ui-redesign.versa-studio[data-layer="library"] #project-workspace,
 html body.ui-redesign.versa-studio[data-layer="library"] .library-masthead,
 html body.ui-redesign.versa-studio[data-layer="library"] #new-project-button,
 html body.ui-redesign.versa-studio[data-layer="library"] .privacy-card,
-html body.ui-redesign.versa-studio[data-layer="library"] .ui-sidebar__extras,
 html body.ui-redesign.versa-studio[data-layer="library"] .sidebar-heading,
 html body.ui-redesign.versa-studio[data-layer="spine"] #empty-state,
 html body.ui-redesign.versa-studio[data-layer="split"] #empty-state,
@@ -1174,7 +916,7 @@ html body.ui-redesign.versa-studio[data-layer="command"] .empty-state.studio-com
   text-align: center;
   background: color-mix(in srgb, white 88%, transparent);
   border: 1px solid var(--studio-line);
-  box-shadow: 0 32px 90px rgba(0, 64, 155, 0.14);
+  box-shadow: var(--e1);
   backdrop-filter: blur(22px);
   gap: 8px;
 }
@@ -1364,18 +1106,6 @@ html body.ui-redesign.versa-studio[data-layer="split"] .workspace-tab.is-active 
   box-shadow: none !important;
 }
 
-html body.ui-redesign.versa-studio[data-layer="spine"] .workspace-tab.is-active::after,
-html body.ui-redesign.versa-studio[data-layer="split"] .workspace-tab.is-active::after {
-  content: "NOW";
-  margin-inline-start: auto;
-  padding: 3px 7px;
-  border-radius: 999px;
-  background: var(--studio-mint);
-  color: var(--studio-ink);
-  font: 800 8px/1 -apple-system, BlinkMacSystemFont, sans-serif;
-  letter-spacing: 0.08em;
-}
-
 html body.ui-redesign.versa-studio[data-layer="spine"] .studio-stage-banner,
 html body.ui-redesign.versa-studio[data-layer="split"] .studio-stage-banner {
   grid-area: banner !important;
@@ -1523,126 +1253,17 @@ html body.ui-redesign.versa-studio[data-layer="spine"] .studio-split-start {
   display: none !important;
 }
 
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-board,
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-grid {
-  display: grid !important;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-}
-
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card:not([hidden]):not([data-stage="characters"]),
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-grid .overview-stage-card:not([hidden]):not([data-stage="characters"]),
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card.overview-stage-overall {
-  display: flex !important;
-  flex-direction: row !important;
-  flex-wrap: nowrap !important;
-  align-items: center !important;
-  gap: 12px !important;
-  grid-template-columns: none !important;
-  grid-template-rows: none !important;
-  min-height: 56px !important;
-  height: auto !important;
-  padding: 12px 14px !important;
-  overflow: hidden !important;
-  background: var(--studio-lift) !important;
-  border: 1px solid var(--studio-line) !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  transform: none !important;
-}
-
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card::before,
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card:not(.overview-stage-overall)::before {
-  content: none !important;
-  display: none !important;
-}
-
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card .product-progress-copy {
-  display: contents !important;
-}
-
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card > *,
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card .product-progress-copy > * {
-  grid-column: auto !important;
-  grid-row: auto !important;
-  position: static !important;
-  max-width: none !important;
-  min-width: 0;
-}
-
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-label {
-  flex: 0 0 7.5rem;
-  color: var(--studio-navy) !important;
-}
-
-html body.ui-redesign.versa-studio[data-layer="spine"] .stage-state {
-  flex: 0 0 auto;
-}
-
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card > strong,
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card .product-progress-copy > strong,
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card > small,
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card .product-progress-copy > small,
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-open-stages {
-  flex: 1 1 auto;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}
-
-html body.ui-redesign.versa-studio[data-layer="spine"] .stage-run-btn {
-  flex: 0 0 auto;
-  margin: 0 0 0 auto !important;
-}
-
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card .product-ring,
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card .stage-meter,
-html body.ui-redesign.versa-studio[data-layer="spine"] #overview-product-ring {
-  display: none !important;
-}
-
 html body.ui-redesign.versa-studio[data-layer="spine"] .studio-now-log .eyebrow::before {
   content: none;
 }
 
 html body.ui-redesign.versa-studio[data-layer="spine"] #workspace-stage,
 html body.ui-redesign.versa-studio[data-layer="spine"] #workspace-track,
-html body.ui-redesign.versa-studio[data-layer="spine"] .workspace-pane.is-active,
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-board {
+html body.ui-redesign.versa-studio[data-layer="spine"] .workspace-pane.is-active {
   display: flex !important;
   flex-direction: column;
   block-size: 100%;
   min-block-size: 0;
-}
-
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-grid {
-  flex: 1 1 auto;
-  display: grid !important;
-  grid-auto-rows: minmax(52px, 1fr);
-  gap: 8px !important;
-  min-block-size: 0;
-}
-
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card #queue-caption,
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-open-stages,
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card > small,
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card .product-progress-copy > small {
-  display: none !important;
-}
-
-html body.ui-redesign.versa-studio[data-layer="spine"] .stage-run-btn,
-html body.ui-redesign.versa-studio[data-layer="split"] .stage-run-btn {
-  min-height: 32px !important;
-  padding: 0 12px !important;
-  border-radius: 999px !important;
-  font-family: var(--studio-sans) !important;
-  font-weight: 600 !important;
-  letter-spacing: -0.02em;
-  white-space: nowrap;
 }
 
 html body.ui-redesign.versa-studio[data-layer="spine"] .studio-now-column,
@@ -2293,17 +1914,6 @@ html body.ui-redesign.versa-studio[data-layer="command"] .studio-telemetry {
   margin: 0 0 12px;
 }
 
-.overview-stage-card {
-  position: relative;
-}
-
-html body.ui-redesign.versa-studio.is-progressing .overview-stage-card:not([hidden]) {
-  padding-bottom: 40px;
-}
-
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card,
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-label,
-html body.ui-redesign.versa-studio[data-layer="spine"] .overview-stage-card strong,
 html body.ui-redesign.versa-studio[data-layer="split"] .workspace-tab,
 html body.ui-redesign.versa-studio[data-layer="spine"] .workspace-tab {
   font-family: var(--studio-work) !important;
@@ -2374,7 +1984,7 @@ html.is-resizing * {
   text-transform: uppercase;
 }
 
-html body.ui-redesign.versa-studio .studio-appearance {
+html body.ui-redesign.versa-studio #global-appearance-switch {
   flex: 0 0 auto;
 }
 
@@ -2397,4 +2007,3 @@ html[data-theme="dark"] .studio-telemetry__pulse {
     animation: none;
   }
 }
-

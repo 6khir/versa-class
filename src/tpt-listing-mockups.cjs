@@ -327,6 +327,91 @@ function isLikelyImageBuffer(buffer, contentType = '') {
   return String(contentType).toLowerCase().startsWith('image/');
 }
 
+function metaTagContent(html, names) {
+  const list = Array.isArray(names) ? names : [names];
+  for (const name of list) {
+    const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const patterns = [
+      new RegExp(`<meta[^>]+(?:property|name)=["']${escaped}["'][^>]+content=["']([^"']+)["']`, 'i'),
+      new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${escaped}["']`, 'i')
+    ];
+    for (const pattern of patterns) {
+      const match = html.match(pattern);
+      if (match?.[1]) return decodeHtmlEntities(match[1]);
+    }
+  }
+  return '';
+}
+
+function firstJsonLdObject(html) {
+  const matches = String(html || '').matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+  for (const match of matches) {
+    try {
+      const data = JSON.parse(match[1]);
+      if (Array.isArray(data)) {
+        const product = data.find((item) => item && typeof item === 'object');
+        if (product) return product;
+      }
+      if (data && typeof data === 'object') return data;
+    } catch {
+      // Keep scanning later JSON-LD blocks.
+    }
+  }
+  return null;
+}
+
+function nextDataProduct(html) {
+  try {
+    const match = String(html || '').match(/<script[^>]*id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+    if (!match) return null;
+    const data = JSON.parse(match[1]);
+    return data?.props?.pageProps?.product || data?.props?.pageProps?.initialProduct || null;
+  } catch {
+    return null;
+  }
+}
+
+function extractGradeFromText(value) {
+  const text = cleanText(value).slice(0, 400);
+  if (!text) return '';
+  const match = text.match(/\b((?:Pre-?K|Preschool|Kindergarten|Grades?\s*\d(?:\s*[-–to]+\s*\d+)?|K(?:\s*[-–to]+\s*\d+)?))\b/i);
+  return match ? cleanText(match[1]).slice(0, 80) : '';
+}
+
+function extractTptListingFacts(html, pageUrl = '') {
+  const source = String(html || '');
+  const jsonLd = firstJsonLdObject(source);
+  const product = nextDataProduct(source);
+  const titleTag = source.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '';
+  const title = cleanText(
+    product?.name
+      || jsonLd?.name
+      || metaTagContent(source, ['og:title', 'twitter:title'])
+      || titleTag.replace(/\s*[|·].*$/, '')
+  ).slice(0, 300);
+  const description = cleanText(
+    product?.description
+      || jsonLd?.description
+      || metaTagContent(source, ['og:description', 'twitter:description', 'description'])
+  ).slice(0, 1500);
+  const gradeSource = [
+    product?.gradeLevels,
+    product?.grades,
+    jsonLd?.typicalAgeRange,
+    jsonLd?.audience,
+    description,
+    source.match(/Grade\s*Levels?[:\s<]*([^<]{2,80})/i)?.[1]
+  ].flat().filter(Boolean).join(' ');
+  const pageCount = extractPageCountFromTptHtml(source);
+  return {
+    productUrl: parseTptProductUrl(pageUrl)?.href || cleanText(pageUrl).slice(0, 300),
+    title,
+    description,
+    grade: extractGradeFromText(gradeSource) || extractGradeFromText(description),
+    pageCount: Number.isFinite(pageCount) && pageCount > 0 ? pageCount : null
+  };
+}
+
 function extractPageCountFromTptHtml(html) {
   if (!html || typeof html !== 'string') return null;
 
@@ -371,13 +456,27 @@ function extractPageCountFromTptHtml(html) {
   return null;
 }
 
-function emptyMockupResult({ status = 'empty', productUrl = '', warning = null, scrapedPageCount = null } = {}) {
+function emptyMockupResult({
+  status = 'empty',
+  productUrl = '',
+  warning = null,
+  scrapedPageCount = null,
+  listingFacts = null
+} = {}) {
+  const facts = listingFacts && typeof listingFacts === 'object' ? listingFacts : null;
+  const pageCount = Number.isFinite(scrapedPageCount) && scrapedPageCount > 0
+    ? scrapedPageCount
+    : (Number.isFinite(facts?.pageCount) && facts.pageCount > 0 ? facts.pageCount : null);
   return {
     productUrl: cleanText(productUrl, ''),
     scrapedAt: new Date().toISOString(),
     status,
     warning,
-    scrapedPageCount: Number.isFinite(scrapedPageCount) && scrapedPageCount > 0 ? scrapedPageCount : null,
+    scrapedPageCount: pageCount,
+    listingFacts: facts,
+    listingTitle: facts?.title || null,
+    listingDescription: facts?.description || null,
+    listingGrade: facts?.grade || null,
     images: []
   };
 }
@@ -388,10 +487,17 @@ async function downloadListingMockups({
   fetchBuffer,
   productUrl = '',
   maxImages = MAX_LISTING_MOCKUPS,
-  scrapedPageCount = null
+  scrapedPageCount = null,
+  listingFacts = null
 } = {}) {
   if (!destDir || typeof fetchBuffer !== 'function') {
-    return emptyMockupResult({ status: 'empty', productUrl, warning: 'Mockup download was not configured.', scrapedPageCount });
+    return emptyMockupResult({
+      status: 'empty',
+      productUrl,
+      warning: 'Mockup download was not configured.',
+      scrapedPageCount,
+      listingFacts
+    });
   }
   mkdirSync(destDir, { recursive: true });
   const images = [];
@@ -427,15 +533,23 @@ async function downloadListingMockups({
       status: 'empty',
       productUrl,
       warning: 'Listing mockup URLs were found, but none could be downloaded as images.',
-      scrapedPageCount
+      scrapedPageCount,
+      listingFacts
     });
   }
+  const pageCount = Number.isFinite(scrapedPageCount) && scrapedPageCount > 0
+    ? scrapedPageCount
+    : (Number.isFinite(listingFacts?.pageCount) && listingFacts.pageCount > 0 ? listingFacts.pageCount : null);
   return {
     productUrl: cleanText(productUrl, ''),
     scrapedAt: new Date().toISOString(),
     status: 'ok',
     warning: null,
-    scrapedPageCount: Number.isFinite(scrapedPageCount) && scrapedPageCount > 0 ? scrapedPageCount : null,
+    scrapedPageCount: pageCount,
+    listingFacts: listingFacts && typeof listingFacts === 'object' ? listingFacts : null,
+    listingTitle: listingFacts?.title || null,
+    listingDescription: listingFacts?.description || null,
+    listingGrade: listingFacts?.grade || null,
     images
   };
 }
@@ -507,6 +621,7 @@ module.exports = {
   emptyMockupResult,
   extractListingMockupUrls,
   extractPageCountFromTptHtml,
+  extractTptListingFacts,
   isCloudflareChallengeHtml,
   isTptProductUrl,
   parseTptProductUrl,

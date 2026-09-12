@@ -1,70 +1,9 @@
 /* renderer/ui.css
    1B USD UI/UX design system for VERSA CLASS.
-   All new chrome is scoped with `ui-` BEM prefixes, `#mini-canva-dashboard`,
-   or `body.ui-redesign` so existing component styles keep working.
+   All new chrome is scoped with `ui-` BEM prefixes or `body.ui-redesign`
+   so existing component styles keep working.
 */
 
-:root {
-  --color-bg: #f5f5f5;
-  --color-bg-dark: #1a1a1a;
-  --color-primary: #2563eb;
-  --color-primary-dark: #60a5fa;
-  --color-text: #111827;
-  --color-text-dark: #d1d5db;
-  --color-border: #e5e7eb;
-  --color-border-dark: #374151;
-
-  --ui-color-surface: #f9fafb;
-  --ui-color-surface-raised: #f3f4f6;
-  --ui-color-muted: #6b7280;
-  --ui-color-muted-strong: #4b5563;
-  --ui-color-skeleton: #e5e7eb;
-  --ui-color-skeleton-shine: #f3f4f6;
-  --ui-color-danger: #dc2626;
-  --ui-color-success: #059669;
-  --ui-color-warning: #d97706;
-  --ui-color-overlay: #111827;
-  --ui-color-focus: var(--color-primary);
-  --ui-color-header: #f9fafb;
-  --ui-color-footer: #f3f4f6;
-  --ui-color-sidebar: #f9fafb;
-  --ui-color-canvas: var(--color-bg);
-  --ui-color-panel: #f9fafb;
-  --ui-color-shadow: #111827;
-  --ui-color-kbd: #e5e7eb;
-
-  --ui-font: Inter, Geist, system-ui, sans-serif;
-  --ui-size-base: 16px;
-  --ui-size-h1: 32px;
-  --ui-size-h2: 24px;
-  --ui-size-h3: 20px;
-  --ui-size-small: 12px;
-  --ui-tracking-heading: -0.02em;
-  --ui-spring: cubic-bezier(0.16, 1, 0.3, 1);
-  --ui-spring-fast: 0.2s var(--ui-spring);
-  --ui-spring-panel: 0.25s var(--ui-spring);
-
-  --ui-space-1: 4px;
-  --ui-space-2: 8px;
-  --ui-space-3: 12px;
-  --ui-space-4: 16px;
-  --ui-space-5: 20px;
-  --ui-space-6: 24px;
-  --ui-space-8: 32px;
-
-  --ui-header-h: 56px;
-  --ui-footer-h: 32px;
-  --ui-sidebar-w: 256px;
-  --ui-sidebar-collapsed: 48px;
-  --ui-mini-w: 320px;
-  --ui-radius: 12px;
-  --ui-radius-sm: 8px;
-  --ui-z-header: 40;
-  --ui-z-sidebar: 30;
-  --ui-z-mini: 50;
-  --ui-z-footer: 45;
-  --ui-z-skip: 80;
-}
 
 html[data-theme="dark"] {
   --color-bg: var(--color-bg-dark);
@@ -98,8 +37,7 @@ html body.ui-redesign .ui-shell,
 html body.ui-redesign .ui-header,
 html body.ui-redesign .ui-sidebar,
 html body.ui-redesign .ui-footer,
-html body.ui-redesign .ui-canvas,
-html body.ui-redesign #mini-canva-dashboard {
+html body.ui-redesign .ui-canvas {
   font-family: var(--ui-font);
 }
 
@@ -182,11 +120,6 @@ html body.ui-redesign .ui-shell .main-content.ui-canvas {
   grid-column: auto;
   grid-row: auto;
   padding: var(--ui-space-4) var(--ui-space-6) var(--ui-space-8);
-}
-
-html body.ui-redesign.is-mini-open .ui-canvas-column {
-  margin-inline-end: var(--ui-mini-w);
-  transition: margin-inline-end var(--ui-spring-panel);
 }
 
 html body.ui-redesign:not(.is-mini-open) .ui-canvas-column {
@@ -361,9 +294,8 @@ html body.ui-redesign .ui-profile-menu__panel {
 
 html body.ui-redesign .ui-profile-menu.is-open .ui-profile-menu__panel,
 html body.ui-redesign .ui-profile-menu:focus-within .ui-profile-menu__panel {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
+  opacity: 0;
+  pointer-events: none;
 }
 
 html body.ui-redesign .ui-profile-menu .topbar-info-nav,
@@ -531,133 +463,8 @@ html body.ui-redesign .ui-footer__dot.is-busy {
   animation: ui-pulse 1s var(--ui-spring) infinite alternate;
 }
 
-/* Mini Canva Dashboard */
-#mini-canva-dashboard {
-  position: absolute;
-  top: var(--ui-space-2);
-  right: var(--ui-space-2);
-  bottom: var(--ui-space-2);
-  width: var(--ui-mini-w);
-  min-width: 280px;
-  max-width: min(480px, 46vw);
-  display: flex;
-  flex-direction: column;
-  gap: var(--ui-space-3);
-  padding: var(--ui-space-3);
-  background: var(--ui-color-panel);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: var(--ui-radius);
-  box-shadow: 0 20px 48px color-mix(in srgb, var(--ui-color-shadow) 16%, transparent);
-  z-index: var(--ui-z-mini);
-  transform: translateX(calc(100% + 24px));
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-  pointer-events: none;
-  visibility: hidden;
-}
-
-#mini-canva-dashboard.is-open {
-  transform: translateX(0);
-  pointer-events: auto;
-  visibility: visible;
-}
-
-#mini-canva-dashboard .ui-mini-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--ui-space-2);
-  min-height: 32px;
-}
-
-#mini-canva-dashboard .ui-mini-head h2 {
-  margin: 0;
-  font-size: 14px;
-  letter-spacing: var(--ui-tracking-heading);
-}
-
-#mini-canva-dashboard .mini-preview {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 180px;
-  border-radius: var(--ui-radius-sm);
-  border: 1px solid var(--color-border);
-  overflow: hidden;
-  background: var(--ui-color-skeleton);
-}
-
-#mini-canva-dashboard .mini-preview img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  transform-origin: center center;
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-#mini-canva-dashboard .mini-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--ui-space-2);
-  min-height: 36px;
-}
-
-#mini-canva-dashboard .mini-toolbar button,
-#mini-canva-dashboard .ui-mini-icon-btn {
-  min-height: 32px;
-  min-width: 32px;
-  padding: var(--ui-space-1) var(--ui-space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--ui-radius-sm);
-  background: var(--ui-color-surface);
-  color: var(--color-text);
-  font-size: 13px;
-  transition: transform var(--ui-spring-fast), background var(--ui-spring-fast), opacity var(--ui-spring-fast);
-}
-
-#mini-canva-dashboard .mini-toolbar button:hover,
-#mini-canva-dashboard .ui-mini-icon-btn:hover {
-  background: var(--ui-color-surface-raised);
-  opacity: 1;
-  transform: translateY(0);
-}
-
-#mini-canva-dashboard .mini-toolbar button:active,
-#mini-canva-dashboard .ui-mini-icon-btn:active {
-  transform: scale(0.97);
-}
-
-#mini-canva-dashboard .mini-toolbar button[data-action="mini-export"] {
-  margin-inline-start: auto;
-  background: var(--color-primary);
-  color: var(--color-bg);
-  border-color: var(--color-primary);
-}
-
-html[data-theme="dark"] #mini-canva-dashboard .mini-toolbar button[data-action="mini-export"] {
-  color: var(--color-bg-dark);
-}
-
-#mini-canva-dashboard .ui-mini-resize {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 8px;
-  cursor: ew-resize;
-  background: transparent;
-}
-
-#mini-canva-dashboard .ui-mini-meta {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  color: var(--ui-color-muted);
-  min-height: 16px;
-}
-
 /* Skeletons */
 .ui-skeleton,
-#mini-canva-dashboard .mini-preview.skeleton,
 html body.ui-redesign .skeleton {
   background-image: linear-gradient(
     90deg,
@@ -738,17 +545,13 @@ html body.ui-redesign #toast-host .toast:hover {
 }
 
 /* Focus rings */
-html body.ui-redesign .ui-shell :focus-visible,
-#mini-canva-dashboard :focus-visible {
+html body.ui-redesign .ui-shell :focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 
-/* Reserved space for async regions */
-html body.ui-redesign #jobs-table {
-  min-height: 200px;
-}
-
+/* Reserved space for async regions. #jobs-table is not here: the Pages Lab
+   grid is a flex child that fills its column, and refined.css owns it. */
 html body.ui-redesign #event-log {
   min-height: 96px;
 }
@@ -761,7 +564,7 @@ html body.ui-redesign #bundle-projects-list {
   min-height: 80px;
 }
 
-/* Mobile: Mini Canva becomes a bottom drawer; sidebar stays overlay */
+/* Mobile: Mini Editable engine becomes a bottom drawer; sidebar stays overlay */
 @media (max-width: 599px) {
   html body.ui-redesign {
     min-width: 0;
@@ -794,32 +597,6 @@ html body.ui-redesign #bundle-projects-list {
     z-index: calc(var(--ui-z-mini) + 1);
   }
 
-  html body.ui-redesign.is-mini-open .ui-canvas-column {
-    margin-inline-end: 0;
-    margin-bottom: 40vh;
-  }
-
-  #mini-canva-dashboard {
-    top: auto;
-    right: 0;
-    left: 0;
-    bottom: var(--ui-footer-h);
-    width: 100%;
-    max-width: none;
-    min-width: 0;
-    height: 40vh;
-    border-radius: var(--ui-radius) var(--ui-radius) 0 0;
-    transform: translateY(100%);
-  }
-
-  #mini-canva-dashboard.is-open {
-    transform: translateY(0);
-  }
-
-  #mini-canva-dashboard .ui-mini-resize {
-    display: none;
-  }
-
   html body.ui-redesign .ui-footer {
     grid-template-columns: 1fr;
     height: auto;
@@ -833,9 +610,7 @@ html body.ui-redesign #bundle-projects-list {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html body.ui-redesign *,
-  #mini-canva-dashboard,
-  #mini-canva-dashboard * {
+  html body.ui-redesign * {
     animation: none !important;
     transition: none !important;
   }

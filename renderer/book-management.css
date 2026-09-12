@@ -1,0 +1,209 @@
+html body.ui-redesign.versa-studio.pro-suite .versa-management-channel {
+  display: none;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  width: 100%;
+  background: var(--bg, #050609);
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-mode="management"] .versa-management-channel,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="management"] .versa-management-channel {
+  display: flex;
+}
+
+html body.ui-redesign.versa-studio.pro-suite[data-mode="management"] #ui-body > .workspace,
+html body.ui-redesign.versa-studio.pro-suite[data-layer="management"] #ui-body > .workspace {
+  display: none;
+}
+
+.versa-management-channel__bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px 12px;
+  border-bottom: 1px solid var(--line, rgba(126, 178, 240, 0.14));
+}
+
+.versa-management-channel__bar h2 {
+  margin: 4px 0 0;
+  font-size: 22px;
+}
+
+.versa-management-channel__status {
+  margin: 0;
+  color: var(--dim, #9fb0c8);
+  font-size: 13px;
+}
+
+.versa-management-channel__frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: #050609;
+}
+
+.book-mgmt-dialog {
+  width: min(720px, 94vw);
+}
+
+.book-mgmt-dialog__bar {
+  padding: 0 22px 12px;
+}
+
+.book-mgmt-dialog__bar input {
+  width: 100%;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid var(--line, rgba(126, 178, 240, 0.2));
+  background: rgba(126, 178, 240, 0.06);
+  color: inherit;
+  padding: 0 14px;
+}
+
+.book-mgmt-dialog__status {
+  margin: 0 22px 10px;
+  color: var(--dim, #9fb0c8);
+  font-size: 13px;
+}
+
+.book-mgmt-dialog__list {
+  list-style: none;
+  margin: 0 22px 16px;
+  padding: 0;
+  max-height: min(46vh, 420px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.book-mgmt-dialog__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line, rgba(126, 178, 240, 0.14));
+  background: rgba(126, 178, 240, 0.05);
+  color: inherit;
+  border-radius: 14px;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.book-mgmt-dialog__item.is-selected,
+.book-mgmt-dialog__item[aria-selected="true"] {
+  border-color: #4ea9f0;
+  box-shadow: 0 0 0 1px rgba(78, 169, 240, 0.35);
+}
+
+.book-mgmt-dialog__item strong {
+  display: block;
+  font-size: 14px;
+}
+
+.book-mgmt-dialog__item small {
+  display: block;
+  color: var(--dim, #9fb0c8);
+  font-size: 12px;
+}
+
+.book-mgmt-dialog__badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #4ea9f0;
+}
+
+.book-mgmt-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 22px 22px;
+}
+
+html body.ui-redesign.versa-studio.pro-suite #export-to-management-button,
+html body.ui-redesign.versa-studio.pro-suite #studio-management-btn {
+  font-family: inherit;
+}
+
+.versa-management-channel,
+.versa-management-channel__bar,
+.versa-management-channel__frame,
+.versa-management-setup,
+.versa-management-setup :is(h3, p, button, .eyebrow) {
+  font-synthesis: none !important;
+  -webkit-text-stroke: 0 !important;
+  text-shadow: none !important;
+}
+
+.versa-management-channel__bar h2,
+.versa-management-setup h3 {
+  font-weight: 700;
+}
+
+.versa-management-channel__bar .eyebrow,
+.versa-management-setup .eyebrow {
+  font-weight: 600;
+}
+
+.versa-management-channel__status,
+.versa-management-setup__lede {
+  font-weight: 400;
+}
+
+.versa-management-channel,
+.versa-management-channel__bar,
+.versa-management-channel__frame,
+.versa-management-setup {
+  transition:
+    background-color 280ms ease,
+    color 280ms ease,
+    border-color 280ms ease,
+    box-shadow 280ms ease;
+}
+
+html[data-theme="light"] .versa-management-channel,
+html[data-theme="light"] body.ui-redesign.versa-studio.pro-suite .versa-management-channel {
+  background: var(--vs-env, #F4F6F9);
+  color: var(--vs-ink, #141B26);
+}
+
+html[data-theme="light"] .versa-management-channel__frame {
+  background: var(--vs-canvas, #F4F6F9);
+}
+
+.versa-management-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 48px auto;
+  padding: 28px;
+  width: min(420px, calc(100% - 40px));
+  background: var(--vs-surface, rgba(15, 22, 35, 0.62));
+  border: 1px solid var(--vs-line, rgba(148, 178, 219, 0.1));
+  border-radius: 20px;
+  color: var(--vs-ink, #E9F0FA);
+}
+
+.versa-management-setup[hidden] {
+  display: none;
+}
+
+.versa-management-setup h3 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.versa-management-setup__lede {
+  margin: 0 0 8px;
+  color: var(--vs-ink-2, #9BAAC2);
+}

@@ -1,5 +1,5 @@
 /* renderer/ui.js
-   UI-only chrome for Library / Atelier.
+   UI-only chrome for Library / Studio.
    Does not implement handleAction or call window.tptDesktop.
 */
 (function initVersaUiChrome() {
@@ -55,9 +55,6 @@
     if (now !== Number(localStorage.getItem(STORAGE_NOW))) writeNumber(STORAGE_NOW, now);
     if (journey !== Number(localStorage.getItem(STORAGE_JOURNEY))) writeNumber(STORAGE_JOURNEY, journey);
     placeSplitHandles();
-    // #region agent log
-    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify({sessionId:'1c3662',runId:'layout-overflow',hypothesisId:'C',location:'ui.js:applySplitColumns',message:'clamped studio columns',data:{viewW,journey,now,maxNow},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
   }
 
   function placeSplitHandles() {
@@ -113,22 +110,19 @@
     mountTelemetry(document.querySelector('.studio-stage-banner'), 'banner');
     mountTelemetry(document.querySelector('.project-workspace-nav'), 'rail');
     mountTelemetry(document.getElementById('library-board-frame'), 'library');
-    document.querySelectorAll('.overview-stage-card:not([hidden])').forEach((card) => {
-      mountTelemetry(card, 'card');
-    });
+    // Stage cards used to get one of these each. Six lane animations running at
+    // once said nothing that the active stage's own meter does not already say.
+    document.querySelectorAll('.overview-stage-card > .studio-telemetry').forEach((node) => node.remove());
   }
 
   function syncTelemetryStreams() {
     mountAllTelemetry();
     const progressing = Boolean(
       document.querySelector('#live-dock.is-live')
-      || document.querySelector('.overview-stage-card.is-live')
+      || document.querySelector('.overview-stage-card[data-state="live"]')
       || document.querySelector('.tab-mark.is-live')
       || document.querySelector('.stage-live-bar.is-live')
-      || document.querySelector('.canva-live-dashboard.is-live')
-      || document.querySelector('#canva-live-bar.is-live')
       || document.querySelector('.page-preview-card.is-live')
-      || document.querySelector('.canva-page-card.is-live')
       || document.querySelector('.project-item.is-generating')
     );
     document.body.classList.toggle('is-progressing', progressing);
@@ -207,10 +201,13 @@
   function syncStudioModeButtons(mode) {
     const libraryBtn = document.getElementById('studio-library-btn');
     const cockpitBtn = document.getElementById('studio-cockpit-btn');
+    const managementBtn = document.getElementById('studio-management-btn');
     libraryBtn?.classList.toggle('is-active', mode === 'library');
     cockpitBtn?.classList.toggle('is-active', mode === 'studio' || mode === 'bundle');
+    managementBtn?.classList.toggle('is-active', mode === 'management');
     libraryBtn?.setAttribute('aria-pressed', mode === 'library' ? 'true' : 'false');
     cockpitBtn?.setAttribute('aria-pressed', mode === 'studio' || mode === 'bundle' ? 'true' : 'false');
+    managementBtn?.setAttribute('aria-pressed', mode === 'management' ? 'true' : 'false');
   }
 
   function hasEnteredDoor() {
@@ -230,13 +227,17 @@
     document.getElementById('studio-intro')?.setAttribute('hidden', '');
     syncLayer();
   }
+  window.__versaEnterDoor = enterDoor;
 
   function setStudioMode(mode, persistPin) {
-    const next = mode === 'studio' || mode === 'bundle' ? mode : 'library';
+    const next = mode === 'studio' || mode === 'bundle' || mode === 'management' ? mode : 'library';
     document.body.dataset.mode = next;
     if (persistPin) {
       document.body.dataset.studioPin = next === 'library' ? 'library' : '';
     }
+    const channel = document.getElementById('versa-management-channel');
+    if (next === 'management') channel?.removeAttribute('hidden');
+    else channel?.setAttribute('hidden', '');
     syncStudioModeButtons(next);
     syncLayer();
   }
@@ -268,7 +269,9 @@
     }
 
     let layer = 'command';
-    if (mode === 'bundle') {
+    if (mode === 'management') {
+      layer = 'management';
+    } else if (mode === 'bundle') {
       layer = 'split';
     } else if (mode === 'library' || !inWorkspace) {
       layer = hasBooks ? 'library' : 'command';
@@ -280,6 +283,13 @@
 
     body.dataset.layer = layer;
     body.dataset.view = view;
+    if (!hasEnteredDoor() || layer === 'intro' || layer === 'command') {
+      body.dataset.oled = 'idle';
+    } else if (inWorkspace && (view === 'overview' || layer === 'spine')) {
+      body.dataset.oled = 'pipeline';
+    } else {
+      body.dataset.oled = inWorkspace ? 'lab' : 'idle';
+    }
     requestAnimationFrame(placeSplitHandles);
   }
 
@@ -299,11 +309,19 @@
     interior: () => document.querySelector('[data-action="regenerate-interior"]:not([hidden])')
       || document.querySelector('#run-interior-button:not([hidden])')
       || document.querySelector('[data-action="run-stage"][data-stage="interior"]:not([hidden])'),
-    editable: () => document.querySelector('#run-canva-editable-button')
-      || document.querySelector('[data-action="run-stage"][data-stage="editable"]'),
-    listing: () => document.querySelector('[data-action="generate-tpt-listing"]')
-      || document.querySelector('[data-action="run-stage"][data-stage="listing"]'),
+    interior_artwork: () => document.querySelector('[data-action="run-stage"][data-stage="interior_artwork"]'),
+    interior_text: () => document.querySelector('[data-action="generate-editable-text"]')
+      || document.querySelector('[data-action="run-stage"][data-stage="interior_text"]'),
+    editable_ppt: () => document.querySelector('#run-editable-engine-button')
+      || document.querySelector('[data-action="run-stage"][data-stage="editable_ppt"]'),
+    editable: () => document.querySelector('#run-editable-engine-button')
+      || document.querySelector('[data-action="run-stage"][data-stage="editable_generation"]'),
+    maze: () => document.querySelector('#maze-generate-button')
+      || document.querySelector('[data-action="generate-maze"]')
+      || document.querySelector('[data-action="run-stage"][data-stage="maze"]'),
     thumbnails: () => document.querySelector('[data-action="generate-tpt-thumbnails"]')
+      || document.querySelector('[data-action="run-stage"][data-stage="thumbnails"]'),
+    mockups: () => document.querySelector('[data-action="generate-tpt-thumbnails"]')
       || document.querySelector('[data-action="run-stage"][data-stage="thumbnails"]'),
     preview: () => document.querySelector('[data-action="generate-tpt-preview-video"]')
       || document.querySelector('[data-action="run-stage"][data-stage="preview"]'),
@@ -315,11 +333,16 @@
   const STAGE_NAMES = {
     overview: 'Overview',
     characters: 'Characters',
-    interior: 'Interior',
-    editable: 'Canva',
+    interior: 'Pages Lab',
+    interior_artwork: 'Pages Lab',
+    interior_text: 'Text Lab',
+    editable_ppt: 'Editable Lab',
+    editable: 'Editable Lab',
+    maze: 'Maze Lab',
     listing: 'SEO',
-    thumbnails: 'Thumbnails',
-    preview: 'Preview',
+    thumbnails: 'Mockups Lab',
+    mockups: 'Mockups Lab',
+    preview: 'Preview Lab',
     export: 'Export'
   };
 
@@ -333,13 +356,16 @@
     const title = document.getElementById('studio-stage-title');
     const kicker = document.getElementById('studio-stage-kicker');
     const scaleMeta = document.getElementById('studio-scale-meta');
-    const stageName = STAGE_NAMES[view] || 'Overview';
+    const mazeBook = document.getElementById('project-format-toggle')?.textContent === 'Maze';
+    const stageName = view === 'overview' && mazeBook
+      ? 'Maze Overview'
+      : (STAGE_NAMES[view] || 'Overview');
     if (title) title.textContent = stageName;
     const scaleTitle = document.getElementById('studio-scale-title');
     if (scaleTitle) scaleTitle.textContent = stageName;
-    if (kicker) kicker.textContent = book || 'Atelier';
+    if (kicker) kicker.textContent = book || 'Studio';
     const scaleKicker = document.querySelector('.studio-scale-page__kicker');
-    if (scaleKicker) scaleKicker.textContent = book || 'Atelier';
+    if (scaleKicker) scaleKicker.textContent = book || 'Studio';
     if (scaleMeta) scaleMeta.textContent = `Stage ${visibleIndex + 1} of ${total}`;
     const runBtn = document.getElementById('studio-stage-run');
     const bannerRun = document.getElementById('studio-banner-run');
@@ -383,6 +409,39 @@
   document.getElementById('studio-intro-enter')?.addEventListener('click', () => {
     enterDoor();
   });
+
+  (function startOledTypewriter() {
+    const nodes = [
+      document.getElementById('studio-intro-typewriter'),
+      document.getElementById('canvas-typewriter')
+    ].filter(Boolean);
+    if (!nodes.length) return;
+    const phrases = [
+      'Which book?',
+      'Your next book.',
+      'What next?'
+    ];
+    let p = 0;
+    let i = 0;
+    let deleting = false;
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (reduced) {
+      nodes.forEach((node) => { node.textContent = phrases[0]; });
+      return;
+    }
+    const paint = () => {
+      nodes.forEach((node) => { node.textContent = phrases[p].slice(0, i); });
+    };
+    const tick = () => {
+      const full = phrases[p];
+      paint();
+      if (!deleting && i < full.length) { i += 1; setTimeout(tick, 55); }
+      else if (!deleting && i === full.length) { deleting = true; setTimeout(tick, 2600); }
+      else if (deleting && i > 0) { i -= 1; setTimeout(tick, 26); }
+      else { deleting = false; p = (p + 1) % phrases.length; setTimeout(tick, 400); }
+    };
+    tick();
+  }());
 
   document.getElementById('studio-split-start')?.addEventListener('click', () => {
     document.getElementById('run-button')?.click();
@@ -453,6 +512,7 @@
 
   document.getElementById('project-list')?.addEventListener('pointerdown', (event) => {
     if (document.body.dataset.layer !== 'library') return;
+    if (event.target.closest('[data-action="delete-project"]')) return;
     const item = event.target.closest('.project-item');
     if (!item) return;
     const rect = item.getBoundingClientRect();
@@ -468,11 +528,6 @@
   function filterProjects(query, options = {}) {
     const list = document.getElementById('project-list');
     if (!list) {
-      // #region agent log
-      const missPayload = {sessionId:'1c3662',runId:'search-debug',hypothesisId:'E',location:'ui.js:filterProjects',message:'project-list missing',data:{query:String(query||'').slice(0,40)},timestamp:Date.now()};
-      fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify(missPayload)}).catch(()=>{});
-      window.tptDesktop?.debugAgentLog?.(missPayload);
-      // #endregion
       return { visible: 0, hiddenCount: 0, total: 0 };
     }
     const q = String(query || '').trim().toLowerCase();
@@ -505,11 +560,6 @@
     if (countEl) countEl.textContent = q ? String(visible) : String(items.length);
     const sampleMiss = items.find((item) => item.classList.contains('is-search-miss'));
     const sampleHit = items.find((item) => !item.classList.contains('is-search-miss'));
-    // #region agent log
-    const payload = {sessionId:'1c3662',runId:'search-debug',hypothesisId:'A',location:'ui.js:filterProjects',message:'filterProjects result',data:{q,total:items.length,visible,hiddenCount,beforeMode,beforeLayer,afterMode:document.body.dataset.mode,afterLayer:document.body.dataset.layer,pin:document.body.dataset.studioPin,missDisplay:sampleMiss?getComputedStyle(sampleMiss).display:null,hitDisplay:sampleHit?getComputedStyle(sampleHit).display:null,sidebarHidden:Boolean(document.getElementById('ui-sidebar')?.offsetParent===null&&document.body.dataset.mode==='studio'),revealLibrary:options.revealLibrary!==false},timestamp:Date.now()};
-    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify(payload)}).catch(()=>{});
-    window.tptDesktop?.debugAgentLog?.(payload);
-    // #endregion
     return { visible, hiddenCount, total: items.length };
   }
 
@@ -549,19 +599,21 @@
   const profilePanel = document.getElementById('ui-profile-menu-panel');
 
   function setProfileOpen(open) {
-    profileMenu?.classList.toggle('is-open', open);
+    if (!profileMenu) return;
+    profileMenu.classList.toggle('is-open', open);
     profileToggle?.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (!profilePanel) return;
     if (open) profilePanel.removeAttribute('inert');
     else profilePanel.setAttribute('inert', '');
   }
 
-  setProfileOpen(false);
-
-  profileToggle?.addEventListener('click', (event) => {
-    event.stopPropagation();
-    setProfileOpen(!profileMenu.classList.contains('is-open'));
-  });
+  if (profileMenu && profileToggle) {
+    setProfileOpen(false);
+    profileToggle.addEventListener('click', (event) => {
+      event.stopPropagation();
+      setProfileOpen(!profileMenu.classList.contains('is-open'));
+    });
+  }
 
   document.addEventListener('click', (event) => {
     if (profileMenu && !profileMenu.contains(event.target)) {
@@ -573,19 +625,7 @@
     if (action === 'ui-focus-search') search?.focus();
   });
 
-  // #region agent log
-  {
-    const initPayload = {sessionId:'1c3662',runId:'search-debug',hypothesisId:'B',location:'ui.js:init',message:'search wiring status',data:{searchFound:Boolean(search),shellFound:Boolean(shell),hasDebugLog:typeof window.tptDesktop?.debugAgentLog==='function'},timestamp:Date.now()};
-    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify(initPayload)}).catch(()=>{});
-    window.tptDesktop?.debugAgentLog?.(initPayload);
-  }
-  // #endregion
   search?.addEventListener('input', () => {
-    // #region agent log
-    const inputPayload = {sessionId:'1c3662',runId:'search-debug',hypothesisId:'B',location:'ui.js:search-input',message:'search input fired',data:{value:String(search.value||'').slice(0,80),mode:document.body.dataset.mode,layer:document.body.dataset.layer},timestamp:Date.now()};
-    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'1c3662'},body:JSON.stringify(inputPayload)}).catch(()=>{});
-    window.tptDesktop?.debugAgentLog?.(inputPayload);
-    // #endregion
     filterProjects(search.value, { revealLibrary: true });
   });
   search?.addEventListener('search', () => {

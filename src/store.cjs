@@ -1,4 +1,5 @@
 const { DatabaseSync } = require('node:sqlite');
+const { TaskStore } = require('./task-store.cjs');
 const { dirname } = require('node:path');
 const { mkdirSync } = require('node:fs');
 
@@ -30,6 +31,10 @@ const PROJECT_COLUMNS = {
   description: 'description',
   format: 'format',
   productFormat: 'product_format',
+  productEngine: 'product_engine',
+  editableRunId: 'editable_run_id',
+  editableOutputJson: 'editable_output_json',
+  stepEditableGenerationStatus: 'step_editable_generation_status',
   activityCount: 'activity_count',
   style: 'style',
   theme: 'theme',
@@ -45,12 +50,6 @@ const PROJECT_COLUMNS = {
   tptListing: 'tpt_listing_json',
   competitorMockups: 'competitor_mockups_json',
   highlights: 'highlights_json',
-  canvaTemplateLink: 'canva_template_link',
-  canvaDesignUrl: 'canva_design_url',
-  canvaExportPath: 'canva_export_path',
-  canvaPageProgress: 'canva_page_progress',
-  canvaPdfUploaded: 'canva_pdf_uploaded',
-  canvaJobJson: 'canva_job_json',
   productPdfPath: 'product_pdf_path',
   compressedPdfPath: 'compressed_pdf_path',
   printPdfJson: 'print_pdf_json',
@@ -63,6 +62,7 @@ const PROJECT_COLUMNS = {
   stepPreviewStatus: 'step_preview_status',
   stepExportStatus: 'step_export_status',
   stepEditableStatus: 'step_editable_status',
+  stepMazeStatus: 'step_maze_status',
   isReadyToPublish: 'is_ready_to_publish'
 };
 
@@ -117,24 +117,26 @@ function rowToProject(row) {
     storyInput: parseJson(row.story_input_json, null),
     tptListing: parseJson(row.tpt_listing_json, null),
     competitorMockups: parseJson(row.competitor_mockups_json, null),
-    canvaTemplateLink: row.canva_template_link ?? null,
-    canvaDesignUrl: row.canva_design_url ?? null,
-    canvaExportPath: row.canva_export_path ?? null,
-    canvaPageProgress: parseJson(row.canva_page_progress, []),
-    canvaPdfUploaded: Boolean(row.canva_pdf_uploaded),
-    canvaJobJson: parseJson(row.canva_job_json, null),
     productPdfPath: row.product_pdf_path ?? null,
     compressedPdfPath: row.compressed_pdf_path ?? null,
     printPdfJson: parseJson(row.print_pdf_json, null),
+    productEngine: row.product_engine ?? null,
+    editableRunId: row.editable_run_id ?? null,
+    editableOutputJson: parseJson(row.editable_output_json, null),
+    stepEditableGenerationStatus: row.step_editable_generation_status ?? 'pending',
     // Pipeline step statuses
     stepOverviewStatus: row.step_overview_status ?? 'pending',
     stepCharactersStatus: row.step_characters_status ?? 'pending',
     stepInteriorStatus: row.step_interior_status ?? 'pending',
+    stepInteriorArtworkStatus: row.step_interior_status ?? 'pending',
     stepListingStatus: row.step_listing_status ?? 'pending',
     stepThumbnailsStatus: row.step_thumbnails_status ?? 'pending',
     stepPreviewStatus: row.step_preview_status ?? 'pending',
     stepExportStatus: row.step_export_status ?? 'pending',
     stepEditableStatus: row.step_editable_status ?? 'pending',
+    stepInteriorTextStatus: row.step_editable_status ?? 'pending',
+    stepEditablePptStatus: row.step_editable_generation_status ?? 'pending',
+    stepMazeStatus: row.step_maze_status ?? 'pending',
     isReadyToPublish: Boolean(row.is_ready_to_publish),
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -263,6 +265,10 @@ class ProjectStore {
     this.db = new DatabaseSync(databasePath);
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     this.migrate();
+    // The durable queue shares this connection deliberately: a task row and the
+    // project row it advances commit to the same file, so they cannot disagree
+    // after a crash.
+    this.tasks = new TaskStore(this.db);
   }
 
   migrate() {
@@ -364,21 +370,6 @@ class ProjectStore {
       CREATE INDEX IF NOT EXISTS idx_characters_project_status ON characters(project_id, status);
       CREATE INDEX IF NOT EXISTS idx_events_project_created ON events(project_id, id DESC);
 
-      CREATE TABLE IF NOT EXISTS canva_journal (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        project_id TEXT,
-        state TEXT NOT NULL,
-        page_number INTEGER,
-        action TEXT,
-        expected TEXT,
-        detected TEXT,
-        verification TEXT,
-        outcome TEXT,
-        retry_count INTEGER NOT NULL DEFAULT 0,
-        details_json TEXT,
-        created_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_canva_journal_project_created ON canva_journal(project_id, id DESC);
     `);
     const jobColumns = new Set(this.db.prepare('PRAGMA table_info(jobs)').all().map((column) => column.name));
     if (!jobColumns.has('edit_instruction')) this.db.exec('ALTER TABLE jobs ADD COLUMN edit_instruction TEXT;');
@@ -418,12 +409,6 @@ class ProjectStore {
     if (!projectColumns.has('tpt_listing_json')) this.db.exec('ALTER TABLE projects ADD COLUMN tpt_listing_json TEXT;');
     if (!projectColumns.has('competitor_mockups_json')) this.db.exec('ALTER TABLE projects ADD COLUMN competitor_mockups_json TEXT;');
     if (!projectColumns.has('product_format')) this.db.exec("ALTER TABLE projects ADD COLUMN product_format TEXT NOT NULL DEFAULT 'static';");
-    if (!projectColumns.has('canva_template_link')) this.db.exec('ALTER TABLE projects ADD COLUMN canva_template_link TEXT;');
-    if (!projectColumns.has('canva_design_url')) this.db.exec('ALTER TABLE projects ADD COLUMN canva_design_url TEXT;');
-    if (!projectColumns.has('canva_export_path')) this.db.exec('ALTER TABLE projects ADD COLUMN canva_export_path TEXT;');
-    if (!projectColumns.has('canva_page_progress')) this.db.exec('ALTER TABLE projects ADD COLUMN canva_page_progress TEXT;');
-    if (!projectColumns.has('canva_pdf_uploaded')) this.db.exec('ALTER TABLE projects ADD COLUMN canva_pdf_uploaded INTEGER NOT NULL DEFAULT 0;');
-    if (!projectColumns.has('canva_job_json')) this.db.exec('ALTER TABLE projects ADD COLUMN canva_job_json TEXT;');
     if (!projectColumns.has('product_pdf_path')) this.db.exec('ALTER TABLE projects ADD COLUMN product_pdf_path TEXT;');
     if (!projectColumns.has('compressed_pdf_path')) this.db.exec('ALTER TABLE projects ADD COLUMN compressed_pdf_path TEXT;');
     if (!projectColumns.has('print_pdf_json')) this.db.exec('ALTER TABLE projects ADD COLUMN print_pdf_json TEXT;');
@@ -436,18 +421,18 @@ class ProjectStore {
     if (!projectColumns.has('step_preview_status')) this.db.exec("ALTER TABLE projects ADD COLUMN step_preview_status TEXT NOT NULL DEFAULT 'pending';");
     if (!projectColumns.has('step_export_status')) this.db.exec("ALTER TABLE projects ADD COLUMN step_export_status TEXT NOT NULL DEFAULT 'pending';");
     if (!projectColumns.has('step_editable_status')) this.db.exec("ALTER TABLE projects ADD COLUMN step_editable_status TEXT NOT NULL DEFAULT 'pending';");
+    if (!projectColumns.has('step_maze_status')) this.db.exec("ALTER TABLE projects ADD COLUMN step_maze_status TEXT NOT NULL DEFAULT 'pending';");
+    for (const [column, type] of Object.entries({ product_engine: 'TEXT', editable_run_id: 'TEXT', editable_output_json: 'TEXT', step_editable_generation_status: "TEXT NOT NULL DEFAULT 'pending'" })) {
+      if (!projectColumns.has(column)) this.db.exec(`ALTER TABLE projects ADD COLUMN ${column} ${type}`);
+    }
     if (!projectColumns.has('is_ready_to_publish')) this.db.exec('ALTER TABLE projects ADD COLUMN is_ready_to_publish INTEGER NOT NULL DEFAULT 0;');
     // Seed default automation settings if not yet present
-    const automationSteps = ['overview', 'characters', 'interior', 'listing', 'thumbnails', 'preview', 'export'];
+    const automationSteps = ['editable_generation', 'overview', 'characters', 'interior', 'listing', 'thumbnails', 'preview', 'export', 'maze'];
     const seedSetting = this.db.prepare(`
       INSERT INTO automation_settings (step_name, mode) VALUES (?, 'always')
       ON CONFLICT(step_name) DO NOTHING
     `);
     for (const step of automationSteps) seedSetting.run(step);
-    this.db.prepare(`
-      INSERT INTO automation_settings (step_name, mode) VALUES ('editable', 'ask')
-      ON CONFLICT(step_name) DO NOTHING
-    `).run();
     const characterColumns = new Set(this.db.prepare('PRAGMA table_info(characters)').all().map((column) => column.name));
     if (!characterColumns.has('image_hash')) this.db.exec('ALTER TABLE characters ADD COLUMN image_hash TEXT;');
     this.db.exec(`
@@ -480,9 +465,9 @@ class ProjectStore {
           status, output_dir, conversation_url, highlights_json, target_age, description,
           project_type, storybook_phase, story_blueprint, story_exact_text_json,
           front_cover_prompt, back_cover_prompt, character_sheets_json, story_input_json, tpt_listing_json,
-          product_format, canva_template_link, canva_export_path,
+          product_format,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         project.id,
         project.name,
@@ -508,8 +493,6 @@ class ProjectStore {
         project.storyInput ? JSON.stringify(project.storyInput) : null,
         project.tptListing ? JSON.stringify(project.tptListing) : null,
         project.productFormat ?? 'static',
-        project.canvaTemplateLink ?? null,
-        project.canvaExportPath ?? null,
         createdAt,
         createdAt
       );
@@ -608,6 +591,8 @@ class ProjectStore {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
+      this.db.prepare('DELETE FROM settings WHERE key = ?').run(`mazeProject:${projectId}`);
+      this.db.prepare('DELETE FROM settings WHERE key = ?').run(`mazeLab:${projectId}`);
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
@@ -755,14 +740,52 @@ class ProjectStore {
     return job;
   }
 
+  updateProjectTransactionally(projectId, mutator) {
+    this.db.exec('SAVEPOINT update_project_txn');
+    try {
+      const current = this.getProject(projectId);
+      if (!current) {
+        this.db.exec('RELEASE SAVEPOINT update_project_txn');
+        return null;
+      }
+      const patch = mutator(current);
+      if (!patch || typeof patch !== 'object' || Object.keys(patch).length === 0) {
+        this.db.exec('RELEASE SAVEPOINT update_project_txn');
+        return current;
+      }
+      const result = this.updateProject(projectId, patch);
+      this.db.exec('RELEASE SAVEPOINT update_project_txn');
+      return result;
+    } catch (error) {
+      this.db.exec('ROLLBACK TO SAVEPOINT update_project_txn');
+      this.db.exec('RELEASE SAVEPOINT update_project_txn');
+      throw error;
+    }
+  }
+
+  lockProductEngine(projectId) {
+    const { detectProductEngine } = require('./product-engine-boundary.cjs');
+    const project = this.getProject(projectId);
+    if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+    const type = detectProductEngine(project);
+    this.db.prepare('UPDATE projects SET product_engine = ?, editable_run_id = COALESCE(editable_run_id, ?) WHERE id = ? AND product_engine IS NULL')
+      .run(type, require('node:crypto').randomUUID(), projectId);
+    const locked = this.getProject(projectId);
+    detectProductEngine(locked);
+    return locked;
+  }
+
   updateProject(projectId, patch) {
+    if (Object.hasOwn(patch, 'productFormat')) {
+      const existing = this.getProject(projectId);
+      if (existing?.productEngine) require('./product-engine-boundary.cjs').detectProductEngine({ ...existing, productFormat: patch.productFormat });
+    }
     const entries = Object.entries(patch).filter(([key]) => PROJECT_COLUMNS[key]);
     if (!entries.length) return this.getProject(projectId);
     const assignments = entries.map(([key]) => `${PROJECT_COLUMNS[key]} = ?`);
-    const jsonKeys = new Set(['storyExactText', 'characterSheets', 'storyInput', 'highlights', 'tptListing', 'competitorMockups', 'canvaPageProgress', 'canvaJobJson', 'printPdfJson']);
+    const jsonKeys = new Set(['editableOutputJson', 'storyExactText', 'characterSheets', 'storyInput', 'highlights', 'tptListing', 'competitorMockups', 'printPdfJson']);
     const values = entries.map(([key, value]) => {
       if (jsonKeys.has(key) && value != null) return JSON.stringify(value);
-      if (key === 'canvaPdfUploaded') return value ? 1 : 0;
       return value;
     });
     assignments.push('updated_at = ?');
@@ -770,17 +793,20 @@ class ProjectStore {
     values.push(timestamp, projectId);
     const syncCharacters = Object.prototype.hasOwnProperty.call(patch, 'characterSheets');
     const characterSheets = syncCharacters ? patch.characterSheets : null;
-    if (syncCharacters) this.db.exec('BEGIN IMMEDIATE');
+    if (syncCharacters) this.db.exec('SAVEPOINT sync_chars');
     try {
       this.db.prepare(`UPDATE projects SET ${assignments.join(', ')} WHERE id = ?`).run(...values);
       if (syncCharacters) {
         const canonicalCharacters = syncCharacterRows(this.db, projectId, characterSheets);
         this.db.prepare('UPDATE projects SET character_sheets_json = ? WHERE id = ?')
           .run(JSON.stringify(canonicalCharacters), projectId);
-        this.db.exec('COMMIT');
+        this.db.exec('RELEASE SAVEPOINT sync_chars');
       }
     } catch (error) {
-      if (syncCharacters) this.db.exec('ROLLBACK');
+      if (syncCharacters) {
+        this.db.exec('ROLLBACK TO SAVEPOINT sync_chars');
+        this.db.exec('RELEASE SAVEPOINT sync_chars');
+      }
       throw error;
     }
     return this.getProject(projectId);
@@ -789,53 +815,6 @@ class ProjectStore {
   touchProject(projectId) {
     if (!projectId) return null;
     this.db.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(nowIso(), projectId);
-    return this.getProject(projectId);
-  }
-
-  persistCanvaPageLayered(projectId, pageNumber, patch = {}) {
-    const { mergeCanvaPageProgress } = require('./canva-job-state.cjs');
-    const project = this.getProject(projectId);
-    if (!project) return null;
-    const nextPatch = {
-      started: true,
-      imported: true,
-      uploaded: true,
-      error: null,
-      status: 'SUCCESS',
-      ...patch,
-      layered: true
-    };
-    delete nextPatch.forceUnlayer;
-    const progress = mergeCanvaPageProgress(project.canvaPageProgress, pageNumber, nextPatch);
-    const jobJson = project.canvaJobJson && typeof project.canvaJobJson === 'object'
-      ? {
-        ...project.canvaJobJson,
-        pages: mergeCanvaPageProgress(project.canvaJobJson.pages, pageNumber, nextPatch)
-      }
-      : project.canvaJobJson;
-    return this.updateProject(projectId, {
-      canvaPageProgress: progress,
-      ...(jobJson ? { canvaJobJson: jobJson } : {})
-    });
-  }
-
-  // Update Canva page progress (array/object) for a project
-  updateCanvaProgress(projectId, patch) {
-    const project = this.getProject(projectId);
-    if (!project) return null;
-    const currentProgress = project.canvaPageProgress || {};
-    const newProgress = { ...currentProgress, ...patch };
-    this.db.prepare(`
-      UPDATE projects SET canva_page_progress = ?, updated_at = ? WHERE id = ?
-    `).run(JSON.stringify(newProgress), nowIso(), projectId);
-    return this.getProject(projectId);
-  }
-
-  // Set the Canva template link for a project
-  setCanvaTemplateLink(projectId, link) {
-    this.db.prepare(`
-      UPDATE projects SET canva_template_link = ?, updated_at = ? WHERE id = ?
-    `).run(link, nowIso(), projectId);
     return this.getProject(projectId);
   }
 
@@ -949,136 +928,59 @@ class ProjectStore {
           : 'Resume uploading restores the prepared TPT form without another listing review.'
       }), nowIso(), row.id);
     }
-    this.#recoverInterruptedCanvaJobs();
   }
 
-  #recoverInterruptedCanvaJobs() {
-    let rows = [];
-    try {
-      rows = this.db.prepare(`
-        SELECT id, canva_design_url, canva_page_progress, canva_job_json, canva_pdf_uploaded, step_editable_status
-        FROM projects
-        WHERE product_format = 'editable' AND step_editable_status = 'processing'
-      `).all();
-    } catch {
-      return;
-    }
-    const updateJob = this.db.prepare(`
-      UPDATE projects SET canva_job_json = ?, canva_pdf_uploaded = ?, updated_at = ? WHERE id = ?
-    `);
-    for (const row of rows) {
-      const progress = parseJson(row.canva_page_progress, []);
-      const previous = parseJson(row.canva_job_json, {}) || {};
-      const firstUnlayered = Array.isArray(progress) ? progress.findIndex((item) => !item?.layered) : -1;
-      const resumeFromPage = firstUnlayered === -1
-        ? Math.max(1, Array.isArray(progress) ? progress.length : 1)
-        : Number(progress[firstUnlayered]?.pageNumber) || (firstUnlayered + 1);
-      const pdfUploaded = Boolean(row.canva_pdf_uploaded || row.canva_design_url || previous.pdfUploaded);
-      const nextJob = {
-        ...previous,
-        interrupted: true,
-        recoveredAt: nowIso(),
-        resumeFromPage,
-        pdfUploaded,
-        designUrl: row.canva_design_url || previous.designUrl || null,
-        state: row.canva_design_url ? 'RECOVERING' : (previous.state || 'BOOT')
-      };
+  reconcileCompletedArtifacts() {
+    const { existsSync, statSync } = require('node:fs');
+    const timestamp = nowIso();
+    const invalidJobs = [];
+    for (const row of this.db.prepare(`
+      SELECT id, project_id, page_number, output_path
+      FROM jobs
+      WHERE status = 'complete'
+    `).all()) {
+      let valid = false;
       try {
-        const { isPdfImportOpenDesignStage } = require('./canva-job-state.cjs');
-        if (isPdfImportOpenDesignStage(previous.intervention, previous) || isPdfImportOpenDesignStage({ message: previous.lastError })) {
-          nextJob.intervention = null;
-          nextJob.autoResumeImport = !row.canva_design_url;
-        }
-      } catch {}
-      updateJob.run(JSON.stringify(nextJob), pdfUploaded ? 1 : 0, nowIso(), row.id);
+        valid = Boolean(row.output_path && existsSync(row.output_path) && statSync(row.output_path).isFile() && statSync(row.output_path).size > 0);
+      } catch {
+        valid = false;
+      }
+      if (valid) continue;
+      invalidJobs.push(row);
+      this.db.prepare(`
+        UPDATE jobs
+        SET status = 'pending',
+            attempts = 0,
+            output_path = NULL,
+            last_error = 'Completed page artifact was missing or invalid during launch reconciliation.',
+            last_error_code = 'ARTIFACT_RECONCILED',
+            baseline_json = NULL,
+            updated_at = ?
+        WHERE id = ?
+      `).run(timestamp, row.id);
+    }
+
+    const touchedProjectIds = [...new Set(invalidJobs.map((row) => row.project_id))];
+    for (const projectId of touchedProjectIds) {
+      this.db.prepare(`
+        UPDATE projects
+        SET status = CASE WHEN status = 'complete' THEN 'paused' ELSE status END,
+            step_interior_status = CASE WHEN step_interior_status = 'completed' THEN 'pending' ELSE step_interior_status END,
+            step_editable_generation_status = CASE WHEN step_editable_generation_status = 'completed' THEN 'pending' ELSE step_editable_generation_status END,
+            step_thumbnails_status = CASE WHEN step_thumbnails_status = 'completed' THEN 'pending' ELSE step_thumbnails_status END,
+            step_preview_status = CASE WHEN step_preview_status = 'completed' THEN 'pending' ELSE step_preview_status END,
+            step_listing_status = CASE WHEN step_listing_status = 'completed' THEN 'pending' ELSE step_listing_status END,
+            step_export_status = CASE WHEN step_export_status = 'completed' THEN 'pending' ELSE step_export_status END,
+            updated_at = ?
+        WHERE id = ?
+      `).run(timestamp, projectId);
       this.appendEvent({
-        projectId: row.id,
+        projectId,
         level: 'warn',
-        message: row.canva_design_url
-          ? `Canva Magic Layer was interrupted. Resume continues from page ${resumeFromPage} without re-uploading the PDF.`
-          : 'Canva Magic Layer was interrupted before a design URL was saved.',
-        details: {
-          kind: 'canva_recovery',
-          resumeFromPage,
-          designUrl: row.canva_design_url || null,
-          pdfUploaded
-        }
-      });
-      this.appendCanvaJournal({
-        projectId: row.id,
-        state: 'RECOVERING',
-        pageNumber: resumeFromPage,
-        action: 'app-restart',
-        expected: 'reconnect saved Canva design and continue from first unlayered page',
-        detected: row.canva_design_url ? 'saved design URL' : 'no design URL',
-        verification: row.canva_design_url ? 'ok' : 'missing',
-        outcome: 'RECOVER',
-        details: { resumeFromPage, pdfUploaded }
+        message: `[Recovery] ${invalidJobs.filter((row) => row.project_id === projectId).length} completed page artifact(s) were missing or invalid. The project was reopened from the first incomplete job.`
       });
     }
-  }
-
-  appendCanvaJournal({
-    projectId = null,
-    state = 'BOOT',
-    pageNumber = null,
-    action = null,
-    expected = null,
-    detected = null,
-    verification = null,
-    outcome = null,
-    retryCount = 0,
-    details = null
-  } = {}) {
-    const detectedText = detected == null
-      ? null
-      : (typeof detected === 'string' ? detected : JSON.stringify(detected));
-    const verificationText = verification == null
-      ? null
-      : (typeof verification === 'string' ? verification : JSON.stringify(verification));
-    this.db.prepare(`
-      INSERT INTO canva_journal (
-        project_id, state, page_number, action, expected, detected, verification,
-        outcome, retry_count, details_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      projectId,
-      String(state || 'BOOT'),
-      pageNumber == null ? null : Number(pageNumber),
-      action == null ? null : String(action),
-      expected == null ? null : String(expected),
-      detectedText,
-      verificationText,
-      outcome == null ? null : String(outcome),
-      Number(retryCount) || 0,
-      details == null ? null : JSON.stringify(details),
-      nowIso()
-    );
-    this.db.prepare(`
-      DELETE FROM canva_journal WHERE id NOT IN (SELECT id FROM canva_journal ORDER BY id DESC LIMIT 5000)
-    `).run();
-  }
-
-  listCanvaJournal(projectId, limit = 200) {
-    const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 200));
-    return this.db.prepare(`
-      SELECT * FROM canva_journal
-      WHERE project_id = ? OR (? IS NULL AND project_id IS NULL)
-      ORDER BY id DESC LIMIT ?
-    `).all(projectId, projectId, safeLimit).map((row) => ({
-      id: row.id,
-      projectId: row.project_id,
-      state: row.state,
-      pageNumber: row.page_number,
-      action: row.action,
-      expected: row.expected,
-      detected: parseJson(row.detected, row.detected),
-      verification: parseJson(row.verification, row.verification),
-      outcome: row.outcome,
-      retryCount: row.retry_count,
-      details: parseJson(row.details_json, null),
-      createdAt: row.created_at
-    }));
+    return { invalidJobs: invalidJobs.length, projectIds: touchedProjectIds };
   }
 
   appendEvent({ projectId = null, jobId = null, level = 'info', message, details = null }) {
@@ -1113,14 +1015,6 @@ class ProjectStore {
     return row ? parseJson(row.value_json, fallback) : fallback;
   }
 
-  getCanvaTemplates() {
-    return this.getSetting('canva_templates') ?? [];
-  }
-
-  setCanvaTemplates(templates) {
-    this.setSetting('canva_templates', templates);
-  }
-
   // --- Automation pipeline settings ---
   getAutomationSettings() {
     const rows = this.db.prepare('SELECT step_name, mode FROM automation_settings').all();
@@ -1149,7 +1043,14 @@ class ProjectStore {
       thumbnails: 'step_thumbnails_status',
       preview: 'step_preview_status',
       export: 'step_export_status',
-      editable: 'step_editable_status'
+      editable_generation: 'step_editable_generation_status',
+      editable: 'step_editable_status',
+      // Editable pipeline: artwork shares the interior page columns, text uses the
+      // dedicated editable column, and assembly keeps the editable-generation column.
+      interior_artwork: 'step_interior_status',
+      interior_text: 'step_editable_status',
+      editable_ppt: 'step_editable_generation_status',
+      maze: 'step_maze_status'
     };
     const column = columnMap[stepName];
     if (!column) return;
@@ -1189,11 +1090,21 @@ class ProjectStore {
       this.setSetting('selectedProjectId', selectedProjectId);
     }
     const activeProject = selectedProjectId ? this.getProject(selectedProjectId) : null;
+    const agentPipeline = (this.tasks?.latestByKinds(['trend_scan', 'analysis'], { limit: 8 }) || []).map((task) => ({
+      id: task.id,
+      kind: task.kind,
+      state: task.state,
+      checkpoint: task.checkpoint,
+      lastError: task.lastError,
+      updatedAt: task.updatedAt,
+      projectId: task.checkpoint?.projectId || null
+    }));
     return {
       projects,
       selectedProjectId,
       activeProject,
-      events: activeProject ? this.listEvents(activeProject.id, 120) : []
+      events: activeProject ? this.listEvents(activeProject.id, 120) : [],
+      agentPipeline
     };
   }
 
@@ -1202,7 +1113,6 @@ class ProjectStore {
     this.db.prepare('DELETE FROM characters').run();
     this.db.prepare('DELETE FROM projects').run();
     this.db.prepare('DELETE FROM events').run();
-    try { this.db.prepare('DELETE FROM canva_journal').run(); } catch {}
     this.db.prepare('DELETE FROM settings').run();
     this.db.prepare('DELETE FROM automation_settings').run();
     try {

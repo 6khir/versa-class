@@ -409,6 +409,14 @@
   document.getElementById('guide-close-button')?.addEventListener('click', () => guideDialog.close());
   document.getElementById('guide-download-button')?.addEventListener('click', downloadGuide);
   document.getElementById('guide-about-button')?.addEventListener('click', () => { guideDialog.close(); openAbout(); });
+  document.getElementById('about-button')?.addEventListener('click', () => {
+    document.getElementById('settings-dialog')?.close();
+    openAbout();
+  });
+  document.getElementById('how-it-works-button')?.addEventListener('click', () => {
+    document.getElementById('settings-dialog')?.close();
+    openGuide();
+  });
 
   document.querySelectorAll('[data-guide-language]').forEach((button) => button.addEventListener('click', () => {
     guideLanguage = button.dataset.guideLanguage;

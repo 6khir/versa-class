@@ -1,34 +1,17 @@
 const { EventEmitter } = require('node:events');
-const { existsSync, appendFileSync } = require('node:fs');
+const { existsSync, statSync } = require('node:fs');
+const { randomUUID } = require('node:crypto');
+const { parse } = require('node:path');
+const { runOperation, waitForRetry } = require('./generation-control.cjs');
 const { isPersistedConversationUrl } = require('./browser-controller.cjs');
-const { getJobStartUrl, normalizeEngine, withEngineImagePrefix, engineDisplayName, isBrowserEngine, isMetaLocalUrl, conversationMatchesEngine } = require('./ai-engine.cjs');
+const { getJobStartUrl, normalizeEngine, withEngineImagePrefix, engineDisplayName, isBrowserEngine, isMetaLocalUrl, conversationMatchesEngine, jobRouteKind } = require('./ai-engine.cjs');
+const { resolveStageEngine, getProvider } = require('./ai-provider.cjs');
+const { isQuotaError } = require('./account-pool.cjs');
 const { resolvePageSetup } = require('./file-manager.cjs');
 const { looksLikePageImagePrompt } = require('./prompt-builder.cjs');
 
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-function debugGeminiHp(hypothesisId, location, message, data = {}) {
-  // #region agent log
-  const payload = {
-    sessionId: '033a04',
-    runId: data.runId || 'pre-fix',
-    hypothesisId,
-    location,
-    message,
-    data,
-    timestamp: Date.now()
-  };
-  fetch('http://127.0.0.1:7583/ingest/41197195-aa7b-4904-9334-2c659b1953d0', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '033a04' },
-    body: JSON.stringify(payload)
-  }).catch(() => {});
-  try {
-    appendFileSync('/Users/abdelmouiz/Downloads/VERSA TPT BOT/.cursor/debug-033a04.log', `${JSON.stringify(payload)}\n`);
-  } catch {}
-  // #endregion
 }
 
 const DEFAULT_PACING_MEMORY_MS = 6 * 60 * 60 * 1_000;
@@ -51,6 +34,8 @@ class QueueEngine extends EventEmitter {
     requestCooldownMs = 60_000,
     pacingMemoryMs = DEFAULT_PACING_MEMORY_MS,
     pacingRelaxationStepMs = DEFAULT_PACING_RELAXATION_STEP_MS,
+    operationTimeoutMs = 120_000,
+    heartbeatMs = 1_000,
     recoveryIdleTimeoutMs = 120_000
   }) {
     super();
@@ -95,12 +80,25 @@ class QueueEngine extends EventEmitter {
     this.boundEngine = null;
     this.engineNeedsBind = true;
     this.runPromise = null;
-    this.browser.on('heartbeat', (payload) => this.emit('heartbeat', payload));
+    this.operationTimeoutMs = operationTimeoutMs;
+    this.heartbeatMs = heartbeatMs;
+    this.controller = null;
+    this.priorityJobs = [];
+    this.scope = null;
+    this.progress = null;
+    this.resumeRequested = false;
+    this.browser.on('heartbeat', (payload) => {
+      if (this.running && !this.pauseRequested) this.emit('heartbeat', {...payload, jobId:this.activeJobId, projectId:this.activeProjectId});
+    });
   }
 
   status() {
     return {
       running: this.running,
+      stopping: this.running && this.pauseRequested,
+      resumeRequested: this.resumeRequested,
+      progress: this.progress,
+      queuedJobIds: [...this.priorityJobs],
       pauseRequested: this.pauseRequested,
       activeProjectId: this.activeProjectId,
       activeJobId: this.activeJobId,
@@ -115,19 +113,26 @@ class QueueEngine extends EventEmitter {
     };
   }
 
-  start(projectId) {
+  start(projectId, { jobId = null } = {}) {
     if (this.running) {
       if (this.activeProjectId && this.activeProjectId !== projectId) {
         const current = this.store.getProject(this.activeProjectId);
         throw Object.assign(
-          new Error(`"${current?.name || 'Another book'}" is still generating. Pause it first, or keep browsing other projects — generation continues in the background.`),
+          new Error(`"${current?.name || 'Another book'}" is generating.`),
           { code: 'QUEUE_BUSY' }
         );
       }
+      if (this.pauseRequested) this.resumeRequested = true;
+      else if (!jobId) this.scope = null;
+      this.#changed();
       return this.status();
     }
     const project = this.store.getProject(projectId);
     if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+    this.controller = new AbortController();
+    if (jobId && !project.jobs.some(job => job.id === jobId)) throw Object.assign(new Error("Page not found."), {code:"JOB_NOT_FOUND"});
+    this.scope = jobId ? new Set([jobId]) : null;
+    this.resumeRequested = false;
     this.running = true;
     this.pauseRequested = false;
     if (typeof this.browser.beginWork === 'function') this.browser.beginWork();
@@ -147,16 +152,17 @@ class QueueEngine extends EventEmitter {
     this.preloadPromises.clear();
     this.boundEngine = null;
     this.engineNeedsBind = true;
+    this.priorityJobs = this.priorityJobs.filter(id => this.store.getJob(id)?.projectId === projectId);
     this.activeProjectId = projectId;
     this.store.updateProject(projectId, { status: 'running' });
     const minimumGap = Math.max(1, Math.round(this.currentSubmissionSpacingMs / 1_000));
     const maximumGap = Math.max(minimumGap, Math.round((this.currentSubmissionSpacingMs + this.submissionJitterMs) / 1_000));
     this.#log({
       projectId,
-      message: `Book generation queue started on ${engineDisplayName(engine)}. Five-page batches run with a safe ${minimumGap}–${maximumGap}s submission pace.`
+      message: `Queue started on ${engineDisplayName(engine)}.`
     });
     this.#changed();
-    this.runPromise = this.#run(projectId).catch((error) => {
+    this.runPromise = this.#supervise(projectId).catch((error) => {
       if (error?.code === 'QUEUE_PAUSED') {
         this.store.updateProject(projectId, { status: 'paused' });
         this.#log({ projectId, level: 'warn', message: 'Generation paused safely. Start again when you are ready.' });
@@ -170,8 +176,12 @@ class QueueEngine extends EventEmitter {
       this.#log({ projectId, level: 'error', message: error.message || 'Generation paused because of an unexpected error.', details: { code: error.code ?? 'UNKNOWN_ERROR' } });
       this.store.updateProject(projectId, { status: 'paused' });
     }).finally(() => {
+      const restart = this.resumeRequested;
+      const restartScope = this.scope;
       this.running = false;
       this.pauseRequested = false;
+      this.resumeRequested = false;
+      this.progress = null;
       if (typeof this.browser.endWork === 'function') this.browser.endWork();
       this.activeProjectId = null;
       this.activeJobId = null;
@@ -183,19 +193,85 @@ class QueueEngine extends EventEmitter {
       this.engineNeedsBind = true;
       this.runPromise = null;
       this.#changed();
+      if (restart) this.start(projectId, {jobId:restartScope?.values().next().value || null});
     });
     return this.status();
   }
 
   pause() {
     this.pauseRequested = true;
+    this.resumeRequested = false;
+    this.controller?.abort();
     this.browser.cancelWaits();
+    for (const id of this.activeJobIds) Promise.resolve(this.browser.abortJob?.(id)).catch(() => {});
     if (this.activeProjectId) {
       this.store.updateProject(this.activeProjectId, { status: 'paused' });
       this.#log({ projectId: this.activeProjectId, jobId: this.activeJobId, level: 'warn', message: 'Generation paused. The current page stopped safely.' });
     }
     this.#changed();
     return this.status();
+  }
+
+  /**
+   * Requests a normal queue pause and, when requested, waits a bounded amount
+   * of time for the current run to release its browser work and become idle.
+   * The captured promise belongs to the run that was active when pause began,
+   * so a later run can never satisfy this shutdown fence accidentally.
+   */
+  async pauseAndWait({ timeoutMs = 0 } = {}) {
+    const activeRun = this.runPromise;
+    this.pause();
+    if (!activeRun) return { settled: true, status: this.status() };
+
+    const boundedMs = Math.max(0, Number(timeoutMs) || 0);
+    if (!boundedMs) {
+      await activeRun;
+      return { settled: true, status: this.status() };
+    }
+
+    let timeout = null;
+    const settled = await Promise.race([
+      activeRun.then(() => true, () => true),
+      new Promise((resolve) => {
+        timeout = setTimeout(() => resolve(false), boundedMs);
+      })
+    ]);
+    if (timeout) clearTimeout(timeout);
+    return { settled, status: this.status() };
+  }
+
+  #stageSettings() {
+    return {
+      aiEngine: this.store.getSetting('aiEngine', 'chatgpt'),
+      pagesEngine: this.store.getSetting('aiEngine', 'chatgpt'),
+      stageProviders: this.store.getSetting('stageProviders', null)
+    };
+  }
+
+  #stageForJob(job = {}) {
+    const route = jobRouteKind({ kind: job.kind || 'page', purpose: job.purpose || 'image' });
+    if (route === 'mockups') return 'mockups';
+    if (route === 'preview') return 'preview';
+    return 'pages';
+  }
+
+  #engineForJob(job = null) {
+    const stage = job ? this.#stageForJob(job) : 'pages';
+    const requested = resolveStageEngine(stage, this.#stageSettings());
+    return getProvider(requested).runtimeEngineFor(stage);
+  }
+
+  generate(jobId) {
+    const job = this.store.getJob(jobId);
+    if (!job) throw Object.assign(new Error('Page not found.'), {code:'JOB_NOT_FOUND'});
+    if (this.running && this.activeProjectId !== job.projectId) throw Object.assign(new Error('Another book is generating.'), {code:'QUEUE_BUSY'});
+    if (this.running && this.pauseRequested) throw Object.assign(new Error('Queue is stopping. Press Start to resume.'), {code:'QUEUE_PAUSED'});
+    if (this.running && this.activeJobId === jobId) return this.status();
+    this.store.resetJob(jobId);
+    this.store.updateJob(jobId, {conversationUrl:null, baselineJson:null});
+    if (!this.priorityJobs.includes(jobId)) this.priorityJobs.push(jobId);
+    if (this.running) { this.scope?.add(jobId); this.#changed(); return this.status(); }
+    return this.start(job.projectId, {jobId});
   }
 
   retryJob(jobId) {
@@ -249,8 +325,8 @@ class QueueEngine extends EventEmitter {
     }
   }
 
-  async #bindImageEngine({ force = false } = {}) {
-    const engine = normalizeEngine(this.store.getSetting('aiEngine', 'chatgpt'));
+  async #bindImageEngine({ force = false, job = null } = {}) {
+    const engine = this.#engineForJob(job);
     if (typeof this.browser.setEngine === 'function') this.browser.setEngine(engine);
     const changed = force || this.engineNeedsBind || this.boundEngine !== engine;
     if (!changed) return engine;
@@ -265,7 +341,7 @@ class QueueEngine extends EventEmitter {
       let launched = false;
       for (let attempt = 0; attempt < 2 && !launched; attempt += 1) {
         try {
-          await this.browser.launch({ forceBrowser: false });
+          await this.#operation('connecting', () => this.browser.launch({ forceBrowser: false }));
           launched = true;
         } catch (error) {
           const reconnect = error.code === 'BROWSER_PROFILE_IN_USE'
@@ -276,50 +352,67 @@ class QueueEngine extends EventEmitter {
         }
       }
     }
-    await this.browser.assertAuthenticated();
+    await this.#operation('checking session', () => this.browser.assertAuthenticated());
     return engine;
+  }
+
+  async #supervise(projectId) {
+    while (!this.pauseRequested) {
+      try { return await this.#run(projectId); }
+      catch(error) {
+        if (this.pauseRequested || ['QUEUE_PAUSED','AUTH_REQUIRED','PROMPT_NOT_READY','ENOSPC','EACCES'].includes(error.code)) throw error;
+        this.engineNeedsBind=true;
+        this.#log({projectId,jobId:this.activeJobId,level:'warn',message:`Recovering the queue automatically: ${error.message}`});
+        this.browser.cancelWaits();
+        await runOperation(()=>this.browser.abortJob?.(this.activeJobId),{timeoutMs:2000,phase:'recover page'}).catch(()=>{});
+        if (!this.pauseRequested) this.browser.beginWork?.();
+        await waitForRetry(Math.max(1,this.retryDelayMs),this.controller.signal);
+      }
+    }
   }
 
   async #run(projectId) {
     await this.#normalizeCompletedPages(projectId);
     try {
-      await this.#bindImageEngine({ force: true });
-    } catch (error) {
-      if (error?.code === 'QUEUE_PAUSED' || this.pauseRequested) {
-        this.store.updateProject(projectId, { status: 'paused' });
-        this.#changed();
-        return;
-      }
-      this.store.updateProject(projectId, { status: 'paused' });
-      this.#log({
-        projectId,
-        level: (error.code === 'AUTH_REQUIRED' || error.code === 'META_API_UNAVAILABLE') ? 'warn' : 'error',
-        message: error.message,
-        details: { code: error.code ?? 'ENGINE_START_FAILED' }
-      });
-      if (error.code === 'AUTH_REQUIRED' || error.code === 'META_API_UNAVAILABLE') this.emit('auth-required');
-      this.#changed();
-      return;
-    }
-    try {
     while (!this.pauseRequested) {
       const project = this.store.getProject(projectId);
-      const batch = this.store.getNextIncompleteBatch(projectId, this.batchSize);
+      this.priorityJobs = this.priorityJobs.filter(id => this.store.getJob(id)?.status !== 'complete');
+      const priority = this.priorityJobs.map(id => this.store.getJob(id)).filter(job => job?.projectId === projectId);
+      const batch = priority.length ? [priority[0]] : this.store.getNextIncompleteBatch(projectId, this.batchSize).filter(job => !this.scope || this.scope.has(job.id));
       if (!batch.length) {
+        if (project.jobs.some(job => job.status !== 'complete')) {
+          this.store.updateProject(projectId, {status:'paused'});
+          return;
+        }
+        const { canCompleteProject } = require('./pipeline-watchdog.cjs');
+        if (!canCompleteProject(project.jobs, {
+          sequenceKey: 'pageNumber',
+          statusKey: 'status',
+          readyValue: 'complete',
+          expectedTotal: project.stats?.total || project.jobs.length
+        })) {
+          this.store.updateProject(projectId, { status: 'paused' });
+          this.#log({
+            projectId,
+            level: 'warn',
+            message: 'The book is not complete. A page is still missing or invalid, so the project stays open.'
+          });
+          return;
+        }
         this.store.updateProject(projectId, { status: 'complete' });
         this.#log({ projectId, level: 'success', message: `Book complete: ${project.stats.total}/${project.stats.total} pages. Next: convert and compress the print PDF in Interior.` });
         this.emit('complete', { projectId });
         this.#changed();
         return;
       }
-      const runnable = batch.filter((job) => !['needs_user_action', 'rate_limit_paused'].includes(job.status));
-      if (!runnable.length) {
-        const blocked = batch[0];
-        this.store.updateProject(projectId, { status: blocked.status === 'rate_limit_paused' ? 'rate_limit_paused' : 'paused' });
-        this.#log({ projectId, jobId: blocked.id, level: 'warn', message: `Queue paused at page ${blocked.pageNumber}; user action is required.` });
-        this.#changed();
+      // Recover old terminal retry states, but preserve genuine input/authentication blockers.
+      const blocked = batch.find(job => job.status === 'needs_user_action' && ['PROMPT_NOT_READY','CHARACTER_REFERENCES_INCOMPLETE','CHARACTER_REFERENCE_MISSING'].includes(job.lastErrorCode));
+      if (blocked) {
+        this.store.updateProject(projectId, {status:'paused'});
+        this.#log({projectId,jobId:blocked.id,level:'warn',message:blocked.lastError || 'Authentication or page input is required.'});
         return;
       }
+      const runnable = batch;
       this.activeJobIds = [];
       this.activeJobId = null;
       this.#log({
@@ -344,19 +437,13 @@ class QueueEngine extends EventEmitter {
         this.activeJobId = job.id;
         this.#changed();
         try {
-          await this.#bindImageEngine();
+          await this.#bindImageEngine({ job });
           batchOutcome = await this.#processJob(project, job, nextJob);
         } catch (error) {
-          if (error.code === 'AUTH_REQUIRED' || error.code === 'META_API_UNAVAILABLE') {
-            this.store.updateProject(projectId, { status: 'paused' });
-            this.#log({ projectId, jobId: job.id, level: 'warn', message: error.message, details: { code: error.code } });
-            this.emit('auth-required');
-            batchOutcome = 'pause';
-          } else {
-            throw error;
-          }
+          this.engineNeedsBind = true;
+          batchOutcome = await this.#handleFailure(project, this.store.getJob(job.id), error);
         } finally {
-          await this.browser.releaseJob(job.id);
+          await runOperation(() => this.browser.releaseJob(job.id), {timeoutMs:2000,phase:'release page'}).catch(() => {});
         }
         if (batchOutcome === 'complete') {
           this.#log({
@@ -386,20 +473,13 @@ class QueueEngine extends EventEmitter {
         this.store.updateProject(projectId, { status: 'paused' });
         return;
       }
-      this.store.updateProject(projectId, { status: 'paused' });
-      this.#log({
-        projectId,
-        level: 'error',
-        message: error.message || 'Generation paused because of an unexpected error.',
-        details: { code: error.code ?? 'UNKNOWN_ERROR' }
-      });
-      this.#changed();
+      throw error;
     }
   }
 
   async #processJob(project, initialJob, nextJob = null) {
     let job = this.store.getJob(initialJob.id);
-    const engine = await this.#bindImageEngine();
+    const engine = await this.#bindImageEngine({ job: initialJob });
     const preloadPromise = this.preloadPromises.get(job.id);
     if (preloadPromise) {
       if (this.preloadedEngine === engine) await preloadPromise.catch(() => {});
@@ -408,7 +488,7 @@ class QueueEngine extends EventEmitter {
     if (job.conversationUrl && isMetaLocalUrl(job.conversationUrl)) {
       job = this.store.updateJob(job.id, { conversationUrl: null, baselineJson: null });
     }
-    const imageEngine = normalizeEngine(this.store.getSetting('aiEngine', 'chatgpt'));
+    const imageEngine = this.#engineForJob(job);
     if (job.conversationUrl && !conversationMatchesEngine(job.conversationUrl, imageEngine)) {
       this.#log({
         projectId: project.id,
@@ -451,39 +531,15 @@ class QueueEngine extends EventEmitter {
     this.#log({
       projectId: project.id,
       jobId: job.id,
-      message: `Preparing page ${job.pageNumber}/${project.stats.total} — attempt ${attempt}/${this.maxAttempts}.`
+      message: `Preparing page ${job.pageNumber}/${project.stats.total} attempt ${attempt}/${this.maxAttempts}.`
     });
     this.#changed();
 
     try {
-      if (attempt > 1) await sleep(this.retryReloadDelayMs);
+      if (attempt > 1) await waitForRetry(this.retryReloadDelayMs, this.controller.signal);
       const engine = normalizeEngine(this.store.getSetting('aiEngine', 'chatgpt'));
       if (typeof this.browser.setEngine === 'function') this.browser.setEngine(engine);
 
-      // #region agent log
-      try {
-        require('node:fs').appendFileSync(
-          '/Users/abdelmouiz/Desktop/VERSA SOFTWARE ( TPT )/.cursor/debug-2f6f56.log',
-          `${JSON.stringify({
-            sessionId: '2f6f56',
-            runId: 'fix-svg-ref',
-            hypothesisId: 'A',
-            location: 'queue-engine.cjs:#processJob',
-            message: 'before edit-ref repair',
-            data: {
-              pageNumber: job.pageNumber,
-              hasEdit: Boolean(job.editInstruction),
-              editSourcePath: job.editSourcePath || null,
-              outputPath: job.outputPath || null,
-              editSourceExists: Boolean(job.editSourcePath && existsSync(job.editSourcePath)),
-              outputExists: Boolean(job.outputPath && existsSync(job.outputPath)),
-              conversationUrl: Boolean(job.conversationUrl)
-            },
-            timestamp: Date.now()
-          })}\n`
-        );
-      } catch {}
-      // #endregion
 
       // Abandoned SVG vectorize left editSourcePath/outputPath on deleted .svg files.
       // That makes Gemini attach fail with REFERENCE_IMAGE_MISSING. Fall back to a fresh generate.
@@ -506,77 +562,86 @@ class QueueEngine extends EventEmitter {
             projectId: project.id,
             jobId: job.id,
             level: 'warn',
-            message: `Page ${job.pageNumber}: missing edit reference (often a deleted .svg). Switching to a fresh Gemini generate — login profiles untouched.`
+            message: `Page ${job.pageNumber}: missing edit. Regenerating.`
           });
-          // #region agent log
-          try {
-            require('node:fs').appendFileSync(
-              '/Users/abdelmouiz/Desktop/VERSA SOFTWARE ( TPT )/.cursor/debug-2f6f56.log',
-              `${JSON.stringify({
-                sessionId: '2f6f56',
-                runId: 'fix-svg-ref',
-                hypothesisId: 'A',
-                location: 'queue-engine.cjs:#processJob',
-                message: 'cleared dead svg edit ref → fresh generate',
-                data: { pageNumber: job.pageNumber, clearedSrc: src },
-                timestamp: Date.now()
-              })}\n`
-            );
-          } catch {}
-          // #endregion
         }
       }
 
       const isFollowUp = Boolean(job.editInstruction);
-      const originalPrompt = isFollowUp ? job.editInstruction : job.prompt;
+      const originalPrompt = isFollowUp ? job.editInstruction : (looksLikePageImagePrompt(job.imagePrompt) ? job.imagePrompt : job.prompt);
       if (!isFollowUp && !looksLikePageImagePrompt(originalPrompt)) {
         throw Object.assign(new Error('This page does not have a real image prompt yet. The saved text looks like JSON or commentary, so the gem would reply in text instead of drawing. Generate page prompts again before running the queue.'), {
           code: 'PROMPT_NOT_READY'
         });
       }
       const referencePayload = this.#characterReferencePayload(project, job, originalPrompt, { validatePaths: true });
-      const constrained = this.#withPageConstraint(referencePayload.prompt, project);
-      const prompt = withEngineImagePrefix(constrained, engine);
+      const { resolveStoredGenerationMode, applyEditableMasterPrompt, isolateCurrentPagePrompt } = require('./editable-mode.cjs');
+      const { applyTextRebuildSourcePrompt, shouldApplyTextRebuildSource } = require('./text-rebuild-source.cjs');
+      const { isRebuildPipelineEnabled, ensureRebuildPlan, writeRebuildPage, setPageState, makePageId, readRebuildPage } = require('./rebuild-page-record.cjs');
+      const editableRequested = resolveStoredGenerationMode(this.store, project, job) === 'editable';
+      const rebuildRequested = isRebuildPipelineEnabled(this.store, project);
+      let rebuildRecord = null;
+      if (rebuildRequested) {
+        ensureRebuildPlan(this.store, project);
+        rebuildRecord = readRebuildPage(this.store, project.id, makePageId(project.id, job.id));
+        if (rebuildRecord) {
+          writeRebuildPage(this.store, setPageState(rebuildRecord, 'GENERATING', {
+            generationAttempt: Number(rebuildRecord.generationAttempt || 0) + 1,
+          }));
+        }
+      }
+      let submitPrompt = referencePayload.prompt;
+      const withPrefix = (value) => (/^@image\b/i.test(value) ? value : `@image ${String(value).replace(/^@image\s*/i, '')}`);
+      const isolatedStored = isolateCurrentPagePrompt(String(job.imagePrompt || ''), job.pageNumber);
+      if (isolatedStored && isolatedStored.length + 80 < String(job.imagePrompt || '').length) {
+        job = this.store.updateJob(job.id, { imagePrompt: withPrefix(isolatedStored) });
+      }
+      const isolatedSubmit = isolateCurrentPagePrompt(String(submitPrompt || ''), job.pageNumber);
+      if (isolatedSubmit) submitPrompt = withPrefix(isolatedSubmit);
+      const pageCount = Array.isArray(project?.jobs) ? project.jobs.length : 0;
+      const constrained = this.#withPageConstraint(submitPrompt, project, {
+        textFree: editableRequested,
+        job,
+        pageCount,
+      });
+      const sourceRequested = shouldApplyTextRebuildSource({
+        project,
+        job,
+        textFree: editableRequested,
+      });
+      const constrainedPrompt = editableRequested
+        ? applyEditableMasterPrompt({
+          prompt: constrained,
+          project,
+          job,
+          pageCount: pageCount || job.pageNumber,
+        })
+        : sourceRequested
+          ? applyTextRebuildSourcePrompt({
+            prompt: constrained,
+            project,
+            job,
+            pageCount: pageCount || job.pageNumber,
+            record: rebuildRecord,
+          })
+          : constrained;
+      const prompt = withEngineImagePrefix(constrainedPrompt, engine);
       const attachmentPaths = [...new Set([
         ...referencePayload.attachmentPaths,
         isFollowUp && !job.conversationUrl ? job.editSourcePath : null
       ].filter((filePath) => filePath && existsSync(filePath)))];
       await this.#waitForSubmissionSlot(job);
-      const gptUrl = getJobStartUrl({ kind: job.kind || 'page', purpose: 'image' }, engine);
-      // #region agent log
-      debugGeminiHp('D', 'queue-engine.cjs:#processJob', 'assembled page prompt before submit', {
-        pageNumber: job.pageNumber,
-        jobId: String(job.id || '').slice(0, 12),
-        engine,
-        kind: job.kind || 'page',
-        gptUrl: String(gptUrl || '').slice(0, 160),
-        conversationUrl: String(job.conversationUrl || '').slice(0, 160),
-        hasImageCreator: /mode=image_creator/i.test(String(gptUrl || '')),
-        originalHead: String(originalPrompt || '').slice(0, 160),
-        constrainedHead: String(constrained || '').slice(0, 220),
-        promptHead: String(prompt || '').slice(0, 220),
-        hasGenerate: /\bgenerate\b/i.test(prompt),
-        hasRender: /\brender\b/i.test(prompt),
-        hasEditable: /\beditable\b/i.test(prompt),
-        hasImageOnly: /IMAGE ONLY/i.test(prompt),
-        hasCreateExactly: /Create exactly one/i.test(prompt),
-        promptHasAtImage: /^@image\b/i.test(String(prompt || '').trim()),
-        productFormat: project.productFormat || null
-      });
-      // #endregion
-      const submission = await this.browser.submitPrompt(prompt, {
+      const gptUrl = getJobStartUrl(
+        { kind: job.kind || 'page', purpose: 'image', productFormat: project?.productFormat },
+        engine
+      );
+      const submission = await this.#operation('submitting', () => this.browser.submitPrompt(prompt, {
         jobId: job.id,
         conversationUrl: job.conversationUrl,
         attachmentPaths,
         gptUrl,
         promptKind: job.kind || 'page'
-      });
-      // #region agent log
-      debugGeminiHp('B', 'queue-engine.cjs:#processJob', 'submitted to gemini/chatgpt', {
-        pageNumber: job.pageNumber,
-        submissionUrl: String(submission?.conversationUrl || '').slice(0, 160)
-      });
-      // #endregion
+      }));
       job = this.store.updateJob(job.id, {
         status: 'submitted',
         conversationUrl: submission.conversationUrl,
@@ -592,17 +657,9 @@ class QueueEngine extends EventEmitter {
       this.store.updateJob(job.id, { status: 'generating' });
       this.#changed();
 
-      const image = await this.browser.waitForNewImage(submission.baseline, this.generationTimeoutMs, { jobId: job.id });
+      const image = await this.#operation('generating', () => this.browser.waitForNewImage(submission.baseline, this.generationTimeoutMs, { jobId: job.id, idleTimeoutMs:this.recoveryIdleTimeoutMs }), this.generationTimeoutMs);
       return await this.#downloadAndComplete(project, job, image);
     } catch (error) {
-      // #region agent log
-      debugGeminiHp('A', 'queue-engine.cjs:#processJob', 'page generation failed', {
-        pageNumber: job?.pageNumber,
-        code: error?.code || null,
-        errHead: String(error?.message || '').slice(0, 240),
-        conversationUrl: String(this.store.getJob(job.id)?.conversationUrl || '').slice(0, 160)
-      });
-      // #endregion
       return this.#handleFailure(project, this.store.getJob(job.id), error);
     }
   }
@@ -614,13 +671,13 @@ class QueueEngine extends EventEmitter {
   async #tryRecovery(project, job) {
     this.#log({ projectId: project.id, jobId: job.id, message: `Checking a previous result for page ${job.pageNumber} before resubmitting.` });
     try {
-      await this.browser.navigate(job.conversationUrl, { jobId: job.id });
+      await this.#operation('recovering conversation', () => this.browser.navigate(job.conversationUrl, { jobId: job.id }));
       this.store.updateJob(job.id, { status: 'generating' });
       this.#changed();
-      const image = await this.browser.waitForNewImage(job.baseline, this.recoveryTimeoutMs, {
+      const image = await this.#operation('recovering image', () => this.browser.waitForNewImage(job.baseline, this.recoveryTimeoutMs, {
         jobId: job.id,
         idleTimeoutMs: this.recoveryIdleTimeoutMs
-      });
+      }), this.recoveryTimeoutMs);
       return await this.#downloadAndComplete(project, job, image);
     } catch (error) {
       if (['REQUEST_THROTTLED', 'RATE_LIMIT', 'AUTH_REQUIRED', 'META_API_UNAVAILABLE', 'QUEUE_PAUSED'].includes(error.code)) {
@@ -641,18 +698,74 @@ class QueueEngine extends EventEmitter {
   async #downloadAndComplete(project, job, image) {
     this.store.updateJob(job.id, { status: 'downloading' });
     this.#changed();
-    const { buffer } = await this.browser.fetchImage(image.src, { jobId: job.id });
+    const { buffer } = await this.#operation('downloading', () => this.browser.fetchImage(image.src, { jobId: job.id }));
     this.store.updateJob(job.id, { status: 'validating' });
-    const saved = await this.fileManager.saveGeneratedImage({
+    const file = parse(job.fileName);
+    const { resolvePageSaveDir } = require('./project-workspace.cjs');
+    const pageDir = resolvePageSaveDir(project) || project.outputDir;
+    const saved = await this.#operation('saving', () => this.fileManager.saveGeneratedImage({
       buffer,
-      job,
-      outputDir: project.outputDir,
+      job: {...job,fileName:`${file.name}-${randomUUID()}${file.ext || ".png"}`},
+      outputDir: pageDir,
       format: project.format,
       orientation: project.orientation
-    });
+    }));
+    if (this.pauseRequested) return 'pause';
     let outputPath = saved.outputPath;
+    const { resolveStoredGenerationMode } = require('./editable-mode.cjs');
+    const editableRequested = resolveStoredGenerationMode(this.store, project, job) === 'editable';
+    const { attachGeneratedPage } = require('./rebuild-pipeline.cjs');
+    attachGeneratedPage(this.store, project, job, outputPath);
+    if (editableRequested && outputPath && existsSync(outputPath)) {
+      const { assertTextFreeMaster } = require('./text-free-validator.cjs');
+      const { loadTemplate, pageTypeForJob, slugTheme } = require('./layout-templates.cjs');
+      const { buildManifest, copyFromJob, manifestKey } = require('./editable-manifest.cjs');
+      this.store.updateJob(job.id, { status: 'validating' });
+      const validated = await assertTextFreeMaster(outputPath, {
+        onRetry: (info) => this.#log({
+          projectId: project.id,
+          jobId: job.id,
+          level: 'warn',
+          message: `Page ${job.pageNumber} kept after OCR: ${info.leftoverCount || 0} leftover word(s), ${info.chromeCount || 0} layout mark(s) ignored. Not regenerated.`,
+          details: info,
+        }),
+      });
+      outputPath = validated.imagePath;
+      if (validated.acceptedWithLeftovers) {
+        this.#log({
+          projectId: project.id,
+          jobId: job.id,
+          level: 'warn',
+          message: `Page ${job.pageNumber} accepted.`,
+          details: { leftover: (validated.leftover || []).map((item) => String(item.text || '').slice(0, 80)).slice(0, 8) },
+        });
+      } else if ((validated.chrome || []).length) {
+        this.#log({
+          projectId: project.id,
+          jobId: job.id,
+          message: `Page ${job.pageNumber} passed. ${validated.chrome.length} layout mark(s) ignored (panel numbers / coordinates).`,
+        });
+      }
+      const jobs = project.jobs || [];
+      const template = loadTemplate(slugTheme(project.theme), pageTypeForJob(job, jobs.length));
+      this.store.setSetting(manifestKey(project.id, job.id), buildManifest({
+        pageId: `${project.id}_${job.id}`,
+        themeId: slugTheme(project.theme),
+        template,
+        copyByZone: copyFromJob(job, template) || {},
+      }));
+    } else if (Array.isArray(job.textOverlays) && job.textOverlays.length && outputPath && existsSync(outputPath)) {
+      const { cleanBlankMaster } = require('./text-inpaint-bridge.cjs');
+      this.store.updateJob(job.id, { status: 'validating' });
+      this.#log({
+        projectId: project.id,
+        jobId: job.id,
+        message: `OCR/LaMa is cleaning baked text on page ${job.pageNumber} before assembly.`
+      });
+      await cleanBlankMaster(outputPath);
+    }
     // Blank template + textOverlays: stamp showcase PNG for Mockup GPT after each blank master saves.
-    if (Array.isArray(job.textOverlays) && job.textOverlays.length && outputPath && existsSync(outputPath)) {
+    if (!editableRequested && Array.isArray(job.textOverlays) && job.textOverlays.length && outputPath && existsSync(outputPath)) {
       try {
         const { buildShowcaseForJob } = require('./showcase-builder.cjs');
         const refreshedJob = { ...job, outputPath };
@@ -668,7 +781,7 @@ class QueueEngine extends EventEmitter {
     }
     this.store.updateJob(job.id, {
       status: 'complete',
-      attempts: Number(job.attempts || 0) + 1,
+      attempts: Number(job.attempts || 0),
       outputPath,
       width: saved.width,
       height: saved.height,
@@ -719,21 +832,31 @@ class QueueEngine extends EventEmitter {
     this.#log({
       projectId: project.id,
       jobId: job.id,
-      message: `Safe sending pace relaxed to ${minimumGap}–${maximumGap}s after a successful page.`
+      message: `Pace ${minimumGap} to ${maximumGap}s.`
     });
   }
 
-  #withPageConstraint(prompt, project) {
+  #withPageConstraint(prompt, project, { textFree = false, job = null, pageCount = 0 } = {}) {
     const setup = resolvePageSetup(project.format, project.orientation);
+    const total = Math.max(1, Number(pageCount) || (Array.isArray(project?.jobs) ? project.jobs.length : 0) || 1);
+    const pageNumber = Math.max(1, Number(job?.pageNumber) || 1);
+    const role = pageNumber === 1 ? 'front cover' : (pageNumber === total ? 'back cover' : 'interior worksheet');
     // Keep constraints light — heavy "IMAGE ONLY / generate / render" wrappers made the
     // Content Pages Gem reply with text ("I cannot generate or render images…").
     const lines = [
       String(prompt || '').replace(/^@image\s*/i, '').trim(),
       '',
+      `This request is page ${pageNumber} of ${total} (${role}). Generate only that page in the product sequence.`,
+      'Do not paint the page number, a folio, "page N", or any n-of-n mark on the artwork.',
+      pageNumber === 1 ? 'This page is the front cover only. Do not draw an interior worksheet here.' : '',
+      pageNumber > 1 && pageNumber < total ? 'This page is an interior worksheet. Do not draw a second cover or listing splash here.' : '',
+      pageNumber === total && total > 1 ? 'This page is the back or closing page. Do not draw the front cover here.' : '',
       `Create exactly one ${setup.label} page in ${setup.orientationLabel.toLowerCase()} orientation.`,
       `Use the ${setup.aspectRatioLabel} aspect ratio and compose for a final ${setup.width} × ${setup.height} pixel file at 300 DPI.`,
-      'Keep all text and important artwork inside safe margins. Do not add a mockup, border outside the page, or a second page.'
-    ];
+      textFree
+        ? 'Keep all important artwork inside safe margins. Do not add a mockup, border outside the page, a second page, or any page number.'
+        : 'Keep all text and important artwork inside safe margins. Do not add a mockup, border outside the page, or a second page.'
+    ].filter(Boolean);
     if (project.projectType !== 'storybook') {
       lines.push('Do not ask for or require reference images, attached files, or external references.');
     }
@@ -794,10 +917,16 @@ class QueueEngine extends EventEmitter {
   async #normalizeCompletedPages(projectId) {
     const project = this.store.getProject(projectId);
     if (!project) return;
+    for (const job of project.jobs) {
+      if (job.status === 'complete' && (!job.outputPath || !existsSync(job.outputPath) || statSync(job.outputPath).size === 0)) {
+        this.store.resetJob(job.id);
+        this.store.updateJob(job.id, {outputPath:null,conversationUrl:null,baselineJson:null});
+      }
+    }
     const setup = resolvePageSetup(project.format, project.orientation);
     const mismatched = project.jobs.filter((job) => (
       job.status === 'complete' &&
-      job.outputPath &&
+      job.outputPath && existsSync(job.outputPath) &&
       (job.width !== setup.width || job.height !== setup.height)
     ));
     if (!mismatched.length) return;
@@ -807,13 +936,14 @@ class QueueEngine extends EventEmitter {
     });
     for (const job of mismatched) {
       try {
-        const saved = await this.fileManager.importImage({
+        const { resolvePageSaveDir } = require('./project-workspace.cjs');
+        const saved = await this.#operation('checking saved image', () => this.fileManager.importImage({
           sourcePath: job.outputPath,
           job,
-          outputDir: project.outputDir,
+          outputDir: resolvePageSaveDir(project) || project.outputDir,
           format: project.format,
           orientation: project.orientation
-        });
+        }));
         this.store.updateJob(job.id, { width: saved.width, height: saved.height });
       } catch (error) {
         this.#log({
@@ -866,7 +996,7 @@ class QueueEngine extends EventEmitter {
       if (this.pauseRequested) throw Object.assign(new Error('Waiting was paused.'), { code: 'QUEUE_PAUSED' });
       this.emit('heartbeat', { elapsedMs: 0, remainingMs: 0, phase: 'request_check', jobId });
       const access = typeof this.browser.checkRequestAccess === 'function'
-        ? await this.browser.checkRequestAccess()
+        ? await this.#operation('checking cooldown', () => this.browser.checkRequestAccess())
         : { available: true, code: null };
       if (access.available) {
         this.cooldownUntil = 0;
@@ -876,7 +1006,7 @@ class QueueEngine extends EventEmitter {
         this.#changed();
         return;
       }
-      if (access.code === 'AUTH_REQUIRED' || access.code === 'RATE_LIMIT') {
+      if (access.code === 'AUTH_REQUIRED') {
         throw Object.assign(new Error(access.message), { code: access.code });
       }
       this.requestCooldownLevel = Math.min(2, this.requestCooldownLevel + 1);
@@ -970,7 +1100,7 @@ class QueueEngine extends EventEmitter {
 
   async #handleFailure(project, job, error) {
     const code = error.code ?? 'UNKNOWN_ERROR';
-    if (code === 'PROMPT_NOT_READY') {
+    if (['PROMPT_NOT_READY','CHARACTER_REFERENCES_INCOMPLETE','CHARACTER_REFERENCE_MISSING'].includes(code)) {
       this.store.updateJob(job.id, { status: 'needs_user_action', lastError: error.message, lastErrorCode: code });
       this.store.updateProject(project.id, { status: 'paused' });
       this.#log({ projectId: project.id, jobId: job.id, level: 'error', message: error.message, details: { code } });
@@ -988,16 +1118,16 @@ class QueueEngine extends EventEmitter {
       return 'pause';
     }
     if (code === 'REQUEST_THROTTLED') return this.#registerRequestThrottle(project, job, error);
-    if (code === 'RATE_LIMIT') {
+    if (code === 'RATE_LIMIT' || code === 'QUOTA_EXCEEDED' || isQuotaError(error)) {
       if (typeof this.browser.canSwapProfile === 'function' && this.browser.canSwapProfile()) {
         this.#log({
           projectId: project.id,
           jobId: job.id,
           level: 'warn',
-          message: `Account usage limit reached on current profile. Swapping to next Google Chrome profile to resume queue...`
+          message: `Account usage limit reached on the current profile. Swapping to the next saved account and resuming page ${job.pageNumber}...`
         });
         try {
-          const swapResult = await this.browser.switchToNextProfile();
+          const swapResult = await this.#operation('reconnecting session', () => this.browser.switchToNextProfile());
           if (swapResult?.swapped) {
             this.#log({
               projectId: project.id,
@@ -1024,11 +1154,7 @@ class QueueEngine extends EventEmitter {
           });
         }
       }
-      this.store.updateJob(job.id, { status: 'rate_limit_paused', lastError: error.message, lastErrorCode: code });
-      this.store.updateProject(project.id, { status: 'rate_limit_paused' });
-      this.#log({ projectId: project.id, jobId: job.id, level: 'warn', message: error.message });
-      this.#changed();
-      return 'pause';
+      return this.#registerRequestThrottle(project, job, error);
     }
     if (code === 'AUTH_REQUIRED' || code === 'META_API_UNAVAILABLE') {
       this.store.updateJob(job.id, { status: 'needs_user_action', lastError: error.message, lastErrorCode: code });
@@ -1038,18 +1164,22 @@ class QueueEngine extends EventEmitter {
       this.#changed();
       return 'pause';
     }
-    if (job.attempts >= this.maxAttempts) {
+    if (code === 'TEXT_INPAINT_DEPS_MISSING' || code === 'LAMA_REQUIRED' || code === 'PADDLE_OCR_MISSING' || code === 'TEXT_INPAINT_RESIDUAL') {
       this.store.updateJob(job.id, { status: 'needs_user_action', lastError: error.message, lastErrorCode: code });
       this.store.updateProject(project.id, { status: 'paused' });
-      this.#log({
-        projectId: project.id,
-        jobId: job.id,
-        level: 'error',
-        message: `Book paused at page ${job.pageNumber} after ${job.attempts} attempts. The page was not skipped.`,
-        details: { code, error: error.message }
-      });
+      this.#log({ projectId: project.id, jobId: job.id, level: 'error', message: error.message, details: { code } });
       this.#changed();
       return 'pause';
+    }
+    if (job.attempts >= this.maxAttempts) {
+      this.#log({projectId:project.id,jobId:job.id,level:'warn',message:`Recovering page ${job.pageNumber} automatically after ${job.attempts} attempts.`,details:{code}});
+      this.engineNeedsBind = true;
+    }
+    if (['GENERATION_STUCK','BROWSER_CONTEXT_CLOSED','BROWSER_RECONNECTING'].includes(code) || /closed|disconnected|crash/i.test(error.message || '')) {
+      this.engineNeedsBind = true;
+      this.browser.cancelWaits();
+      await runOperation(() => this.browser.abortJob?.(job.id), {timeoutMs:2000,phase:'recover browser page'}).catch(() => {});
+      if (!this.pauseRequested) this.browser.beginWork?.();
     }
     this.store.updateJob(job.id, { status: 'retry_wait', conversationUrl: null, lastError: error.message, lastErrorCode: code });
     this.#log({
@@ -1069,7 +1199,7 @@ class QueueEngine extends EventEmitter {
   #registerRequestThrottle(project, job, error, { attemptConsumed = true, duringPreload = false } = {}) {
     const code = 'REQUEST_THROTTLED';
     this.requestCooldownLevel = Math.min(2, this.requestCooldownLevel + 1);
-    const cooldownMs = this.#cooldownDurationForLevel(this.requestCooldownLevel);
+    const cooldownMs = Math.max(this.#cooldownDurationForLevel(this.requestCooldownLevel), Number(error.cooldownMs) || 0);
     const previousCooldown = this.cooldownUntil;
     this.cooldownUntil = Math.max(this.cooldownUntil, Date.now() + cooldownMs);
     this.currentSubmissionSpacingMs = Math.min(
@@ -1106,6 +1236,18 @@ class QueueEngine extends EventEmitter {
     }
     this.#changed();
     return 'throttled';
+  }
+
+  async #operation(phase, work, timeoutMs = this.operationTimeoutMs) {
+    const startedAt = Date.now();
+    const tick = () => {
+      this.progress = {projectId:this.activeProjectId,jobId:this.activeJobId,phase,elapsedMs:Date.now()-startedAt,timeoutMs};
+      this.emit('heartbeat',this.progress);
+    };
+    tick();
+    const timer = setInterval(tick,this.heartbeatMs);
+    try { return await runOperation(work,{signal:this.controller?.signal,timeoutMs,phase,onTimeout:()=>this.browser.cancelWaits()}); }
+    finally { clearInterval(timer); }
   }
 
   #log(event) {
