@@ -139,7 +139,7 @@ test('persists mockups into a project output folder', () => {
 });
 
 test('extracts actual competitor page count from HTML and schema correctly', () => {
-  const { parseAnalysisResponse, buildAnalysisPrompt, buildTptListingPrompt } = require('../src/prompt-builder.cjs');
+  const { parseAnalysisResponse, buildAnalysisPrompt } = require('../src/prompt-builder.cjs');
 
   const htmlWithJsonLd = '<html><head><script type="application/ld+json">{"@type":"Product","name":"1-Page All About Me Worksheet","numberOfPages":1}</script></head><body></body></html>';
   assert.equal(extractPageCountFromTptHtml(htmlWithJsonLd), 1);
@@ -155,10 +155,6 @@ test('extracts actual competitor page count from HTML and schema correctly', () 
   });
   assert.match(analysis, /exactly 15 page/i);
   assert.match(analysis, /"pageCount": 15/);
-
-  const listingPrompt = buildTptListingPrompt({ name: 'Alphabet Pack' });
-  assert.match(listingPrompt, /attached finished educational product PDF/i);
-  assert.doesNotMatch(listingPrompt, /Google Doc \/ Word document/i);
 
   const responseJson = JSON.stringify({
     title: 'Kindergarten Math Worksheet',

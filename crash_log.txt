@@ -1,0 +1,5 @@
+
+> versa-class@0.1.0 start
+> env -u ELECTRON_RUN_AS_NODE electron .
+
+/Users/abdelmouiz/Desktop/VERSA SOFTWARE ( TPT )/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron exited with signal SIGTERM

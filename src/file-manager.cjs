@@ -1,17 +1,41 @@
 const { createHash } = require('node:crypto');
-const { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } = require('node:fs');
+const {
+  copyFileSync,
+  cpSync,
+  createWriteStream,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} = require('node:fs');
 const { basename, dirname, extname, join } = require('node:path');
-const archiver = require('archiver');
 const CRC32 = require('crc-32');
-const sharp = require('sharp');
-const { Jimp, ResizeStrategy } = require('jimp');
-const { PDFDocument, PDFName, PDFString } = require('pdf-lib');
+function createZipArchive() {
+  return require('archiver')('zip', { zlib: { level: 9 } });
+}
+let sharpLib = null;
+function getSharp() {
+  if (!sharpLib) {
+    sharpLib = require('sharp');
+  }
+  return sharpLib;
+}
 
 const { calculateSaddleStitchSpreads } = require('./imposition.cjs');
+const { getPdf, hasValidPdfFile } = require('./pdf-state.cjs');
+const { getMockups } = require('./mockups-state.cjs');
+const { getVideo } = require('./video-state.cjs');
+const { getSeo } = require('./seo-state.cjs');
 
 const TPT_THUMBNAIL_MAX_BYTES = 4 * 1024 * 1024;
 const THUMBNAIL_PAGE_MAX_EDGE = 1400;
-const CANVA_IMPORT_MAX_BYTES = 20 * 1024 * 1024;
 const PRINT_PDF_JPEG = {
   quality: 90,
   mozjpeg: true,
@@ -31,9 +55,9 @@ const LISTING_THUMB_JPEG_QUALITY = [88, 82, 74, 66];
 const LISTING_THUMB_MAX_EDGE = 1600;
 
 async function encodePrintPdfJpeg(source, width, height) {
-  return sharp(source, { failOn: 'none' })
+  return getSharp()(source, { failOn: 'none' })
     .rotate()
-    .resize(width, height, { fit: 'fill', kernel: sharp.kernel.lanczos3 })
+    .resize(width, height, { fit: 'fill', kernel: getSharp().kernel.lanczos3 })
     .jpeg(PRINT_PDF_JPEG)
     .toBuffer();
 }
@@ -89,6 +113,31 @@ async function atomicWrite(filePath, buffer) {
   await fs.rename(temporaryPath, filePath);
 }
 
+const CARD_PREVIEW_MAX_EDGE = 720;
+
+function cardPreviewPathFor(outputPath) {
+  const value = String(outputPath || '');
+  if (!value) return '';
+  return value.replace(/\.(png|jpe?g|webp)$/i, '.card.jpg');
+}
+
+async function ensureCardPreview(sourcePath, destPath = cardPreviewPathFor(sourcePath)) {
+  if (!sourcePath || !destPath || !existsSync(sourcePath)) return null;
+  if (existsSync(destPath)) return destPath;
+  const jpeg = await getSharp()(sourcePath, { failOn: 'none' })
+    .rotate()
+    .resize({
+      width: CARD_PREVIEW_MAX_EDGE,
+      height: CARD_PREVIEW_MAX_EDGE,
+      fit: 'inside',
+      withoutEnlargement: true
+    })
+    .jpeg({ quality: 72, mozjpeg: true })
+    .toBuffer();
+  await atomicWrite(destPath, jpeg);
+  return destPath;
+}
+
 function addPngResolution(png, dpi = 300) {
   const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
   if (png.length < 33 || !png.subarray(0, 8).equals(signature) || png.toString('ascii', 12, 16) !== 'IHDR') {
@@ -112,63 +161,59 @@ function addPngResolution(png, dpi = 300) {
 
 async function normalizePngToPage(png, format = 'A4', orientation = 'portrait', zoom = 1.0, offsetX = 0.0, offsetY = 0.0) {
   const setup = resolvePageSetup(format, orientation);
-  let image;
+  let input;
   try {
-    image = await Jimp.read(png);
+    const meta = await getSharp()(png).metadata();
+    const srcW = Number(meta.width) || 0;
+    const srcH = Number(meta.height) || 0;
+    const parsedZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1.0;
+    const parsedOffsetX = Number.isFinite(offsetX) ? offsetX : 0.0;
+    const parsedOffsetY = Number.isFinite(offsetY) ? offsetY : 0.0;
+
+    if (parsedZoom !== 1.0 || parsedOffsetX !== 0.0 || parsedOffsetY !== 0.0) {
+      const scale = Math.max(setup.width / srcW, setup.height / srcH) * parsedZoom;
+      const newW = Math.max(setup.width, Math.round(srcW * scale));
+      const newH = Math.max(setup.height, Math.round(srcH * scale));
+      const resized = await getSharp()(png).resize(newW, newH).png().toBuffer();
+      const maxShiftX = newW - setup.width;
+      const maxShiftY = newH - setup.height;
+      const centerX = (newW - setup.width) / 2;
+      const centerY = (newH - setup.height) / 2;
+      const cropX = Math.max(0, Math.min(newW - setup.width, Math.round(centerX - (parsedOffsetX * maxShiftX / 2))));
+      const cropY = Math.max(0, Math.min(newH - setup.height, Math.round(centerY - (parsedOffsetY * maxShiftY / 2))));
+      input = await getSharp()(resized).extract({ left: cropX, top: cropY, width: setup.width, height: setup.height }).png().toBuffer();
+    } else {
+      input = await getSharp()(png).resize(setup.width, setup.height, { fit: 'cover', position: 'centre' }).png().toBuffer();
+    }
   } catch (error) {
     throw Object.assign(new Error(`The image could not be normalized: ${error.message}`), { code: 'IMAGE_NORMALIZE_FAILED' });
   }
 
-  const parsedZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1.0;
-  const parsedOffsetX = Number.isFinite(offsetX) ? offsetX : 0.0;
-  const parsedOffsetY = Number.isFinite(offsetY) ? offsetY : 0.0;
-
-  if (parsedZoom !== 1.0 || parsedOffsetX !== 0.0 || parsedOffsetY !== 0.0) {
-    const scale = Math.max(setup.width / image.width, setup.height / image.height) * parsedZoom;
-    image.resize({
-      w: Math.round(image.width * scale),
-      h: Math.round(image.height * scale),
-      mode: ResizeStrategy.BICUBIC
-    });
-
-    const maxShiftX = image.width - setup.width;
-    const maxShiftY = image.height - setup.height;
-    const centerX = (image.width - setup.width) / 2;
-    const centerY = (image.height - setup.height) / 2;
-
-    const cropX = Math.max(0, Math.min(image.width - setup.width, Math.round(centerX - (parsedOffsetX * maxShiftX / 2))));
-    const cropY = Math.max(0, Math.min(image.height - setup.height, Math.round(centerY - (parsedOffsetY * maxShiftY / 2))));
-
-    image.crop({ x: cropX, y: cropY, w: setup.width, h: setup.height });
-  } else {
-    image.cover({ w: setup.width, h: setup.height, mode: ResizeStrategy.BICUBIC });
-  }
-
-  const normalized = addPngResolution(await image.getBuffer('image/png'), 300);
+  const normalized = addPngResolution(input, 300);
   if (normalized.length < 10_000) {
     throw Object.assign(new Error('The image could not be converted into a valid print-ready PNG.'), { code: 'PNG_CONVERSION_FAILED' });
   }
   return { png: normalized, width: setup.width, height: setup.height, dpi: 300 };
 }
 
+async function blankPng(width, height, background = { r: 255, g: 255, b: 255, alpha: 1 }) {
+  return getSharp()({
+    create: { width, height, channels: 4, background }
+  }).png().toBuffer();
+}
+
 async function createSpreadPng({ leftPng, rightPng, format = 'A4', orientation = 'portrait' }) {
   const setup = resolvePageSetup(format, orientation);
   const spreadWidth = setup.width * 2;
   const spreadHeight = setup.height;
-
-  const leftImage = leftPng
-    ? await Jimp.read(leftPng)
-    : new Jimp({ width: setup.width, height: setup.height, color: 0xFFFFFFFF });
-
-  const rightImage = rightPng
-    ? await Jimp.read(rightPng)
-    : new Jimp({ width: setup.width, height: setup.height, color: 0xFFFFFFFF });
-
-  const canvas = new Jimp({ width: spreadWidth, height: spreadHeight, color: 0xFFFFFFFF });
-  canvas.composite(leftImage, 0, 0);
-  canvas.composite(rightImage, setup.width, 0);
-
-  const png = await canvas.getBuffer('image/png');
+  const leftImage = leftPng ? await getSharp()(leftPng).png().toBuffer() : await blankPng(setup.width, setup.height);
+  const rightImage = rightPng ? await getSharp()(rightPng).png().toBuffer() : await blankPng(setup.width, setup.height);
+  const png = await getSharp()({
+    create: { width: spreadWidth, height: spreadHeight, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } }
+  }).composite([
+    { input: leftImage, left: 0, top: 0 },
+    { input: rightImage, left: setup.width, top: 0 }
+  ]).png().toBuffer();
   return addPngResolution(png, 300);
 }
 
@@ -194,12 +239,12 @@ async function pageImageAsPngBuffer(filePath) {
     });
   }
   if (isSvgImagePath(path)) {
-    return sharp(path, { density: 150, failOn: 'none' }).png().toBuffer();
+    return getSharp()(path, { density: 150, failOn: 'none' }).png().toBuffer();
   }
   if (extname(path).toLowerCase() === '.png') {
     return require('fs/promises').readFile(path);
   }
-  return sharp(path, { failOn: 'none' }).png().toBuffer();
+  return getSharp()(path, { failOn: 'none' }).png().toBuffer();
 }
 
 /**
@@ -209,7 +254,7 @@ async function pageImageAsExportJpeg(source, { maxEdge = EXPORT_EMBED_MAX_EDGE }
   const input = Buffer.isBuffer(source)
     ? source
     : await pageImageAsPngBuffer(source);
-  let pipeline = sharp(input, { failOn: 'none' }).rotate();
+  let pipeline = getSharp()(input, { failOn: 'none' }).rotate();
   const meta = await pipeline.metadata();
   const width = Number(meta.width) || 1;
   const height = Number(meta.height) || 1;
@@ -219,22 +264,457 @@ async function pageImageAsExportJpeg(source, { maxEdge = EXPORT_EMBED_MAX_EDGE }
       height: height > width ? maxEdge : undefined,
       fit: 'inside',
       withoutEnlargement: true,
-      kernel: sharp.kernel.lanczos3
+      kernel: getSharp().kernel.lanczos3
     });
   }
   return pipeline.jpeg(EXPORT_EMBED_JPEG).toBuffer();
 }
 
 function resolveExportPackPdfPath(project) {
-  const compressed = project?.compressedPdfPath && existsSync(project.compressedPdfPath)
-    ? project.compressedPdfPath
-    : (project?.printPdfJson?.compressedPdfPath && existsSync(project.printPdfJson.compressedPdfPath)
-      ? project.printPdfJson.compressedPdfPath
-      : null);
+  const pdf = getPdf(project);
+  const compressed = hasValidPdfFile(pdf.compressedPath) ? pdf.compressedPath : null;
   if (compressed) return compressed;
-  if (project?.productPdfPath && existsSync(project.productPdfPath)) return project.productPdfPath;
+  if (hasValidPdfFile(pdf.productPath)) return pdf.productPath;
   const dest = project?.outputDir ? compressedPrintPdfDest(project.outputDir, project) : null;
-  return dest && existsSync(dest) ? dest : null;
+  return dest && hasValidPdfFile(dest) ? dest : null;
+}
+
+function isValidExportFile(filePath, { minBytes = 1 } = {}) {
+  if (!filePath || !existsSync(filePath)) return false;
+  try {
+    const info = statSync(filePath);
+    return info.isFile() && Number(info.size) >= minBytes;
+  } catch {
+    return false;
+  }
+}
+
+function collectFinalMockupPaths(project) {
+  // Phase 3A: read via getMockups (new nested state + legacy thumbnailPaths fallback).
+  const mockups = getMockups(project);
+  const fromListing = [...new Set((Array.isArray(mockups.paths) ? mockups.paths : [])
+    .filter((filePath) => isValidExportFile(filePath)))];
+  if (fromListing.length) return fromListing;
+  const thumbDir = project?.outputDir ? join(project.outputDir, 'tpt-thumbnails') : null;
+  if (!thumbDir || !existsSync(thumbDir)) return [];
+  try {
+    return readdirSync(thumbDir)
+      .filter((name) => /\.(png|jpe?g|webp)$/i.test(name))
+      .map((name) => join(thumbDir, name))
+      .filter((filePath) => isValidExportFile(filePath))
+      .sort((left, right) => basename(left).localeCompare(basename(right)));
+  } catch {
+    return [];
+  }
+}
+
+function resolveFinalExportSeoText(project) {
+  const seo = getSeo(project);
+  if (isValidExportFile(seo.listingDetailsPath)) {
+    try {
+      const fromFile = readFileSync(seo.listingDetailsPath, 'utf8').trim();
+      if (fromFile) return fromFile;
+    } catch {}
+  }
+  const text = typeof seo.seoText === 'string' ? seo.seoText.trim() : '';
+  return text || '';
+}
+
+function resolveFinalExportVideoPath(project) {
+  // Phase 3B: read via getVideo (new nested state + legacy videoPreviewPath fallback).
+  // Filesystem authority: only an existing file is exportable.
+  const videoPath = getVideo(project).path;
+  return isValidExportFile(videoPath, { minBytes: 8_000 }) ? videoPath : null;
+}
+
+// TPT listing images are square. Gemini returns whatever it returns, so every mockup
+// is normalised to exactly this before it ships - a listing built from four different
+// sizes looks unfinished on the storefront grid.
+const MOCKUP_EXPORT_EDGE = 2000;
+
+/**
+ * Write each mockup out at exactly 2000x2000.
+ *
+ * `contain` on a white ground rather than `cover`: these are product mockups, and
+ * cropping one to fill a square silently cuts the edges off the very thing being sold.
+ */
+async function normalizeMockupsForExport(paths, destDir) {
+  mkdirSync(destDir, { recursive: true });
+  const written = [];
+  for (const [index, source] of paths.entries()) {
+    // Keep the source extension. Rewriting a .jpg as a .png would change the entry
+    // name every consumer of the manifest already expects, for no benefit the buyer
+    // can see - the size is what matters, not the container.
+    const ext = (extname(source) || '.jpg').toLowerCase();
+    const target = join(destDir, `mockup_${String(index + 1).padStart(2, '0')}${ext}`);
+    try {
+      const pipeline = getSharp()(source, { failOn: 'none' }).resize(
+        MOCKUP_EXPORT_EDGE, MOCKUP_EXPORT_EDGE,
+        { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } }
+      );
+      await (ext === '.png' ? pipeline.png({ compressionLevel: 9 }) : pipeline.jpeg({ quality: 92 }))
+        .toFile(target);
+      written.push(isValidExportFile(target) ? target : source);
+    } catch {
+      // A mockup that will not decode ships exactly as it arrived rather than not at all.
+      written.push(source);
+    }
+  }
+  return written;
+}
+
+/**
+ * Guarantee the preview ships as a real .mp4.
+ *
+ * Renaming a container would be a lie that only shows up when the buyer tries to play
+ * it, so a non-mp4 source is transcoded with ffmpeg. H.264 + AAC in a faststart mp4 is
+ * what plays everywhere without a codec pack. If ffmpeg is unavailable the original
+ * file is returned untouched and the manifest keeps its true extension.
+ */
+async function ensureMp4Preview(videoPath, destDir) {
+  if (!videoPath) return null;
+  if (extname(videoPath).toLowerCase() === '.mp4') return videoPath;
+  const { execFile } = require('node:child_process');
+  const target = join(destDir, `${basename(videoPath, extname(videoPath))}.mp4`);
+  mkdirSync(destDir, { recursive: true });
+  try {
+    await new Promise((resolve, reject) => {
+      execFile('ffmpeg', [
+        '-y', '-i', videoPath,
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac', '-b:a', '128k',
+        '-movflags', '+faststart',
+        target
+      ], { timeout: 180_000 }, (error) => (error ? reject(error) : resolve()));
+    });
+    return isValidExportFile(target, { minBytes: 8_000 }) ? target : videoPath;
+  } catch {
+    return videoPath;
+  }
+}
+
+/**
+ * Deterministic final-export manifest. Does not invent files.
+ * Required: pdf, pptx, docx and video. Exactly four mockups when they exist.
+ *
+ * SEO is deliberately not required. The listing copy is written to be read in the app
+ * and pasted into TPT; a buyer never receives it, so a missing one must not be able to
+ * block a finished book from exporting.
+ */
+function buildFinalExportManifest(project, sources = {}) {
+  const code = bookFileCode(project);
+  const booklet = sources.exportMode === 'BOOKLET_SADDLE_STITCH';
+  const pdfPath = sources.pdfPath || null;
+  const pptxPath = sources.pptxPath || null;
+  const docxPath = sources.docxPath || null;
+  const videoPath = sources.videoPath !== undefined ? sources.videoPath : resolveFinalExportVideoPath(project);
+  const seoText = sources.seoText !== undefined ? sources.seoText : resolveFinalExportSeoText(project);
+  const mockupPaths = Array.isArray(sources.mockupPaths) ? sources.mockupPaths : collectFinalMockupPaths(project);
+
+  const artifact = (type, {
+    required = false,
+    sourcePath = null,
+    finalName,
+    valid = null,
+    reason = null
+  }) => {
+    const exists = valid == null ? isValidExportFile(sourcePath) : Boolean(valid);
+    const status = exists ? 'included' : 'missing';
+    return {
+      type,
+      required: Boolean(required),
+      sourcePath: sourcePath || null,
+      finalName,
+      status,
+      included: status === 'included',
+      reason: status === 'missing'
+        ? (reason || (required ? `Required ${type} is missing.` : `Optional ${type} was not generated.`))
+        : null
+    };
+  };
+
+  const videoExt = videoPath ? (extname(videoPath).toLowerCase() || '.mp4') : '.mp4';
+  const artifacts = [
+    artifact('pdf', {
+      // Editable products ship as .pptx/.docx and never build a print PDF.
+      required: String(project?.productFormat || '').toLowerCase() !== 'editable',
+      sourcePath: pdfPath,
+      finalName: booklet ? `${code}-booklet.pdf` : `${code}.pdf`,
+      reason: 'Required PDF is missing.'
+    }),
+    artifact('pptx', {
+      required: true,
+      sourcePath: pptxPath,
+      finalName: booklet ? `${code}-booklet.pptx` : `${code}.pptx`,
+      reason: 'Required PowerPoint is missing.'
+    }),
+    artifact('docx', {
+      required: true,
+      sourcePath: docxPath,
+      finalName: `${code}.docx`,
+      reason: 'Required document is missing.'
+    }),
+    artifact('video', {
+      required: true,
+      sourcePath: videoPath,
+      finalName: `${code}_video${videoExt}`,
+      reason: 'Video Preview was not generated.'
+    }),
+    artifact('seo', {
+      // Convenience copy only - the listing copy lives in the app, not in the buyer's
+      // download, so its absence is not a reason to fail the export.
+      required: false,
+      sourcePath: null,
+      finalName: 'listing_details.txt',
+      valid: Boolean(seoText),
+      reason: 'SEO text was not generated.'
+    })
+  ];
+
+  const mockups = mockupPaths.slice(0, 4).map((filePath, index) => {
+    const ext = extname(filePath) || '.jpg';
+    const finalName = join('mockups', `mockup_${String(index + 1).padStart(2, '0')}${ext}`);
+    return {
+      type: 'mockup',
+      required: false,
+      sourcePath: filePath,
+      finalName,
+      status: 'included',
+      included: true,
+      reason: null,
+      index: index + 1
+    };
+  });
+  if (!mockups.length) {
+    artifacts.push(artifact('mockups', {
+      required: true,
+      sourcePath: null,
+      finalName: 'mockups/',
+      valid: false,
+      reason: 'Mockups were not generated.'
+    }));
+  } else {
+    artifacts.push({
+      type: 'mockups',
+      required: true,
+      sourcePath: null,
+      finalName: 'mockups/',
+      status: mockups.length === 4 ? 'included' : 'missing',
+      included: mockups.length === 4,
+      reason: mockups.length === 4 ? null : `Only ${mockups.length} of 4 mockups were generated.`,
+      count: mockups.length
+    });
+  }
+
+  const included = [
+    ...artifacts.filter((item) => item.included && item.type !== 'mockups'),
+    ...mockups
+  ];
+  const missing = artifacts.filter((item) => !item.included);
+  const requiredMissing = missing.filter((item) => item.required);
+
+  return {
+    productCode: code,
+    exportMode: booklet ? 'BOOKLET_SADDLE_STITCH' : 'STANDARD_SEQUENTIAL',
+    seoText: seoText || '',
+    artifacts,
+    mockups,
+    included,
+    missing,
+    requiredMissing,
+    complete: requiredMissing.length === 0,
+    expectedZipEntries: included.map((item) => item.finalName.replace(/\\/g, '/'))
+  };
+}
+
+function assertFinalExportManifestComplete(manifest) {
+  if (manifest?.complete) return manifest;
+  const missing = (manifest?.requiredMissing || [])
+    .map((item) => item.type.toUpperCase())
+    .join(', ');
+  throw Object.assign(
+    new Error(`Final export is incomplete. Missing required artifact(s): ${missing || 'unknown'}.`),
+    {
+      code: 'EXPORT_MANIFEST_INCOMPLETE',
+      manifest,
+      missing: manifest?.requiredMissing || []
+    }
+  );
+}
+
+const ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
+const ZIP_CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
+const ZIP_LOCAL_FILE_SIGNATURE = 0x04034b50;
+const ZIP_MAX_END_RECORD_SIZE = 65_557;
+
+function readZipRange(fd, length, position) {
+  const buffer = Buffer.alloc(length);
+  let offset = 0;
+  while (offset < length) {
+    const bytesRead = readSync(fd, buffer, offset, length - offset, position + offset);
+    if (bytesRead === 0) {
+      throw Object.assign(new Error('Final export ZIP ended unexpectedly.'), { code: 'EXPORT_ZIP_CORRUPT' });
+    }
+    offset += bytesRead;
+  }
+  return buffer;
+}
+
+/**
+ * Read and validate the ZIP directory without extracting files or invoking an
+ * operating-system command. VERSA exports regular, single-disk, non-ZIP64 ZIPs.
+ */
+function inspectFinalExportZip(zipPath) {
+  let info;
+  try {
+    info = statSync(zipPath);
+  } catch {
+    throw Object.assign(new Error('Final export ZIP is missing.'), { code: 'EXPORT_ZIP_MISSING' });
+  }
+  if (!info.isFile()) {
+    throw Object.assign(new Error('Final export ZIP path is not a file.'), { code: 'EXPORT_ZIP_INVALID' });
+  }
+  if (info.size === 0) {
+    throw Object.assign(new Error('Final export ZIP is empty.'), { code: 'EXPORT_ZIP_EMPTY' });
+  }
+
+  const fd = openSync(zipPath, 'r');
+  try {
+    const tailLength = Math.min(info.size, ZIP_MAX_END_RECORD_SIZE);
+    const tailPosition = info.size - tailLength;
+    const tail = readZipRange(fd, tailLength, tailPosition);
+    let endOffset = -1;
+    for (let offset = tail.length - 22; offset >= 0; offset -= 1) {
+      if (tail.readUInt32LE(offset) === ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE) {
+        endOffset = offset;
+        break;
+      }
+    }
+    if (endOffset < 0) {
+      throw Object.assign(new Error('Final export ZIP has no valid central directory.'), { code: 'EXPORT_ZIP_CORRUPT' });
+    }
+
+    const absoluteEndOffset = tailPosition + endOffset;
+    const diskNumber = tail.readUInt16LE(endOffset + 4);
+    const centralDisk = tail.readUInt16LE(endOffset + 6);
+    const entriesOnDisk = tail.readUInt16LE(endOffset + 8);
+    const totalEntries = tail.readUInt16LE(endOffset + 10);
+    const centralSize = tail.readUInt32LE(endOffset + 12);
+    const centralOffset = tail.readUInt32LE(endOffset + 16);
+    const commentLength = tail.readUInt16LE(endOffset + 20);
+    if (diskNumber !== 0 || centralDisk !== 0 || entriesOnDisk !== totalEntries
+      || totalEntries === 0xffff || centralSize === 0xffffffff || centralOffset === 0xffffffff) {
+      throw Object.assign(new Error('Final export ZIP uses an unsupported multi-disk or ZIP64 structure.'), { code: 'EXPORT_ZIP_CORRUPT' });
+    }
+    if (absoluteEndOffset + 22 + commentLength !== info.size
+      || centralOffset + centralSize !== absoluteEndOffset) {
+      throw Object.assign(new Error('Final export ZIP central-directory bounds are invalid.'), { code: 'EXPORT_ZIP_CORRUPT' });
+    }
+
+    const central = readZipRange(fd, centralSize, centralOffset);
+    const entries = [];
+    const seen = new Set();
+    let cursor = 0;
+    for (let index = 0; index < totalEntries; index += 1) {
+      if (cursor + 46 > central.length || central.readUInt32LE(cursor) !== ZIP_CENTRAL_DIRECTORY_SIGNATURE) {
+        throw Object.assign(new Error('Final export ZIP central directory is malformed.'), { code: 'EXPORT_ZIP_CORRUPT' });
+      }
+      const flags = central.readUInt16LE(cursor + 8);
+      const compressedSize = central.readUInt32LE(cursor + 20);
+      const uncompressedSize = central.readUInt32LE(cursor + 24);
+      const nameLength = central.readUInt16LE(cursor + 28);
+      const extraLength = central.readUInt16LE(cursor + 30);
+      const entryCommentLength = central.readUInt16LE(cursor + 32);
+      const localOffset = central.readUInt32LE(cursor + 42);
+      const recordLength = 46 + nameLength + extraLength + entryCommentLength;
+      if ((flags & 0x0001) !== 0 || cursor + recordLength > central.length
+        || compressedSize === 0xffffffff || uncompressedSize === 0xffffffff || localOffset === 0xffffffff) {
+        throw Object.assign(new Error('Final export ZIP contains an invalid or unsupported entry.'), { code: 'EXPORT_ZIP_CORRUPT' });
+      }
+      const name = central.subarray(cursor + 46, cursor + 46 + nameLength).toString('utf8').replace(/\\/g, '/');
+      if (!name || name.startsWith('/') || name.split('/').includes('..') || seen.has(name)) {
+        throw Object.assign(new Error('Final export ZIP contains an unsafe or duplicate entry.'), { code: 'EXPORT_ZIP_CORRUPT' });
+      }
+
+      const local = readZipRange(fd, 30, localOffset);
+      if (local.readUInt32LE(0) !== ZIP_LOCAL_FILE_SIGNATURE) {
+        throw Object.assign(new Error('Final export ZIP contains an invalid local file record.'), { code: 'EXPORT_ZIP_CORRUPT' });
+      }
+      const localNameLength = local.readUInt16LE(26);
+      const localExtraLength = local.readUInt16LE(28);
+      const localName = readZipRange(fd, localNameLength, localOffset + 30).toString('utf8').replace(/\\/g, '/');
+      const dataEnd = localOffset + 30 + localNameLength + localExtraLength + compressedSize;
+      if (localName !== name || dataEnd > centralOffset) {
+        throw Object.assign(new Error('Final export ZIP entry bounds are invalid.'), { code: 'EXPORT_ZIP_CORRUPT' });
+      }
+      seen.add(name);
+      entries.push(name);
+      cursor += recordLength;
+    }
+    if (cursor !== central.length) {
+      throw Object.assign(new Error('Final export ZIP central directory contains trailing data.'), { code: 'EXPORT_ZIP_CORRUPT' });
+    }
+    return entries;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function materializeFinalExportSeoFile(manifest, stagingDir) {
+  if (!manifest?.seoText) return null;
+  const seoEntry = (manifest.artifacts || []).find((item) => item.type === 'seo' && item.included);
+  if (!seoEntry) return null;
+  mkdirSync(stagingDir, { recursive: true });
+  const dest = join(stagingDir, basename(seoEntry.finalName));
+  writeFileSync(dest, `${manifest.seoText.trim()}\n`, 'utf8');
+  return dest;
+}
+
+function writeFinalExportPackageFromManifest(manifest, destDir, { seoFilePath = null } = {}) {
+  assertFinalExportManifestComplete(manifest);
+  mkdirSync(destDir, { recursive: true });
+  const written = [];
+  for (const item of manifest.artifacts) {
+    if (!item.included || item.type === 'mockups' || item.type === 'mockup') continue;
+    if (item.type === 'seo') {
+      const source = seoFilePath || materializeFinalExportSeoFile(manifest, destDir);
+      if (!source || !existsSync(source)) {
+        throw Object.assign(new Error('SEO TXT could not be written for final export.'), {
+          code: 'EXPORT_SEO_WRITE_FAILED'
+        });
+      }
+      const dest = join(destDir, item.finalName);
+      if (source !== dest) copyFileSync(source, dest);
+      written.push(item.finalName.replace(/\\/g, '/'));
+      continue;
+    }
+    if (!item.sourcePath || !existsSync(item.sourcePath)) {
+      throw Object.assign(new Error(`Final export source missing for ${item.type}.`), {
+        code: 'EXPORT_SOURCE_MISSING',
+        artifact: item
+      });
+    }
+    const dest = join(destDir, item.finalName);
+    mkdirSync(dirname(dest), { recursive: true });
+    copyFileSync(item.sourcePath, dest);
+    written.push(item.finalName.replace(/\\/g, '/'));
+  }
+  for (const item of manifest.mockups) {
+    const dest = join(destDir, item.finalName);
+    mkdirSync(dirname(dest), { recursive: true });
+    copyFileSync(item.sourcePath, dest);
+    written.push(item.finalName.replace(/\\/g, '/'));
+  }
+  const expected = [...manifest.expectedZipEntries].sort();
+  const actual = [...written].sort();
+  if (expected.length !== actual.length || expected.some((name, index) => name !== actual[index])) {
+    throw Object.assign(new Error('Final export package contents do not match the manifest.'), {
+      code: 'EXPORT_MANIFEST_MISMATCH',
+      expected,
+      actual
+    });
+  }
+  return { destDir, written: actual, manifest };
 }
 
 function collectProductPageImagePaths(jobs = []) {
@@ -243,6 +723,60 @@ function collectProductPageImagePaths(jobs = []) {
     .sort((left, right) => (Number(left?.pageNumber) || 0) - (Number(right?.pageNumber) || 0))
     .map((job) => job?.outputPath)
     .filter((filePath) => filePath && existsSync(filePath) && isRasterImagePath(filePath)))];
+}
+
+function resolvedExportPages(project) {
+  const { isMazeProduct, buildMazeExportPageArray } = require('./maze-export.cjs');
+  if (isMazeProduct(project)) return buildMazeExportPageArray(project);
+  const { buildExportPageArray } = require('./editable-production.cjs');
+  return buildExportPageArray(project);
+}
+
+// Interior pages the preview video is given to animate.
+//
+// Gemini's video model cannot read a Word document: handed only the compiled .docx it
+// has nothing visual to work from and sits in analysis until the step times out. The
+// mockup generator is the opposite - it reads the document and draws from it - which is
+// why the two stages are fed differently.
+//
+// Five to eight. Enough for the model to cut between pages and show what the pack
+// contains; few enough that a 200 page book cannot blow the context, which is exactly
+// what attaching every page used to do.
+const PREVIEW_PAGE_FRAME_MIN = 5;
+const PREVIEW_PAGE_FRAME_MAX = 8;
+const PREVIEW_PAGE_FRAME_COUNT = 6;
+
+/**
+ * Interior pages to animate in the preview video, spread across the middle of the book.
+ *
+ * The first and last pages are excluded. The first is the cover and the last is the
+ * thank-you page: both are generated as stock images rather than product content, so a
+ * preview built from them advertises the packaging instead of the pack - and the cover
+ * already has four mockups of its own.
+ *
+ * What is left is sampled evenly from the first interior page to the last, so a buyer
+ * sees the shape of the whole book rather than a run of consecutive pages.
+ */
+function selectPreviewFramePaths(jobs = [], limit = PREVIEW_PAGE_FRAME_COUNT) {
+  const { isMazeExportRole, selectMazePreviewFramePaths } = require('./maze-export.cjs');
+  if ((Array.isArray(jobs) ? jobs : []).some((job) => isMazeExportRole(job?.kind))) {
+    return selectMazePreviewFramePaths(jobs, limit);
+  }
+  const pages = collectProductPageImagePaths(jobs);
+  // Drop the cover and the thank-you page. A book with nothing between them has no
+  // interior to preview, and this correctly yields nothing.
+  const interior = pages.slice(1, -1);
+  const cap = Math.min(
+    PREVIEW_PAGE_FRAME_MAX,
+    Math.max(PREVIEW_PAGE_FRAME_MIN, Math.round(limit) || PREVIEW_PAGE_FRAME_COUNT)
+  );
+  // A short book sends every interior page it has: below the band is all there is.
+  if (interior.length <= cap) return interior;
+  const picked = [];
+  for (let index = 0; index < cap; index += 1) {
+    picked.push(interior[Math.round((index * (interior.length - 1)) / (cap - 1))]);
+  }
+  return [...new Set(picked)];
 }
 
 function editableVectorFolderName(projectOrName = null) {
@@ -313,7 +847,7 @@ async function packageEditableVectorFiles(project, { includePrintPdf = true } = 
   const zipPath = join(project.outputDir, `${folderName}.zip`);
   await new Promise((resolve, reject) => {
     const output = createWriteStream(zipPath);
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = createZipArchive();
     output.on('close', resolve);
     output.on('error', reject);
     archive.on('error', reject);
@@ -325,9 +859,8 @@ async function packageEditableVectorFiles(project, { includePrintPdf = true } = 
       archive.file(filePath, { name: join(folderName, basename(filePath)) });
     }
     if (includePrintPdf) {
-      const printPdf = project.compressedPdfPath && existsSync(project.compressedPdfPath)
-        ? project.compressedPdfPath
-        : (project.productPdfPath && existsSync(project.productPdfPath) ? project.productPdfPath : null);
+      const pdf = getPdf(project);
+      const printPdf = hasValidPdfFile(pdf.compressedPath) ? pdf.compressedPath : (hasValidPdfFile(pdf.productPath) ? pdf.productPath : null);
       if (printPdf) {
         archive.file(printPdf, { name: join(folderName, `print-${basename(printPdf)}`) });
       }
@@ -370,59 +903,15 @@ function bookFileCode(projectOrName = null) {
 }
 
 function compressedPrintPdfDest(outputDir, projectOrName = null) {
-  return join(outputDir, 'canva-import', `${bookFileCode(projectOrName)}.pdf`);
+  return join(outputDir, 'product-reference', `${bookFileCode(projectOrName)}.pdf`);
 }
 
-function defaultThankYouTemplatePath() {
-  return join(__dirname, '..', 'assets', 'templates', 'thank-you-page.pdf');
-}
 
-function thankYouPdfDest(outputDir, projectOrName = null) {
-  return join(outputDir, `${bookFileCode(projectOrName)}-thank-you.pdf`);
-}
 
-async function stampThankYouTemplateLink(sourcePath, destPath, templateLink) {
-  const href = String(templateLink || '').trim();
-  if (!href) {
-    throw Object.assign(new Error('A Canva template link is required before stamping the thank-you PDF.'), {
-      code: 'THANK_YOU_LINK_MISSING'
-    });
-  }
-  if (!sourcePath || !existsSync(sourcePath)) {
-    throw Object.assign(new Error('The default thank-you PDF is missing from the app assets.'), {
-      code: 'THANK_YOU_TEMPLATE_MISSING'
-    });
-  }
-  const pdf = await PDFDocument.load(readFileSync(sourcePath), { ignoreEncryption: true });
-  let stamped = 0;
-  for (const page of pdf.getPages()) {
-    const annots = page.node.Annots();
-    if (!annots) continue;
-    const list = pdf.context.lookup(annots);
-    const refs = typeof list?.asArray === 'function' ? list.asArray() : [];
-    for (const ref of refs) {
-      const dict = pdf.context.lookup(ref);
-      if (!dict || typeof dict.get !== 'function') continue;
-      const actionRef = dict.get(PDFName.of('A'));
-      if (!actionRef) continue;
-      const action = pdf.context.lookup(actionRef);
-      if (!action || typeof action.get !== 'function') continue;
-      if (String(action.get(PDFName.of('S')) || '') !== '/URI') continue;
-      action.set(PDFName.of('URI'), PDFString.of(href));
-      stamped += 1;
-    }
-  }
-  if (!stamped) {
-    throw Object.assign(new Error('The thank-you PDF has no Click here link to update.'), {
-      code: 'THANK_YOU_LINK_MISSING'
-    });
-  }
-  mkdirSync(dirname(destPath), { recursive: true });
-  await atomicWrite(destPath, Buffer.from(await pdf.save({ useObjectStreams: true })));
-  return destPath;
-}
 
 function allInteriorPagesComplete(project) {
+  const { isMazeProduct, mazePagesComplete } = require('./maze-export.cjs');
+  if (isMazeProduct(project) && project.mazeProject) return mazePagesComplete(project);
   const jobs = Array.isArray(project?.jobs) ? project.jobs : [];
   const total = Number(project?.stats?.total);
   const complete = Number(project?.stats?.complete);
@@ -437,7 +926,7 @@ function allInteriorPagesComplete(project) {
   return pages.every((job) => (
     job?.status === 'complete'
     && job?.outputPath
-    && existsSync(job.outputPath)
+    && isValidExportFile(job.outputPath, { minBytes: 1_000 })
     && isRasterImagePath(job.outputPath)
   ));
 }
@@ -460,7 +949,12 @@ function printPdfPageChecksum(jobs = []) {
   return hash.digest('hex');
 }
 
+function pdfLib() {
+  return require('pdf-lib');
+}
+
 async function pdfFilePageCount(filePath) {
+  const { PDFDocument } = pdfLib();
   const pdf = await PDFDocument.load(readFileSync(filePath), { ignoreEncryption: true });
   return pdf.getPageCount();
 }
@@ -469,24 +963,17 @@ function printPdfPackageIsCurrent(project) {
   if (!allInteriorPagesComplete(project)) return false;
   const meta = project?.printPdfJson && typeof project.printPdfJson === 'object' ? project.printPdfJson : {};
   const checksum = printPdfPageChecksum(project.jobs);
-  const productPath = project.productPdfPath || meta.productPdfPath;
-  const compressedPath = project.compressedPdfPath || meta.compressedPdfPath;
+  const pdfState = getPdf(project);
+  const productPath = pdfState.productPath;
+  const compressedPath = pdfState.compressedPath;
   return meta.stage === 'ready'
     && meta.checksum === checksum
     && productPath
-    && existsSync(productPath)
+    && hasValidPdfFile(productPath)
     && compressedPath
-    && existsSync(compressedPath);
+    && hasValidPdfFile(compressedPath);
 }
 
-function appendThankYouPdfToArchive(archive, project) {
-  const thankYouPath = (project?.thankYouPdfPath && existsSync(project.thankYouPdfPath) && project.thankYouPdfPath)
-    || (project?.printPdfJson?.thankYouPdfPath && existsSync(project.printPdfJson.thankYouPdfPath) && project.printPdfJson.thankYouPdfPath)
-    || thankYouPdfDest(project?.outputDir, project);
-  if (thankYouPath && existsSync(thankYouPath)) {
-    archive.file(thankYouPath, { name: basename(thankYouPath) });
-  }
-}
 
 async function persistPreparedPdf(sourcePath, destPath) {
   mkdirSync(dirname(destPath), { recursive: true });
@@ -498,10 +985,10 @@ async function persistPreparedPdf(sourcePath, destPath) {
 }
 
 /**
- * Copy an already-built print PDF into canva-import/<book-code>.pdf.
+ * Copy an already-built print PDF into product-reference/<book-code>.pdf.
  * Does not rasterize pages and does not call compressPdf — Interior already did that.
  */
-async function prepareCanvaImportPdf(
+async function prepareProductReferencePdf(
   pdfPath,
   outputDir,
   format = 'A4',
@@ -513,23 +1000,23 @@ async function prepareCanvaImportPdf(
   void orientation;
   void pageImagePaths;
   if (!pdfPath || !existsSync(pdfPath)) {
-    throw Object.assign(new Error('Export the print PDF before sending it to Canva.'), { code: 'CANVA_PDF_MISSING' });
+    throw Object.assign(new Error('Export the print PDF before preparing the product reference.'), { code: 'PRODUCT_REFERENCE_PDF_MISSING' });
   }
-  const destPath = join(outputDir, 'canva-import', basename(pdfPath) || `${bookFileCode()}.pdf`);
+  const destPath = join(outputDir, 'product-reference', basename(pdfPath) || `${bookFileCode()}.pdf`);
   const want = Number(expectedPages) || 0;
   let sourceCount = 0;
   try {
     sourceCount = await pdfFilePageCount(pdfPath);
   } catch (error) {
     throw Object.assign(
-      new Error(`The Canva import PDF could not be read (${error?.message || error}).`),
-      { code: 'CANVA_PDF_PAGE_COUNT_MISMATCH' }
+      new Error(`The product reference PDF could not be read (${error?.message || error}).`),
+      { code: 'PRODUCT_REFERENCE_PDF_PAGE_COUNT_MISMATCH' }
     );
   }
   if (want && sourceCount !== want) {
     throw Object.assign(
-      new Error(`Print PDF has ${sourceCount} pages but this book has ${want} interior pages. Export the print PDF again, then retry Canva.`),
-      { code: 'CANVA_PDF_PAGE_COUNT_MISMATCH' }
+      new Error(`Print PDF has ${sourceCount} pages but this book has ${want} interior pages. Export the print PDF again, then retry editable generation.`),
+      { code: 'PRODUCT_REFERENCE_PDF_PAGE_COUNT_MISMATCH' }
     );
   }
   if (existsSync(destPath)) {
@@ -548,22 +1035,22 @@ async function prepareCanvaImportPdf(
     destCount = destPath === pdfPath ? sourceCount : await pdfFilePageCount(destPath);
   } catch (error) {
     throw Object.assign(
-      new Error(`The Canva import PDF could not be read after save (${error?.message || error}).`),
-      { code: 'CANVA_PDF_PAGE_COUNT_MISMATCH' }
+      new Error(`The product reference PDF could not be read after save (${error?.message || error}).`),
+      { code: 'PRODUCT_REFERENCE_PDF_PAGE_COUNT_MISMATCH' }
     );
   }
   if (want && destCount !== want) {
     throw Object.assign(
-      new Error(`Canva import PDF has ${destCount} pages but this book has ${want} interior pages. The original print PDF was kept instead of a damaged file.`),
-      { code: 'CANVA_PDF_PAGE_COUNT_MISMATCH' }
+      new Error(`Product reference PDF has ${destCount} pages but this book has ${want} interior pages. The original print PDF was kept instead of a damaged file.`),
+      { code: 'PRODUCT_REFERENCE_PDF_PAGE_COUNT_MISMATCH' }
     );
   }
   return destPath;
 }
 
-async function prepareCanvaUploadImages(pagePaths = [], outputDir, format = 'A4', orientation = 'portrait') {
+async function prepareEditablePageImages(pagePaths = [], outputDir, format = 'A4', orientation = 'portrait') {
   const setup = resolvePageSetup(format, orientation);
-  const destDir = join(outputDir, 'canva-pages');
+  const destDir = join(outputDir, 'editable-pages');
   mkdirSync(destDir, { recursive: true });
   let width = setup.width;
   let height = setup.height;
@@ -579,7 +1066,7 @@ async function prepareCanvaUploadImages(pagePaths = [], outputDir, format = 'A4'
     if (!source || !existsSync(source)) continue;
     const destPath = join(destDir, `page-${String(index + 1).padStart(3, '0')}.jpg`);
     try {
-      await sharp(source)
+      await getSharp()(source)
         .rotate()
         .resize(width, height, { fit: 'fill' })
         .jpeg({ quality: 82, mozjpeg: true })
@@ -599,6 +1086,18 @@ function selectThumbnailPagePaths(pagePaths, thumbnailIndex = 0, count = 4) {
   return Array.from({ length: count }, (_, offset) => available[(startIndex + offset) % available.length]);
 }
 
+
+/**
+ * The branding overlay attached to every preview video.
+ *
+ * Resolved from the app bundle rather than a user folder: a path under Downloads does
+ * not survive packaging, and a preview that silently loses its watermark is a public
+ * asset anyone can reuse.
+ */
+function resolvePreviewWatermarkPath() {
+  const candidate = join(__dirname, '..', 'assets', 'branding', 'preview-watermark.png');
+  return existsSync(candidate) ? candidate : null;
+}
 
 function selectPreviewAttachmentPaths({ jobs = [], thumbnailPaths = [], maxCount = 8 } = {}) {
   const thumbs = [...new Set((Array.isArray(thumbnailPaths) ? thumbnailPaths : [])
@@ -633,21 +1132,26 @@ async function writePageContactSheet(pagePaths, destPath) {
   const cellW = 640;
   const cellH = 860;
   const gap = 12;
-  const canvas = new Jimp({
-    width: cellW * 2 + gap * 3,
-    height: cellH * 2 + gap * 3,
-    color: 0xFFF7F1E8
-  });
+  const composites = [];
   for (let index = 0; index < 4; index += 1) {
     const sourcePath = pagePaths[index];
     if (!sourcePath || !existsSync(sourcePath)) continue;
-    const image = await Jimp.read(sourcePath);
-    image.cover({ w: cellW, h: cellH, mode: ResizeStrategy.BICUBIC });
-    const x = gap + (index % 2) * (cellW + gap);
-    const y = gap + Math.floor(index / 2) * (cellH + gap);
-    canvas.composite(image, x, y);
+    const tile = await getSharp()(sourcePath).resize(cellW, cellH, { fit: 'cover', position: 'centre' }).png().toBuffer();
+    composites.push({
+      input: tile,
+      left: gap + (index % 2) * (cellW + gap),
+      top: gap + Math.floor(index / 2) * (cellH + gap)
+    });
   }
-  await atomicWrite(destPath, await canvas.getBuffer('image/png'));
+  const png = await getSharp()({
+    create: {
+      width: cellW * 2 + gap * 3,
+      height: cellH * 2 + gap * 3,
+      channels: 4,
+      background: { r: 247, g: 241, b: 232, alpha: 1 }
+    }
+  }).composite(composites).png().toBuffer();
+  await atomicWrite(destPath, png);
   return destPath;
 }
 
@@ -664,12 +1168,18 @@ async function stageThumbnailPageTargets({ pagePaths, destDir, thumbnailIndex = 
   await fs.mkdir(destDir, { recursive: true });
   const pageFiles = [];
   for (let index = 0; index < selected.length; index += 1) {
-    const image = await Jimp.read(selected[index]);
-    if (Math.max(image.bitmap.width, image.bitmap.height) > THUMBNAIL_PAGE_MAX_EDGE) {
-      image.scaleToFit({ w: THUMBNAIL_PAGE_MAX_EDGE, h: THUMBNAIL_PAGE_MAX_EDGE });
+    const meta = await getSharp()(selected[index]).metadata();
+    const maxEdge = Math.max(Number(meta.width) || 0, Number(meta.height) || 0);
+    let pipeline = getSharp()(selected[index]);
+    if (maxEdge > THUMBNAIL_PAGE_MAX_EDGE) {
+      pipeline = pipeline.resize({
+        width: THUMBNAIL_PAGE_MAX_EDGE,
+        height: THUMBNAIL_PAGE_MAX_EDGE,
+        fit: 'inside'
+      });
     }
     const destPath = join(destDir, `Thumbnail-${Number(thumbnailIndex) + 1}-page-0${index + 1}.png`);
-    await atomicWrite(destPath, await image.getBuffer('image/png'));
+    await atomicWrite(destPath, await pipeline.png().toBuffer());
     pageFiles.push(destPath);
   }
   const contactSheetPath = join(destDir, `Thumbnail-${Number(thumbnailIndex) + 1}-contact-sheet.png`);
@@ -703,11 +1213,11 @@ function findExistingBookDocument(outputDir) {
     const lower = String(name || '').toLowerCase();
     return lower.endsWith(ext) && !/booklet/i.test(lower);
   });
+  // Only a .docx. This used to fall back to the .pptx, which is how the marketing
+  // stage ended up being handed book-editable.pptx and rejecting it - the fallback hid
+  // the real problem, which was that no document had been built at all.
   const docx = pick('.docx');
-  if (docx) return join(outputDir, docx);
-  const pptx = pick('.pptx');
-  if (pptx) return join(outputDir, pptx);
-  return null;
+  return docx ? join(outputDir, docx) : null;
 }
 
 function selectMockupAttachmentPaths({ jobs = [], outputDir = '', thumbnailIndex = 0, maxImages = 4 } = {}) {
@@ -749,7 +1259,7 @@ async function writeImagesDocx(pagePaths, destPath) {
   for (let index = 0; index < files.length; index += 1) {
     // Compressed JPEG embeds — readable quality, much smaller than raw PNG masters.
     const jpegBuffer = await pageImageAsExportJpeg(files[index], { maxEdge: THUMBNAIL_PAGE_MAX_EDGE });
-    const meta = await sharp(jpegBuffer, { failOn: 'none' }).metadata();
+    const meta = await getSharp()(jpegBuffer, { failOn: 'none' }).metadata();
     const width = Number(meta.width) || 1;
     const height = Number(meta.height) || 1;
     const maxCx = 5943600;
@@ -842,7 +1352,7 @@ async function writeImagesDocx(pagePaths, destPath) {
 
   await new Promise((resolve, reject) => {
     const output = createWriteStream(destPath);
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = createZipArchive();
     output.on('close', resolve);
     output.on('error', reject);
     archive.on('error', reject);
@@ -890,6 +1400,9 @@ class FileManager {
 
   async saveGeneratedImage({ buffer, job, outputDir, format = 'A4', orientation = 'portrait', zoom = 1.0, offsetX = 0.0, offsetY = 0.0 }) {
     mkdirSync(outputDir, { recursive: true });
+    // #region agent log
+    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'702e49'},body:JSON.stringify({sessionId:'702e49',runId:'post-fix',hypothesisId:'C',location:'file-manager.cjs:saveGeneratedImage',message:'page image save path',data:{fileName:job?.fileName||null,outputDir,inWorkspace:String(outputDir||'').includes('/workspace/')},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     const rawPath = join(outputDir, job.fileName.replace(/\.png$/, '.raw.png'));
     if (!existsSync(rawPath)) {
       await atomicWrite(rawPath, buffer);
@@ -897,12 +1410,13 @@ class FileManager {
     const result = await this.validateAndConvert(buffer, format, orientation, zoom, offsetX, offsetY);
     const outputPath = join(outputDir, job.fileName);
     await atomicWrite(outputPath, result.png);
+    try { await ensureCardPreview(outputPath); } catch { /* card preview is display-only */ }
     return { outputPath, width: result.width, height: result.height, dpi: result.dpi };
   }
 
   async saveGeneratedThumbnail({ buffer, fileName, outputDir }) {
     const png = this.validateSource(buffer);
-    const metadata = await sharp(png, { failOn: 'none' }).metadata();
+    const metadata = await getSharp()(png, { failOn: 'none' }).metadata();
     const width = Number(metadata.width) || 1;
     const height = Number(metadata.height) || 1;
     const scale = Math.min(
@@ -913,13 +1427,13 @@ class FileManager {
     );
     const newWidth = Math.max(1, Math.round(width * scale));
     const newHeight = Math.max(1, Math.round(height * scale));
-    const resized = await sharp(png, { failOn: 'none' })
-      .resize(newWidth, newHeight, { fit: 'fill', kernel: sharp.kernel.lanczos3 })
+    const resized = await getSharp()(png, { failOn: 'none' })
+      .resize(newWidth, newHeight, { fit: 'fill', kernel: getSharp().kernel.lanczos3 })
       .toBuffer();
 
     let payload = null;
     for (const quality of LISTING_THUMB_JPEG_QUALITY) {
-      payload = await sharp(resized, { failOn: 'none' })
+      payload = await getSharp()(resized, { failOn: 'none' })
         .jpeg({ quality, mozjpeg: true, chromaSubsampling: '4:4:4' })
         .toBuffer();
       if (payload.length <= TPT_THUMBNAIL_MAX_BYTES) break;
@@ -960,6 +1474,9 @@ class FileManager {
   }
 
   async exportZip(project, options = {}) {
+    const opts = typeof options === 'string' ? { exportMode: options } : (options || {});
+    const { isMazeProduct, prepareMazeProject } = require('./maze-export.cjs');
+    if (isMazeProduct(project)) project = await prepareMazeProject(project, opts.store);
     if (project.stats.complete !== project.stats.total) {
       throw Object.assign(new Error('ZIP export is locked until every page is complete.'), { code: 'BOOK_INCOMPLETE' });
     }
@@ -973,69 +1490,180 @@ class FileManager {
     const zipPath = join(project.outputDir, zipName);
     mkdirSync(project.outputDir, { recursive: true });
 
-    // TPT pack contents only: print PDF, listing mockups/thumbnails, PowerPoint, DOCX.
-    // Exclude per-page PNGs, competitor mockups, SVG packs, prompts.txt, giant manifests.
     let pdfPath = resolveExportPackPdfPath(project);
     if (!pdfPath) {
-      pdfPath = await this.exportPdf(project, options);
-      // Prefer the Interior compressed print PDF when freshly built above left only product PDF.
+      pdfPath = await this.exportPdf(project, opts);
       const refreshed = resolveExportPackPdfPath(project);
       if (refreshed) pdfPath = refreshed;
     }
-    const pptxPath = await this.exportPptx(project, options);
-    const docxPath = await this.exportDocx(project);
+    const pptxPath = await this.exportPptx(project, opts);
+    const docxPath = await this.exportDocx(project, opts);
 
-    const listingThumbs = [...new Set((Array.isArray(project?.tptListing?.thumbnailPaths)
-      ? project.tptListing.thumbnailPaths
-      : [])
-      .filter((filePath) => filePath && existsSync(filePath)))];
-    let mockupPaths = listingThumbs;
-    if (!mockupPaths.length) {
-      const thumbDir = join(project.outputDir, 'tpt-thumbnails');
-      if (existsSync(thumbDir)) {
-        mockupPaths = readdirSync(thumbDir)
-          .filter((name) => /\.(png|jpe?g|webp)$/i.test(name))
-          .map((name) => join(thumbDir, name))
-          .filter((filePath) => existsSync(filePath));
+    const manifest = buildFinalExportManifest(project, {
+      exportMode: mode,
+      pdfPath,
+      pptxPath,
+      docxPath
+    });
+    assertFinalExportManifestComplete(manifest);
+
+    const stagingDir = join(project.outputDir, '.final-export-staging');
+    rmSync(stagingDir, { recursive: true, force: true });
+    mkdirSync(stagingDir, { recursive: true });
+
+    // Marketing artefacts are normalised at export time, not at generation time: the
+    // buyer's copy has to be uniform even when the source images arrived at whatever
+    // size the model produced.
+    if (manifest.mockups.length) {
+      const normalized = await normalizeMockupsForExport(
+        manifest.mockups.map((item) => item.sourcePath),
+        join(stagingDir, 'mockups-2000')
+      );
+      manifest.mockups.forEach((item, index) => {
+        if (normalized[index]) item.sourcePath = normalized[index];
+      });
+    }
+    const videoArtifact = manifest.artifacts.find((item) => item.type === 'video' && item.included);
+    if (videoArtifact) {
+      const mp4 = await ensureMp4Preview(videoArtifact.sourcePath, join(stagingDir, 'preview'));
+      if (mp4 && mp4 !== videoArtifact.sourcePath) {
+        videoArtifact.sourcePath = mp4;
+        videoArtifact.finalName = `${bookFileCode(project)}_video.mp4`;
       }
     }
+    // Transcoding the preview is the one step that can change an entry name, so the
+    // expected list is rebuilt after it rather than before.
+    manifest.expectedZipEntries = [
+      ...manifest.artifacts.filter((item) => item.included && item.type !== 'mockups'),
+      ...manifest.mockups
+    ].map((item) => item.finalName.replace(/\\/g, '/'));
+    const seoFilePath = materializeFinalExportSeoFile(manifest, stagingDir);
+    if (seoFilePath) {
+      const durableSeo = join(project.outputDir, basename(seoFilePath));
+      copyFileSync(seoFilePath, durableSeo);
+    }
 
+    const writtenEntries = [];
     await new Promise((resolve, reject) => {
       const output = createWriteStream(zipPath);
-      const archive = archiver('zip', { zlib: { level: 9 } });
+      const archive = createZipArchive();
       output.on('close', resolve);
       output.on('error', reject);
       archive.on('error', reject);
       archive.pipe(output);
 
-      if (pdfPath && existsSync(pdfPath)) {
-        archive.file(pdfPath, { name: basename(pdfPath) });
+      for (const item of manifest.artifacts) {
+        if (!item.included || item.type === 'mockups') continue;
+        const entryName = item.finalName.replace(/\\/g, '/');
+        if (item.type === 'seo') {
+          if (!seoFilePath || !existsSync(seoFilePath)) {
+            reject(Object.assign(new Error('SEO TXT could not be written for final export.'), {
+              code: 'EXPORT_SEO_WRITE_FAILED'
+            }));
+            return;
+          }
+          archive.file(seoFilePath, { name: entryName });
+          writtenEntries.push(entryName);
+          continue;
+        }
+        if (!item.sourcePath || !existsSync(item.sourcePath)) {
+          reject(Object.assign(new Error(`Final export source missing for ${item.type}.`), {
+            code: 'EXPORT_SOURCE_MISSING',
+            artifact: item
+          }));
+          return;
+        }
+        archive.file(item.sourcePath, { name: entryName });
+        writtenEntries.push(entryName);
       }
-      if (pptxPath && existsSync(pptxPath)) {
-        archive.file(pptxPath, { name: basename(pptxPath) });
+      for (const item of manifest.mockups) {
+        const entryName = item.finalName.replace(/\\/g, '/');
+        archive.file(item.sourcePath, { name: entryName });
+        writtenEntries.push(entryName);
       }
-      if (docxPath && existsSync(docxPath)) {
-        archive.file(docxPath, { name: basename(docxPath) });
-      }
-      mockupPaths.forEach((filePath, index) => {
-        const ext = extname(filePath) || '.jpg';
-        archive.file(filePath, { name: join('listing-mockups', `mockup_${index + 1}${ext}`) });
-      });
 
       archive.finalize();
     });
 
+    const expected = [...manifest.expectedZipEntries].sort();
+    const actual = [...writtenEntries].sort();
+    if (expected.length !== actual.length || expected.some((name, index) => name !== actual[index])) {
+      throw Object.assign(new Error('Final export ZIP contents do not match the manifest.'), {
+        code: 'EXPORT_MANIFEST_MISMATCH',
+        expected,
+        actual,
+        missing: manifest.missing
+      });
+    }
+
+    rmSync(stagingDir, { recursive: true, force: true });
     return zipPath;
   }
 
+  /**
+   * Product final-export folder: manifest artifacts only (never an outputDir dump).
+   */
+  async exportFinalPackageDirectory(project, destDir, options = {}) {
+    const opts = typeof options === 'string' ? { exportMode: options } : (options || {});
+    const { isMazeProduct, prepareMazeProject } = require('./maze-export.cjs');
+    if (isMazeProduct(project)) project = await prepareMazeProject(project, opts.store);
+    if (project.stats.complete !== project.stats.total) {
+      throw Object.assign(new Error('Export is locked until every page is complete.'), { code: 'BOOK_INCOMPLETE' });
+    }
+    const mode = typeof options === 'string'
+      ? options
+      : (options && options.exportMode) ? options.exportMode : 'STANDARD_SEQUENTIAL';
+
+    let pdfPath = resolveExportPackPdfPath(project);
+    if (!pdfPath) {
+      pdfPath = await this.exportPdf(project, opts);
+      const refreshed = resolveExportPackPdfPath(project);
+      if (refreshed) pdfPath = refreshed;
+    }
+    const pptxPath = await this.exportPptx(project, opts);
+    const docxPath = await this.exportDocx(project, opts);
+    const manifest = buildFinalExportManifest(project, {
+      exportMode: mode,
+      pdfPath,
+      pptxPath,
+      docxPath
+    });
+    const seoFilePath = materializeFinalExportSeoFile(manifest, destDir);
+    if (seoFilePath && project.outputDir) {
+      copyFileSync(seoFilePath, join(project.outputDir, basename(seoFilePath)));
+    }
+    return writeFinalExportPackageFromManifest(manifest, destDir, { seoFilePath });
+  }
+
+  /**
+   * Debug/internal: full workspace dump. Not used by product final export.
+   */
+  exportOutputDirDump(project, destDir) {
+    if (!project?.outputDir || !existsSync(project.outputDir)) {
+      throw Object.assign(new Error('Project output directory is missing.'), { code: 'OUTPUT_DIR_MISSING' });
+    }
+    mkdirSync(dirname(destDir), { recursive: true });
+    cpSync(project.outputDir, destDir, {
+      recursive: true,
+      errorOnExist: true,
+      filter: (src) => !String(src).endsWith('.raw.png')
+    });
+    return destDir;
+  }
+
   async exportPdf(project, options = {}) {
+    const opts = typeof options === 'string' ? { exportMode: options } : (options || {});
+    const { isMazeProduct, prepareMazeProject, exportMazePdf } = require('./maze-export.cjs');
+    if (isMazeProduct(project)) {
+      project = await prepareMazeProject(project, opts.store);
+      return exportMazePdf(project, opts);
+    }
     if (project.stats.complete !== project.stats.total) {
       throw Object.assign(new Error('PDF export is locked until every page is complete.'), { code: 'BOOK_INCOMPLETE' });
     }
     // If raster page files are missing, reuse the print PDF built during Interior.
-    const existingPrint = project.productPdfPath && existsSync(project.productPdfPath)
-      ? project.productPdfPath
-      : (project.compressedPdfPath && existsSync(project.compressedPdfPath) ? project.compressedPdfPath : null);
+    const pdfState = getPdf(project);
+    const existingPrint = hasValidPdfFile(pdfState.productPath) ? pdfState.productPath : (hasValidPdfFile(pdfState.compressedPath) ? pdfState.compressedPath : null);
     const jobsHaveRaster = (project.jobs || []).some((job) => job?.outputPath && existsSync(job.outputPath) && isRasterImagePath(job.outputPath));
     if (!jobsHaveRaster && existingPrint) {
       return existingPrint;
@@ -1046,6 +1674,7 @@ class FileManager {
     const isBooklet = mode === 'BOOKLET_SADDLE_STITCH';
 
     const setup = resolvePageSetup(project.format, project.orientation);
+    const { PDFDocument } = pdfLib();
     const pdf = await PDFDocument.create();
     pdf.setTitle(project.name);
     pdf.setSubject(project.theme);
@@ -1054,16 +1683,17 @@ class FileManager {
     const pdfName = isBooklet ? `${slug}-booklet.pdf` : `${slug}.pdf`;
     const outputPath = join(project.outputDir, pdfName);
 
+    const exportPages = resolvedExportPages(project);
     if (isBooklet) {
-      const imposition = calculateSaddleStitchSpreads(project.jobs.length);
+      const imposition = calculateSaddleStitchSpreads(exportPages.length);
       const spreadPoints = [setup.points[0] * 2, setup.points[1]];
 
       for (const spread of imposition.spreads) {
-        const leftJob = project.jobs[spread.leftPage - 1];
-        const rightJob = project.jobs[spread.rightPage - 1];
+        const leftPage = exportPages[spread.leftPage - 1];
+        const rightPage = exportPages[spread.rightPage - 1];
 
-        const leftPng = leftJob && existsSync(leftJob.outputPath) ? await require('fs/promises').readFile(leftJob.outputPath) : null;
-        const rightPng = rightJob && existsSync(rightJob.outputPath) ? await require('fs/promises').readFile(rightJob.outputPath) : null;
+        const leftPng = leftPage?.path && existsSync(leftPage.path) ? await require('fs/promises').readFile(leftPage.path) : null;
+        const rightPng = rightPage?.path && existsSync(rightPage.path) ? await require('fs/promises').readFile(rightPage.path) : null;
 
         const spreadPng = await createSpreadPng({
           leftPng,
@@ -1081,8 +1711,8 @@ class FileManager {
         );
       }
     } else {
-      for (const job of project.jobs) {
-        await addCompressedPdfPage(pdf, job.outputPath, setup.points, setup.width, setup.height);
+      for (const page of exportPages) {
+        await addCompressedPdfPage(pdf, page.path, setup.points, setup.width, setup.height);
       }
     }
 
@@ -1091,15 +1721,22 @@ class FileManager {
   }
 
   async exportPptx(project, options = {}) {
+    const opts = typeof options === 'string' ? { exportMode: options } : (options || {});
+    const { isMazeProduct, prepareMazeProject, exportMazePptx } = require('./maze-export.cjs');
+    if (isMazeProduct(project)) {
+      project = await prepareMazeProject(project, opts.store);
+      return exportMazePptx(project, opts);
+    }
     if (project.stats.complete !== project.stats.total) {
       throw Object.assign(new Error('PPTX export is locked until every page is complete.'), { code: 'BOOK_INCOMPLETE' });
     }
     const jobs = Array.isArray(project.jobs) ? project.jobs : [];
-    if (!jobs.length || !jobs.every((job) => job?.outputPath && existsSync(job.outputPath))) {
+    if (!jobs.length) {
       throw Object.assign(new Error('PPTX export needs every page file on disk (PNG or SVG).'), {
         code: 'PAGE_IMAGE_MISSING'
       });
     }
+    const exportPages = resolvedExportPages(project);
     const mode = typeof options === 'string'
       ? options
       : (options && options.exportMode) ? options.exportMode : 'STANDARD_SEQUENTIAL';
@@ -1127,16 +1764,18 @@ class FileManager {
     const outputPath = require('node:path').join(project.outputDir, pptxName);
 
     if (isBooklet) {
-      const imposition = calculateSaddleStitchSpreads(jobs.length);
+      const imposition = calculateSaddleStitchSpreads(exportPages.length);
       for (const spread of imposition.spreads) {
-        const leftJob = jobs[spread.leftPage - 1];
-        const rightJob = jobs[spread.rightPage - 1];
+        const leftPage = exportPages[spread.leftPage - 1];
+        const rightPage = exportPages[spread.rightPage - 1];
+        const leftJob = leftPage?.job;
+        const rightJob = rightPage?.job;
 
-        const leftPng = leftJob?.outputPath && existsSync(leftJob.outputPath)
-          ? await pageImageAsPngBuffer(leftJob.outputPath)
+        const leftPng = leftPage?.path && existsSync(leftPage.path)
+          ? await pageImageAsPngBuffer(leftPage.path)
           : null;
-        const rightPng = rightJob?.outputPath && existsSync(rightJob.outputPath)
-          ? await pageImageAsPngBuffer(rightJob.outputPath)
+        const rightPng = rightPage?.path && existsSync(rightPage.path)
+          ? await pageImageAsPngBuffer(rightPage.path)
           : null;
 
         const spreadPng = await createSpreadPng({
@@ -1164,9 +1803,10 @@ class FileManager {
         if (notes.length > 0) slide.addNotes(notes.join('\n\n'));
       }
     } else {
-      for (const job of jobs) {
+      for (const page of exportPages) {
+        const job = page.job;
         const slide = pres.addSlide();
-        const pagePath = String(job.outputPath || '');
+        const pagePath = String(page.path || '');
         // JPEG embeds keep visual quality while shrinking PPTX vs raw PNG masters.
         const jpegBuffer = await pageImageAsExportJpeg(pagePath);
         slide.addImage({
@@ -1187,37 +1827,33 @@ class FileManager {
     return outputPath;
   }
 
-  async exportDocx(project) {
+  async exportDocx(project, options = {}) {
+    const { isMazeProduct, prepareMazeProject } = require('./maze-export.cjs');
+    if (isMazeProduct(project)) project = await prepareMazeProject(project, options.store);
     if (project.stats.complete !== project.stats.total) {
       throw Object.assign(new Error('DOCX export is locked until every page is complete.'), { code: 'BOOK_INCOMPLETE' });
     }
     const jobs = Array.isArray(project.jobs) ? project.jobs : [];
-    if (!jobs.length || !jobs.every((job) => job?.outputPath && existsSync(job.outputPath))) {
+    if (!jobs.length) {
       throw Object.assign(new Error('DOCX export needs every page file on disk (PNG or SVG).'), {
         code: 'PAGE_IMAGE_MISSING'
       });
     }
-    const pages = jobs
-      .slice()
-      .sort((left, right) => (Number(left?.pageNumber) || 0) - (Number(right?.pageNumber) || 0))
-      .map((job) => job.outputPath);
+    const pages = resolvedExportPages(project).map((page) => page.path);
     const slug = bookFileCode(project);
     const outputPath = join(project.outputDir, `${slug}.docx`);
     // writeImagesDocx embeds compressed JPEG page images (SVG→raster in memory if needed).
     return writeImagesDocx(pages, outputPath);
   }
 
-  async exportThankYouPdf(project, templateLink) {
-    const source = defaultThankYouTemplatePath();
-    const destPath = thankYouPdfDest(project.outputDir, project);
-    return stampThankYouTemplateLink(source, destPath, templateLink);
-  }
 
   /**
    * After every interior page exists: convert to a print PDF, then compress it.
-   * The compressed file is written to canva-import/<book-code>.pdf for Canva to reuse.
+   * The compressed file is written to product-reference/<book-code>.pdf for downstream stages.
    */
   async buildPrintPdfPackage(project, options = {}) {
+    const { isMazeProduct, prepareMazeProject } = require('./maze-export.cjs');
+    if (isMazeProduct(project)) project = await prepareMazeProject(project, options.store);
     if (!allInteriorPagesComplete(project)) {
       throw Object.assign(new Error('PDF export is locked until every page is complete.'), { code: 'BOOK_INCOMPLETE' });
     }
@@ -1284,7 +1920,51 @@ class FileManager {
   }
 }
 
+
+
+function verifyOverview(project) {
+  if (!project) {
+    throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+  }
+  if (!String(project.name || '').trim() || !String(project.theme || '').trim()) {
+    throw Object.assign(new Error('The saved project overview is incomplete.'), { code: 'PROJECT_OVERVIEW_INCOMPLETE' });
+  }
+  return true;
+}
+
+function verifyExportZip(project) {
+  if (!project) {
+    throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+  }
+  if (!project.outputDir) {
+    throw Object.assign(new Error('Project output directory is missing.'), { code: 'OUTPUT_DIR_MISSING' });
+  }
+  const slug = bookFileCode(project);
+  const zipName = `${slug}.zip`;
+  const zipPath = join(project.outputDir, zipName);
+  const actual = inspectFinalExportZip(zipPath).sort();
+  const manifest = buildFinalExportManifest(project, {
+    exportMode: 'STANDARD_SEQUENTIAL',
+    pdfPath: resolveExportPackPdfPath(project),
+    pptxPath: join(project.outputDir, `${slug}.pptx`),
+    docxPath: join(project.outputDir, `${slug}.docx`)
+  });
+  assertFinalExportManifestComplete(manifest);
+
+  const expected = [...manifest.expectedZipEntries].sort();
+  if (expected.length !== actual.length || expected.some((name, index) => name !== actual[index])) {
+    throw Object.assign(new Error('Final export ZIP contents do not match the manifest.'), {
+      code: 'EXPORT_MANIFEST_MISMATCH',
+      expected,
+      actual
+    });
+  }
+  return zipPath;
+}
+
 module.exports = {
+  verifyOverview,
+  verifyExportZip,
   PAGE_SETUPS,
   PRINT_PDF_JPEG,
   EXPORT_EMBED_JPEG,
@@ -1294,23 +1974,29 @@ module.exports = {
   addCompressedPdfPage,
   allInteriorPagesComplete,
   atomicWrite,
+  cardPreviewPathFor,
+  ensureCardPreview,
   collectProductPageImagePaths,
+  selectPreviewFramePaths,
+  PREVIEW_PAGE_FRAME_MIN,
+  PREVIEW_PAGE_FRAME_MAX,
+  PREVIEW_PAGE_FRAME_COUNT,
   collectProductPageSvgPaths,
   editableVectorFolderName,
   packageEditableVectorFiles,
   bookFileCode,
   compressedPrintPdfDest,
-  defaultThankYouTemplatePath,
-  thankYouPdfDest,
-  stampThankYouTemplateLink,
+
+
+
   encodePrintPdfJpeg,
   formatPrintPdfBytes,
   pageImageAsPngBuffer,
   pageImageAsExportJpeg,
   resolveExportPackPdfPath,
   persistPreparedPdf,
-  prepareCanvaImportPdf,
-  prepareCanvaUploadImages,
+  prepareProductReferencePdf,
+  prepareEditablePageImages,
   printPdfPackageIsCurrent,
   printPdfPageChecksum,
   createSpreadPng,
@@ -1318,11 +2004,19 @@ module.exports = {
   resolvePageSetup,
   selectThumbnailPagePaths,
   selectPreviewAttachmentPaths,
+  resolvePreviewWatermarkPath,
   selectMockupAttachmentPaths,
   findExistingBookDocument,
   isRejectedMockupAttachment,
   isRasterImagePath,
   isSvgImagePath,
   writeImagesDocx,
-  stageThumbnailPageTargets
+  stageThumbnailPageTargets,
+  buildFinalExportManifest,
+  assertFinalExportManifestComplete,
+  collectFinalMockupPaths,
+  resolveFinalExportSeoText,
+  resolveFinalExportVideoPath,
+  materializeFinalExportSeoFile,
+  writeFinalExportPackageFromManifest
 };

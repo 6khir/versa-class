@@ -9,7 +9,7 @@ const schemas = {
   }),
   
   apiCall: Joi.object({
-    service: Joi.string().valid('chatgpt', 'gemini', 'meta', 'canva').required(),
+    service: Joi.string().valid('chatgpt', 'gemini', 'meta').required(),
     prompt: Joi.string().min(1).max(5000).required(),
     parameters: Joi.object(),
   }),

@@ -1,7 +1,7 @@
 /**
  * Showcase builder — stamp textOverlays onto blank masters for Mockup GPT.
  */
-const { existsSync, mkdirSync, appendFileSync } = require('node:fs');
+const { existsSync, mkdirSync } = require('node:fs');
 const { join, basename } = require('node:path');
 const sharp = require('sharp');
 const {
@@ -25,23 +25,14 @@ function escapeXml(value) {
     .replace(/'/g, '&apos;');
 }
 
-function debugLog(message, data = {}, hypothesisId = 'SHOW') {
-  // #region agent log
-  try {
-    appendFileSync(
-      '/Users/abdelmouiz/Desktop/VERSA SOFTWARE ( TPT )/.cursor/debug-2f6f56.log',
-      `${JSON.stringify({
-        sessionId: '2f6f56',
-        runId: 'blank-text-pipeline',
-        hypothesisId,
-        location: 'showcase-builder.cjs',
-        message,
-        data,
-        timestamp: Date.now()
-      })}\n`
-    );
-  } catch {}
-  // #endregion
+/**
+ * Showcase progress, on the app's own console.
+ *
+ * This used to append JSON to a hardcoded path on one machine's Desktop, which is not
+ * somewhere a packaged build can write and not somewhere anyone would look.
+ */
+function debugLog(message, data = {}) {
+  console.log(`[showcase] ${message}${Object.keys(data).length ? ` ${JSON.stringify(data)}` : ''}`);
 }
 
 function buildTextSvg({ widthPx, heightPx, widthInches, heightInches, overlays }) {
@@ -95,7 +86,7 @@ async function buildShowcaseForJob(project, job) {
 
   if (!overlays.length) {
     await atomicWrite(outPath, blankPng);
-    debugLog('showcase copied blank (no overlays)', { pageNumber: job.pageNumber, out: basename(outPath) }, 'B');
+    debugLog('showcase copied blank (no overlays)', { pageNumber: job.pageNumber, out: basename(outPath) });
     return outPath;
   }
 
@@ -111,7 +102,7 @@ async function buildShowcaseForJob(project, job) {
     out: basename(outPath),
     overlayCount: overlays.length,
     bytes: stamped.length
-  }, 'B');
+  });
   return outPath;
 }
 
@@ -126,7 +117,7 @@ async function buildShowcasesForProject(project) {
     try {
       paths.push(await buildShowcaseForJob(project, job));
     } catch (error) {
-      debugLog('showcase failed', { pageNumber: job.pageNumber, error: String(error.message || error).slice(0, 160) }, 'B');
+      debugLog('showcase failed', { pageNumber: job.pageNumber, error: String(error.message || error).slice(0, 160) });
     }
   }
   return paths;

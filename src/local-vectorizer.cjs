@@ -2,7 +2,7 @@
 
 /**
  * Local raster → SVG vectorization via imagetracerjs (Node).
- * Replaces Canva Magic Layers with a free offline auto-trace pipeline.
+ * Native offline auto-trace pipeline for editable artwork layers.
  *
  * Heavy tracing runs in a worker_thread so Electron's main/UI process stays responsive.
  */

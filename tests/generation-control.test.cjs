@@ -1,0 +1,5 @@
+'use strict';
+const test=require('node:test');const assert=require('node:assert/strict');const {runOperation,waitForRetry}=require('../src/generation-control.cjs');
+test('deadline fences a never-settling operation',async()=>{let timedOut=false;await assert.rejects(runOperation(()=>new Promise(()=>{}),{timeoutMs:5,onTimeout:()=>{timedOut=true;}}),{code:'GENERATION_STUCK'});assert.ok(timedOut);});
+test('abort fences a late successful result',async()=>{const controller=new AbortController();let finish;const p=runOperation(()=>new Promise(r=>{finish=r;}),{signal:controller.signal});await new Promise(r=>setImmediate(r));controller.abort();await assert.rejects(p,{code:'QUEUE_PAUSED'});finish('late');});
+test('an already-aborted operation never starts; retry delays cancel immediately',async()=>{const controller=new AbortController();controller.abort();let ran=false;await assert.rejects(runOperation(()=>{ran=true;},{signal:controller.signal}),{code:'QUEUE_PAUSED'});assert.equal(ran,false);const c=new AbortController();const wait=waitForRetry(60000,c.signal);await new Promise(r=>setImmediate(r));c.abort();await assert.rejects(wait,{code:'QUEUE_PAUSED'});});

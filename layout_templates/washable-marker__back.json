@@ -1,0 +1,35 @@
+{
+  "theme_id": "washable-marker",
+  "page_type": "back",
+  "canvas": { "width": 2480, "height": 3508 },
+  "zones": [
+    {
+      "id": "cover_header_bar",
+      "shape": "rect",
+      "bbox": [0, 0, 2480, 220],
+      "align": "center",
+      "role": "brand_bar"
+    },
+    {
+      "id": "title",
+      "shape": "rect",
+      "bbox": [180, 280, 2300, 560],
+      "align": "center",
+      "role": "heading"
+    },
+    {
+      "id": "body",
+      "shape": "rect",
+      "bbox": [220, 620, 2260, 3180],
+      "align": "left",
+      "role": "body"
+    },
+    {
+      "id": "cover_footer_bar",
+      "shape": "rect",
+      "bbox": [0, 3288, 2480, 3508],
+      "align": "center",
+      "role": "brand_bar"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+# Pinned for Python 3.11 on Apple Silicon (M1/M2), CPU only.
+#
+# Version notes are load-bearing — these are not arbitrary ranges:
+#
+#   paddlepaddle 3.0.0  — 2.6.x segfaults (SIGSEGV) on macOS 14+/arm64 inside its
+#                         dygraph kernels; even a bare Conv2D crashes the process.
+#                         3.0.0 is the first release that runs clean here.
+#   numpy 1.26.x        — paddle and the MobileSAM/torch stack are both built against
+#                         the numpy 1.x C ABI. numpy 2.x changes that ABI.
+#   opencv 4.10.x       — opencv 5.x hard-requires numpy>=2, which contradicts the above.
+#
+torch>=2.2,<2.6
+torchvision>=0.17,<0.21
+numpy>=1.26,<2.0
+opencv-python-headless>=4.10,<5
+opencv-contrib-python>=4.10,<5
+timm>=0.9.16
+git+https://github.com/ChaoningZhang/MobileSAM.git
+paddlepaddle>=3.0,<3.1
+paddleocr>=2.9,<3.0
+
+# Layered PDF compiler (Interior Text). pikepdf carries qpdf for object-stream and
+# stream compression; both are pure-consumer deps with no numpy ABI coupling.
+reportlab>=4.1
+pikepdf>=8.15
+pypdf>=4.2
+
+# NOTE on two packages that are NOT listed here, both installed by setup_models.sh
+# with --no-deps immediately after this file:
+#
+#   simple-lama-inpainting  declares pillow<10; pikepdf declares Pillow>=10.0.1. Those
+#                           cannot both be satisfied, so listing it here makes the
+#                           whole file unresolvable and pip installs *nothing*. Its
+#                           real runtime needs are torch and PIL, both present already.
+#   pillow                  pinned to >=10.2 afterwards, for pikepdf and scikit-image.
+
+# Glyph foundry: builds a real TTF from the letterforms traced off the page.
+fonttools>=4.50
+
+# ComfyUI HTTP bridge: pooled Session + urllib3 Retry against 127.0.0.1:8188.
+requests>=2.31
+urllib3>=2.0
+
+# Editable Lab PPTX compiler (versa_layered_pptx.py).
+python-pptx>=1.0.2

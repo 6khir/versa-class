@@ -8,7 +8,6 @@ const {
   verifyServiceUrl,
   isServiceSignInUrl,
   chromeAppBundleFromExecutable,
-  usesCanvaAuthentication,
   mergePreservedSessionCookies
 } = require('../src/browser-controller.cjs');
 
@@ -16,7 +15,6 @@ test('verify landing URLs stay on the live app, not a gem', () => {
   assert.equal(verifyServiceUrl('gemini'), 'https://gemini.google.com/app');
   assert.equal(verifyServiceUrl('chatgpt'), 'https://chatgpt.com/');
   assert.equal(verifyServiceUrl('meta'), 'https://www.meta.ai/');
-  assert.match(String(verifyServiceUrl('canva')), /canva\.com/i);
 });
 
 test('Google sign-in pages are not treated as a finished Gemini session', () => {
@@ -50,17 +48,7 @@ test('background CDP guard swallows window activation commands', () => {
   assert.equal(shouldBlockCdpActivation('Page.bringToFront', {}, false, true), false);
 });
 
-test('Gemini and ChatGPT auth checks never follow a Canva tab', () => {
-  assert.equal(usesCanvaAuthentication('canva', 'https://www.canva.com/'), true);
-  assert.equal(usesCanvaAuthentication(null, 'https://www.canva.com/design/abc'), true);
-  assert.equal(usesCanvaAuthentication('gemini', 'https://www.canva.com/'), false);
-  assert.equal(usesCanvaAuthentication({ target: 'gemini' }, 'https://www.canva.com/'), false);
-  assert.equal(usesCanvaAuthentication('chatgpt', 'https://www.canva.com/login'), false);
-  assert.equal(usesCanvaAuthentication('meta', 'https://www.canva.com/'), false);
-  assert.equal(usesCanvaAuthentication('gemini', 'https://gemini.google.com/app'), false);
-});
-
-test('importing Canva restores the previous Gemini cookies instead of wiping them', () => {
+test('importing Meta restores previous Gemini and TPT cookies without wiping the imported service', () => {
   const dir = mkdtempSync(join(tmpdir(), 'versa-cookies-'));
   const preservedPath = join(dir, 'preserved.sqlite');
   const targetPath = join(dir, 'target.sqlite');
@@ -74,20 +62,20 @@ test('importing Canva restores the previous Gemini cookies instead of wiping the
   try {
     create(preservedPath, [
       { host_key: '.google.com', name: 'SID', value: 'gemini-session' },
-      { host_key: '.canva.com', name: 'CAE', value: 'old-canva' },
+      { host_key: '.meta.ai', name: 'meta_session', value: 'old-meta' },
       { host_key: '.teacherspayteachers.com', name: 'sessionKey', value: 'tpt' }
     ]);
     create(targetPath, [
-      { host_key: '.canva.com', name: 'CAE', value: 'new-canva' }
+      { host_key: '.meta.ai', name: 'meta_session', value: 'new-meta' }
     ]);
-    const restored = mergePreservedSessionCookies(targetPath, preservedPath, { importing: 'canva' });
+    const restored = mergePreservedSessionCookies(targetPath, preservedPath, { importing: 'meta' });
     assert.ok(restored >= 2);
     const db = new DatabaseSync(targetPath, { readOnly: true });
     const rows = db.prepare('SELECT host_key, name, value FROM cookies ORDER BY host_key, name').all();
     db.close();
     assert.equal(rows.find((row) => row.name === 'SID')?.value, 'gemini-session');
     assert.equal(rows.find((row) => row.name === 'sessionKey')?.value, 'tpt');
-    assert.equal(rows.find((row) => row.name === 'CAE')?.value, 'new-canva');
+    assert.equal(rows.find((row) => row.name === 'meta_session')?.value, 'new-meta');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

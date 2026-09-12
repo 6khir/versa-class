@@ -213,9 +213,6 @@ body {
 
 .glass-panel,
 .stat-card,
-.overview-stage-card,
-.queue-panel,
-.detail-panel,
 .settings-dialog,
 .project-dialog,
 .auth-dialog,
@@ -303,8 +300,8 @@ body {
 .settings-field-grid .field input,
 .settings-field-grid .field select,
 .settings-field-grid .field textarea,
-.canva-template-row input,
-.canva-template-row select {
+.editable-engine-template-row input,
+.editable-engine-template-row select {
   background: #fff;
   color: var(--text);
   border: 1px solid rgba(94, 186, 224, 0.28);
@@ -345,84 +342,50 @@ body {
   box-shadow: inset 0 0 0 1px rgba(16, 36, 51, 0.14), 0 4px 12px rgba(62, 180, 232, 0.2);
 }
 
-.canva-path-steps li {
+.editable-engine-path-steps li {
   background: rgba(247, 251, 254, 0.95);
   color: #17324A;
   border-color: rgba(94, 186, 224, 0.28);
 }
 
-.canva-editable-link {
+.editable-engine-editable-link {
   background: rgba(247, 251, 254, 0.95);
   color: #1F6F92;
 }
 
-.canva-page-board {
+.editable-engine-page-board {
   background: rgba(247, 251, 254, 0.92);
   border-color: rgba(94, 186, 224, 0.28);
 }
 
-.canva-page-card {
+.editable-engine-page-card {
   background: rgba(255, 255, 255, 0.92);
 }
 
-.canva-page-visual {
+.editable-engine-page-visual {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(232, 247, 253, 0.9)),
     repeating-linear-gradient(180deg, rgba(94, 200, 240, 0.06) 0 12px, transparent 12px 24px),
     #EAF6FC;
 }
 
-.canva-page-card.is-live .page-fill-layer {
+.editable-engine-page-card.is-live .page-fill-layer {
   animation: page-fill-breathe 2.6s ease-in-out infinite;
 }
 
-.canva-page-card.is-live .page-fill-sheen {
+.editable-engine-page-card.is-live .page-fill-sheen {
   opacity: 1;
   animation: page-sheen 2.1s ease-in-out infinite;
 }
 
-.canva-page-card.has-image .page-fill-layer,
-.canva-page-card.has-image .page-fill-sheen {
+.editable-engine-page-card.has-image .page-fill-layer,
+.editable-engine-page-card.has-image .page-fill-sheen {
   display: none;
 }
 
-.overview-stage-card {
-  appearance: none;
-  -webkit-appearance: none;
-  color: #17324A;
-  background: rgba(247, 251, 254, 0.92);
-}
-
-.overview-stage-grid .overview-stage-card:nth-child(1) { background: rgba(62, 180, 232, 0.14); border-color: rgba(62, 180, 232, 0.28); }
-.overview-stage-grid .overview-stage-card:nth-child(2) { background: rgba(167, 139, 250, 0.14); border-color: rgba(167, 139, 250, 0.28); }
-.overview-stage-grid .overview-stage-card:nth-child(3) { background: rgba(72, 206, 137, 0.16); border-color: rgba(90, 196, 130, 0.30); }
-.overview-stage-grid .overview-stage-card:nth-child(4) { background: rgba(255, 176, 72, 0.16); border-color: rgba(232, 140, 40, 0.32); }
-.overview-stage-grid .overview-stage-card:nth-child(5) { background: rgba(94, 200, 240, 0.16); border-color: rgba(62, 176, 224, 0.30); }
-.overview-stage-grid .overview-stage-card:nth-child(6) { background: rgba(244, 114, 182, 0.12); border-color: rgba(236, 72, 153, 0.24); }
-.overview-stage-grid .overview-stage-card:nth-child(7) { background: rgba(45, 212, 191, 0.14); border-color: rgba(20, 184, 166, 0.28); }
-.overview-stage-grid .overview-stage-card:nth-child(8) { background: rgba(250, 204, 21, 0.16); border-color: rgba(202, 138, 4, 0.28); }
-
-.overview-stage-card:hover {
-  filter: brightness(0.985);
-  box-shadow: var(--shadow);
-}
-
-.overview-stage-card strong {
-  color: #102433;
-}
-
-.overview-stage-label {
-  color: #73B8FB;
-}
-
-.overview-stage-overall {
-  background: linear-gradient(180deg, rgba(94, 200, 240, 0.2), rgba(72, 206, 137, 0.12));
-  border-color: rgba(62, 180, 232, 0.35);
-}
-
-.product-ring strong {
-  color: #102433;
-}
+/* The Overview pipeline owns its own material in refined.css, in both themes.
+ * The per-index colour wheel that used to live here painted a different hue on
+ * every stage, which said nothing about progress. */
 
 .workspace-command-strip {
   background: linear-gradient(180deg, rgba(247, 251, 254, 0.97) 60%, rgba(238, 246, 251, 0.78));
@@ -453,12 +416,10 @@ body {
   box-shadow: none;
 }
 
-.page-preview-card,
 .prompt-box,
 .integration-card,
 .studio-row,
 .method-card,
-.filter-tab,
 .radio-option {
   background: #fff;
   color: var(--text);
@@ -637,66 +598,18 @@ dialog::backdrop {
 .brand-chatgpt { background: #10a37f; }
 .brand-gemini { background: #ffffff; border: 1px solid rgba(66, 133, 244, 0.28); }
 .brand-meta { background: #0081fb; }
-.brand-canva { background: #7d2ae8; }
+.brand-editable-engine { background: #7d2ae8; }
 
-.page-card-actions .row-button {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  color: #17324A;
-  background: #fff;
-  border-color: rgba(94, 186, 224, 0.28);
-}
-
-.filter-tabs {
-  background: rgba(94, 200, 240, 0.1);
-}
-
-.filter-tab {
-  color: #5E7A8C;
-}
-
-.filter-tab.is-active {
-  color: #0B4A6A;
-  background: linear-gradient(180deg, #E8F7FD, #D4F0FB);
-}
-
-.page-preview-grid {
-  gap: 14px;
-}
-
-.page-preview-card {
-  background: #fff;
-  border: 1px solid rgba(94, 186, 224, 0.22);
-  border-radius: 16px;
-  box-shadow: 0 10px 28px rgba(70, 150, 190, 0.08);
-}
-
-.page-preview-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(62, 180, 232, 0.45);
-  box-shadow: 0 16px 36px rgba(62, 180, 232, 0.14);
-}
-
-.page-preview-card.is-selected {
-  border-color: rgba(62, 180, 232, 0.7);
-  box-shadow: 0 0 0 2px rgba(125, 216, 245, 0.45), 0 16px 36px rgba(62, 180, 232, 0.16);
-}
-
-.page-preview-card.is-live {
-  border-color: rgba(72, 206, 137, 0.55);
-}
-
-.page-visual {
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(232, 247, 253, 0.9)),
-    repeating-linear-gradient(180deg, rgba(94, 200, 240, 0.06) 0 12px, transparent 12px 24px),
-    #EAF6FC;
-  border-bottom: 1px solid rgba(94, 186, 224, 0.16);
-}
+/* ---------------------------------------------------------------------------
+ * The Pages Lab grid and page cards used to be re-declared here in hardcoded
+ * light colours with no [data-theme] guard, so #fff cards and #EAF6FC page
+ * visuals were being applied in Dark too and then partly re-covered by
+ * midnight-theme.css. That is the pattern that made Day mode unfixable.
+ *
+ * They are now defined once, in semantic tokens, in the PAGES LAB section of
+ * refined.css. The fill material below stays because Editable Lab, Text Lab
+ * and the Canva import cards all share it.
+ * ------------------------------------------------------------------------- */
 
 .page-fill-layer {
   position: absolute;
@@ -719,102 +632,6 @@ dialog::backdrop {
   background: linear-gradient(180deg, transparent 0%, rgba(255, 255, 255, 0.55) 42%, transparent 70%);
   background-size: 100% 240%;
   background-position: 0 120%;
-}
-
-.page-preview-card.is-live .page-fill-layer {
-  animation: page-fill-breathe 2.6s ease-in-out infinite;
-}
-
-.page-preview-card.is-live .page-fill-sheen {
-  opacity: 1;
-  animation: page-sheen 2.1s ease-in-out infinite;
-}
-
-.page-preview-card.has-image .page-fill-layer,
-.page-preview-card.has-image .page-fill-sheen {
-  display: none;
-}
-
-.page-placeholder {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  gap: 4px;
-  padding: 12px;
-  background: transparent;
-  color: #3A5A70;
-}
-
-.page-placeholder strong {
-  color: #1494C8;
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: -0.04em;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
-}
-
-.page-placeholder span {
-  max-width: 140px;
-  color: #3A5A70;
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.page-placeholder em {
-  color: #1494C8;
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-
-.page-visual img {
-  position: relative;
-  z-index: 2;
-  background: #fff;
-}
-
-.page-preview-card.has-image .page-visual img {
-  animation: page-reveal 420ms ease;
-}
-
-.page-visual-status {
-  z-index: 3;
-}
-
-.page-card-prompt {
-  color: #5E7A8C;
-}
-
-.page-card-meta {
-  color: #7A93A4;
-}
-
-.page-content-label {
-  color: #73B8FB;
-}
-
-.story-page-text-section {
-  background: #F7FBFE;
-  border-color: rgba(94, 186, 224, 0.22);
-}
-
-.story-page-text-section p {
-  color: #17324A;
-}
-
-.story-image-prompt-details {
-  background: #F7FBFE;
-  border-color: rgba(94, 186, 224, 0.22);
-}
-
-.story-image-prompt-details summary {
-  color: #3A5A70;
-}
-
-.story-image-prompt-body {
-  color: #5E7A8C;
 }
 
 .status-pending,
@@ -885,12 +702,6 @@ dialog::backdrop {
   background: #fff;
 }
 
-.tpt-listing-review {
-  background: #fff;
-  color: #17324A;
-  border: 1px solid rgba(94, 186, 224, 0.28);
-}
-
 .tpt-fields article {
   background: #F7FBFE;
   border-color: rgba(94, 186, 224, 0.28);
@@ -915,14 +726,5 @@ dialog::backdrop {
   border: 1px solid rgba(94, 186, 224, 0.32);
 }
 
-.tpt-thumbnail.is-pending {
-  border-color: rgba(94, 186, 224, 0.35);
-  color: #5E7A8C;
-}
-
-.section-header.tpt-section-heading {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: flex-start;
-}
+/* The mockup slot, the Mockups Lab heading and the live-replacement treatment
+   for a page card are all owned by refined.css now. */

@@ -75,7 +75,7 @@ test('preview video jobs always open the Veo 3 custom gem', () => {
   assert.equal(getJobStartUrl({ kind: 'preview' }, 'gemini'), PREVIEW_GEM_URL);
   assert.equal(getJobStartUrl({ kind: 'preview' }, 'meta'), PREVIEW_GEM_URL);
   assert.equal(getJobStartUrl({ kind: 'veo' }, 'chatgpt'), PREVIEW_GEM_URL);
-  assert.ok(String(PREVIEW_GEM_URL).includes('03e82ade1eb7'));
+  assert.ok(String(PREVIEW_GEM_URL).includes('1P0s70mcBrh1YRrSEf2lZdKtv5lf2phw4'));
   assert.equal(isPersistedConversationUrl(PREVIEW_GEM_URL), false);
 });
 

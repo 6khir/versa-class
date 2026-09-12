@@ -33,15 +33,20 @@ function bootLog(message, extra) {
     const line = `[${new Date().toISOString()}] ${message}${extra ? `\n${extra}` : ''}\n`;
     require('node:fs').appendFileSync('/tmp/versa-boot.log', line);
   } catch {}
-  // #region agent log
-  try {
-    const payload = { sessionId: '2f6f56', runId: 'post-fix', hypothesisId: 'P', location: 'main.cjs:bootLog', message: String(message || ''), data: { extra: extra ? String(extra).slice(0, 240) : null }, timestamp: Date.now() };
-    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '2f6f56' }, body: JSON.stringify(payload) }).catch(() => {});
-    require('node:fs').appendFileSync('/Users/abdelmouiz/Desktop/VERSA SOFTWARE ( TPT )/.cursor/debug-2f6f56.log', `${JSON.stringify(payload)}\n`);
-  } catch {}
-  // #endregion
   try { console.error('[versa]', message, extra || ''); } catch {}
 }
+
+function agentLog(location, message, data) {
+  try { bootLog(message, JSON.stringify(data || {})); } catch {}
+}
+
+agentLog('main.cjs:entry', 'main-entry', {
+  electron: process.versions.electron || null,
+  execPath: process.execPath,
+  argv: process.argv.slice(0, 4),
+  runAsNode: process.env.ELECTRON_RUN_AS_NODE === undefined ? 'unset' : String(process.env.ELECTRON_RUN_AS_NODE),
+  type: process.type || null
+}, 'H3');
 
 process.on('uncaughtException', (error) => {
   if (isAddressInUseError(error)) {
@@ -49,38 +54,42 @@ process.on('uncaughtException', (error) => {
     return;
   }
   bootLog('uncaughtException', error?.stack || error);
+  try {
+    if (typeof app !== 'undefined') app.quit();
+    else process.exit(1);
+  } catch { process.exit(1); }
 });
 
 process.on('unhandledRejection', (error) => {
   bootLog('unhandledRejection', error?.stack || error);
+  
 });
 
-const { app, BrowserWindow, dialog, ipcMain, nativeImage, nativeTheme, net, protocol, shell } = require('electron');
+const { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, nativeTheme, net, protocol, screen, shell } = require('electron');
+agentLog('main.cjs:electron', 'after-electron-require', { hasApp: Boolean(app), ready: Boolean(app?.isReady?.()) }, 'H3');
 nativeTheme.themeSource = 'system';
-const { autoUpdater } = require('electron-updater');
+let autoUpdater = null;
+function getAutoUpdater() {
+  if (!autoUpdater) {
+    autoUpdater = require('electron-updater').autoUpdater;
+  }
+  return autoUpdater;
+}
+agentLog('main.cjs:updater', 'skipped-electron-updater-at-boot', { lazy: true }, 'H6');
+function loadMod(label, loader) {
+  const exported = loader();
+  return exported;
+}
 const { createHash, randomUUID } = require('node:crypto');
-const { copyFileSync, cpSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync } = require('node:fs');
-const { dirname, extname, isAbsolute, join, basename } = require('node:path');
+const { copyFileSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync } = require('node:fs');
+const { dirname, extname, isAbsolute, join, basename, resolve, sep } = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { DatabaseSync } = require('node:sqlite');
-const { BrowserController } = require('./browser-controller.cjs');
-let startTelemetry = async () => null;
-let stopTelemetry = () => {};
-let telemetryEmit = () => {};
-try {
-  ({ startTelemetry, stopTelemetry, emit: telemetryEmit } = require('./canva-telemetry.cjs'));
-} catch (error) {
-  bootLog('canva-telemetry unavailable', error?.stack || error);
-}
-const { runBundleUploadSequence } = require('./bundle-upload-runner.cjs');
-const { FileManager, collectProductPageImagePaths, prepareCanvaImportPdf, allInteriorPagesComplete, printPdfPageChecksum, printPdfPackageIsCurrent, compressedPrintPdfDest, bookFileCode, formatPrintPdfBytes, findExistingBookDocument } = require('./file-manager.cjs');
-const {
-  rememberCanvaImportPdf,
-  restoreCanvaImportPdfIfMissing,
-  forgetCanvaImportPdf,
-  describeCanvaTempStorage
-} = require('./canva-temp-storage.cjs');
-const { FORMAT_INSTRUCTIONS, buildBookJobs, buildImportedJobs, buildStorybookJobs, cleanText, normalizeOrientation, parseAnalysisResponse, parseGeneratedPrompts, parseTptListingResponse, formatSeoBundleText, sanitizeSeoListingFields, isSeoSkipStub, slugify } = require('./prompt-builder.cjs');
+const { normalizeAppearance, resolveAppearance, windowBackground, splashBackground } = require('./appearance.cjs');
+const { BrowserController } = loadMod('browser-controller', () => require('./browser-controller.cjs'));
+const { runBundleUploadSequence } = loadMod('bundle-upload-runner', () => require('./bundle-upload-runner.cjs'));
+const { FileManager, collectProductPageImagePaths, allInteriorPagesComplete, printPdfPageChecksum, printPdfPackageIsCurrent, compressedPrintPdfDest, bookFileCode, verifyOverview, verifyExportZip, formatPrintPdfBytes, findExistingBookDocument, atomicWrite, ensureCardPreview, cardPreviewPathFor } = loadMod('file-manager', () => require('./file-manager.cjs'));
+const { FORMAT_INSTRUCTIONS, buildBookJobs, buildImportedJobs, buildStorybookJobs, cleanText, normalizeOrientation, parseAnalysisResponse, parseGeneratedPrompts, formatSeoBundleText, sanitizeSeoListingFields, isSeoSkipStub, slugify } = loadMod('prompt-builder', () => require('./prompt-builder.cjs'));
 const {
   normalizeEngine,
   engineDisplayName,
@@ -91,31 +100,64 @@ const {
   listGeminiStudios,
   listChatGptStudios,
   findStudio
-} = require('./ai-engine.cjs');
-const { MetaApiController } = require('./meta-api-controller.cjs');
-const { QueueEngine } = require('./queue-engine.cjs');
-const { startAutomationHttp } = require('./automation-http.cjs');
-const { ProjectStore } = require('./store.cjs');
-const { AutomationManager, PIPELINE_STEPS } = require('./automation-manager.cjs');
-const { toCanvaDesignUrl, toCanvaTemplateLink, isCanvaTemplateLink } = require('./canva-bulk.cjs');
-const { mergeCanvaPageProgress, pdfImportHumanHelp, isHumanRecoverableCanvaError, isPdfImportOpenDesignStage, isMagicLayerControlMissing } = require('./canva-job-state.cjs');
-let isCanvaAvailable;
-let canvaUnavailableError;
-let CANVA_COMING_SOON_MESSAGE;
-try {
-  ({ isCanvaAvailable, canvaUnavailableError, CANVA_COMING_SOON_MESSAGE } = require('./canva-availability.cjs'));
-} catch {
-  CANVA_COMING_SOON_MESSAGE = 'Canva Magic Layer is coming soon on Windows. ChatGPT, Gemini, Meta AI, listing, mockups, and TPT still work.';
-  isCanvaAvailable = (platform = process.platform) => String(platform || '') !== 'win32';
-  canvaUnavailableError = () => Object.assign(new Error(CANVA_COMING_SOON_MESSAGE), { code: 'CANVA_UNAVAILABLE' });
-}
-const { normalizeAppearance, resolveAppearance, windowBackground, splashBackground } = require('./appearance.cjs');
+} = loadMod('ai-engine', () => require('./ai-engine.cjs'));
 const {
-  TPT_SUBJECT_AREA_OPTIONS,
-  TPT_TAG_OPTIONS,
-  canonicalTptTaxonomyValue,
-  canonicalizeTptTaxonomyValues
-} = require('./tpt-taxonomy.cjs');
+  setCustomizationSource,
+  normalizeCustomization,
+  customizationDefaults
+} = loadMod('customization', () => require('./customization.cjs'));
+const { MetaApiController } = loadMod('meta-api-controller', () => require('./meta-api-controller.cjs'));
+const { runOperation } = loadMod('generation-control', () => require('./generation-control.cjs'));
+const { QueueEngine } = loadMod('queue-engine', () => require('./queue-engine.cjs'));
+const { startAutomationHttp } = loadMod('automation-http', () => require('./automation-http.cjs'));
+const { ProjectStore } = loadMod('store', () => require('./store.cjs'));
+const { runEditableProject, verifyEditableOutput, ProductFileManager } = loadMod('editable-production', () => require('./editable-production.cjs'));
+const { generateEditablePageText, readCachedPageText } = loadMod('editable-page-text', () => require('./editable-page-text.cjs'));
+const { ARTWORK_PROMPT } = loadMod('editable-prompts', () => require('./editable-prompts.cjs'));
+const { detectProductFormat } = loadMod('product-format-detector', () => require('./product-format-detector.cjs'));
+const { runPageVision, collectPageVision, clearPageVision, visionBridge } = loadMod('editable-vision-pages', () => require('./editable-vision-pages.cjs'));
+const { createTextLabObserver } = loadMod('text-lab-observer', () => require('./text-lab-observer.cjs'));
+const comfy = loadMod('comfy-service', () => require('./comfy-service.cjs'));
+const bookManagementService = loadMod('book-management-service', () => require('./book-management-service.cjs'));
+const {
+  registerBookManagementIpc,
+  exportToManagementFolder
+} = loadMod('book-management-ipc', () => require('./book-management-ipc.cjs'));
+const { requireManagementDestination } = loadMod('book-management-bridge', () => require('./book-management-bridge.cjs'));
+const {
+  buildEditablePages, mergeEditableBook, listEditablePages, clearEditablePages, editableBookPath
+} = loadMod('editable-layered-pdf', () => require('./editable-layered-pdf.cjs'));
+const { buildEditableDeck, editableDeckPath } = loadMod('editable-layered-pptx', () => require('./editable-layered-pptx.cjs'));
+const { createEditableBrowserProvider } = loadMod('editable-browser-provider', () => require('./editable-browser-provider.cjs'));
+let editableAbortController = null;
+let pendingNativeStart = null;
+const { AutomationManager, PIPELINE_STEPS } = loadMod('automation-manager', () => require('./automation-manager.cjs'));
+const {
+  SOURCES: TREND_SOURCES,
+  MARKETPLACES: TREND_MARKETPLACES,
+  discoverKeywords,
+  validateKeyword,
+  chooseOpportunity,
+  scrapeSource,
+  toAnalysisInput,
+  pickTrendListing,
+  recentTrendPickUrls,
+  rememberTrendPick
+} = loadMod('trend-scout', () => require('./trend-scout.cjs'));
+const {
+  KIND: TASK_KIND,
+  createPipelineRunner,
+  awaitTask,
+  dedupeKey,
+  projectTaskState
+} = loadMod('pipeline-tasks', () => require('./pipeline-tasks.cjs'));
+const { applyPipelineWatchdog } = loadMod('pipeline-watchdog', () => require('./pipeline-watchdog.cjs'));
+agentLog('main.cjs:requires', 'after-heavy-requires', { rss: process.memoryUsage().rss }, 'H7');
+
+function normalizeTrendMarketplace(value) {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  return TREND_MARKETPLACES.includes(candidate) ? candidate : 'tpt';
+}
 
 app.commandLine.appendSwitch('force-renderer-accessibility');
 app.commandLine.appendSwitch('remote-debugging-port', '9222');
@@ -148,6 +190,31 @@ const {
   persistCompetitorMockups,
   resolveListingAnalysisInput
 } = require('./tpt-listing-mockups.cjs');
+const {
+  getMockups,
+  applyMockupsToListing,
+  mirrorMockupsOnListing,
+  countValidMockupPaths,
+  enrichProjectWithMockups
+} = require('./mockups-state.cjs');
+const {
+  getVideo,
+  applyVideoToListing,
+  hasValidVideoFile,
+  enrichProjectWithVideo
+} = require('./video-state.cjs');
+const {
+  getPdf,
+  applyPdfToProject,
+  hasValidPdfFile
+} = require('./pdf-state.cjs');
+const {
+  getSeo,
+  applySeoToListing,
+  pickSeoFieldsFromObject,
+  isSeoContentComplete,
+  enrichProjectWithSeo
+} = require('./seo-state.cjs');
 const { exec } = require('node:child_process');
 
 let mainWindow = null;
@@ -159,6 +226,18 @@ let fileManager = null;
 let queue = null;
 let quitting = false;
 let systemActionTimer = null;
+
+/** Stop a pending sleep/shutdown countdown. Returns whether one was actually running. */
+function cancelPendingSystemAction() {
+  if (!systemActionTimer) return false;
+  clearInterval(systemActionTimer);
+  systemActionTimer = null;
+  systemActionPayload = null;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('system:action-cancelled');
+  }
+  return true;
+}
 let systemActionPayload = null; // { actionType: 'shutdown' | 'sleep', secondsRemaining: 60, projectId: '...' }
 let storybookAssetGenerationActive = false;
 let tptListingAutomationActive = false;
@@ -170,9 +249,12 @@ let telemetryService = null;
 let updatePromptOpen = false;
 let installingUpdate = false;
 let automation = null;
+let pipelineRunner = null;
+let pipelineStepRunners = null;
 let liveOperation = null;
-let canvaLiveDashboard = null;
 const printPdfInflight = new Map();
+const mazeAssembleInflight = new Map();
+const mazeContinueInflight = new Map();
 const LOGIN_SESSION_SCHEMA_VERSION = 4;
 const APP_NAME = 'VERSA CLASS';
 const LEGACY_APP_NAME = 'POD Network Book Studio';
@@ -208,6 +290,31 @@ function applyActiveEngineToBrowser() {
   if (browser && typeof browser.setEngine === 'function') {
     browser.setEngine(getActiveEngine());
   }
+  syncBrowserVerifiedAccounts();
+}
+
+function syncBrowserVerifiedAccounts() {
+  if (!browser || typeof browser.setVerifiedAccounts !== 'function' || !store) return;
+  const gemini = store.getSetting('geminiAccountProfile', null) || {};
+  const chatgpt = store.getSetting('chatgptAccountProfile', null) || {};
+  const meta = store.getSetting('metaAccountProfile', null) || {};
+  browser.setVerifiedAccounts({
+    gemini: {
+      confirmed: Boolean(store.getSetting('geminiLoginConfirmed', false)),
+      email: gemini.email || '',
+      name: gemini.name || ''
+    },
+    chatgpt: {
+      confirmed: Boolean(store.getSetting('chatgptLoginConfirmed', false)),
+      email: chatgpt.email || '',
+      name: chatgpt.name || ''
+    },
+    meta: {
+      confirmed: Boolean(store.getSetting('metaLoginConfirmed', false)),
+      email: meta.email || '',
+      name: meta.name || ''
+    }
+  });
 }
 
 function restoreSavedServiceLogins() {
@@ -222,8 +329,7 @@ function restoreSavedServiceLogins() {
   const mapping = [
     ['chatgpt', 'chatgptLoginConfirmed'],
     ['gemini', 'geminiLoginConfirmed'],
-    ['meta', 'metaLoginConfirmed'],
-    ['canva', 'canvaLoginConfirmed']
+    ['meta', 'metaLoginConfirmed']
   ];
   for (const [service, key] of mapping) {
     if (saved[service]) store.setSetting(key, true);
@@ -249,6 +355,7 @@ function requireGeminiForPreview(actionLabel) {
 }
 
 function requireGeminiForPlanning(actionLabel) {
+  syncBrowserVerifiedAccounts();
   if (isEngineConfirmed('gemini')) return 'gemini';
   throw Object.assign(
     new Error(`Connect Gemini before ${actionLabel}. Gemini always writes analysis, blueprints, and prompts. ChatGPT and Meta stay signed in and unused for this stage.`),
@@ -262,17 +369,6 @@ function requireListingEngine(actionLabel) {
 }
 
 async function lockBrowserDesk(reason = 'desk-lock') {
-  // #region agent log
-  try {
-    const fs = require('fs');
-    const path = require('path');
-    fs.appendFileSync(path.join(__dirname, '..', '.cursor', 'debug-1c3662.log'), `${JSON.stringify({
-      sessionId: '1c3662', runId: 'browser-lock', hypothesisId: 'L', location: 'main.cjs:lockBrowserDesk',
-      message: 'locking browser to background',
-      data: { reason }, timestamp: Date.now()
-    })}\n`);
-  } catch { /* ignore */ }
-  // #endregion
   try {
     if (typeof browser.launch === 'function') {
       await browser.launch({ interactive: false, skipHome: true, headless: true });
@@ -284,28 +380,6 @@ async function lockBrowserDesk(reason = 'desk-lock') {
 }
 
 function appendDebug1c3662(payload) {
-  // #region agent log
-  try {
-    const fs = require('fs');
-    const path = require('path');
-    const line = `${JSON.stringify({ sessionId: '1c3662', timestamp: Date.now(), ...payload })}\n`;
-    const candidates = [
-      path.join(__dirname, '..', '.cursor', 'debug-1c3662.log'),
-      '/Users/abdelmouiz/Desktop/VERSA SOFTWARE ( TPT )/.cursor/debug-1c3662.log'
-    ];
-    for (const logPath of candidates) {
-      try {
-        fs.mkdirSync(path.dirname(logPath), { recursive: true });
-        fs.appendFileSync(logPath, line);
-      } catch { /* ignore */ }
-    }
-    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '1c3662' },
-      body: line
-    }).catch(() => {});
-  } catch { /* ignore */ }
-  // #endregion
 }
 
 async function assertListingChatSessionReady(actionLabel = 'listing generation') {
@@ -354,7 +428,7 @@ async function assertListingChatSessionReady(actionLabel = 'listing generation')
   let signedOut = looksSignedOutUrl(url);
   let authProbe = null;
   let signInVisible = false;
-  // Leftover accounts.google / Canva tabs can mask session state. Probe engine home under lock,
+    // Leftover accounts.google tabs can mask session state. Probe engine home under lock,
   // then use authenticationStatus (no login flag writes). Never clear loginConfirmed here.
   const needsHomeProbe = signedOut || !looksLikeEngineHome(url);
   if (needsHomeProbe || typeof browser.authenticationStatus === 'function') {
@@ -427,155 +501,11 @@ async function assertListingChatSessionReady(actionLabel = 'listing generation')
   );
 }
 
-function requireCanva(actionLabel) {
-  if (!isCanvaAvailable()) throw canvaUnavailableError();
-  if (store?.getSetting('canvaLoginConfirmed', false)) return;
-  throw Object.assign(
-    new Error(`Connect Canva Pro before ${actionLabel}. Sign in on canva.com in Google Chrome Canary, then Verify Canva in Settings.`),
-    { code: 'CANVA_AUTH_REQUIRED' }
-  );
-}
-
-const CANVA_DASH_STEPS = ['pdf', 'import', 'upload', 'thumbnails', 'template', 'saved'];
-
-function canvaStepFromProgress(message = '', percent = 0, dashboard = null) {
-  if (dashboard?.step && CANVA_DASH_STEPS.includes(dashboard.step)) {
-    return CANVA_DASH_STEPS.indexOf(dashboard.step) + 1;
-  }
-  const text = String(message || '').toLowerCase();
-  const value = Number(percent) || 0;
-  if (/saving the public template|editable layer complete/.test(text) || value >= 96) return 6;
-  if (/template link|creating the public|share panel/.test(text) || value >= 88) return 5;
-  if (/checking layer|audit|page \d+|applying magic layer|magic layer applied|not separated/.test(text) || value >= 20) return 4;
-  if (/image_ready|adding image|upload finished|uploading the print pdf|waiting until 100%|already uploading/.test(text) || value >= 10) return 3;
-  if (/add page|upload image|import file|create a design|sending print pdf/.test(text) || value >= 8) return 2;
-  if (/opening a |canva design|import|print pdf|imported|loading the print pdf|opening canva/.test(text) || value >= 2) return 1;
-  return 1;
-}
-
-function mergeCanvaDashboard(prev, patch = null, extras = {}) {
-  const order = CANVA_DASH_STEPS;
-  const base = prev && typeof prev === 'object'
-    ? { ...prev, steps: { ...(prev.steps || {}) }, log: Array.isArray(prev.log) ? [...prev.log] : [] }
-    : {
-      step: 'pdf',
-      status: 'idle',
-      steps: {},
-      log: [],
-      compression: null,
-      upload: null,
-      lastError: null,
-      attempt: 0
-    };
-  if (!patch && extras.message == null && extras.lastError == null) return base;
-  const step = patch?.step || base.step || 'pdf';
-  const status = patch?.status || extras.status || (patch?.error ? 'fail' : 'running');
-  const steps = { ...base.steps };
-  const message = extras.message || patch?.message || null;
-  if (step) {
-    steps[step] = {
-      ...(steps[step] || {}),
-      status,
-      message: message || steps[step]?.message || '',
-      updatedAt: Date.now()
-    };
-    const idx = order.indexOf(step);
-    if (idx > 0 && status !== 'fail') {
-      for (let index = 0; index < idx; index += 1) {
-        const id = order[index];
-        if (!steps[id] || steps[id].status === 'waiting' || steps[id].status === 'idle' || steps[id].status === 'running') {
-          steps[id] = { ...(steps[id] || {}), status: 'ok', updatedAt: Date.now() };
-        }
-      }
-    }
-  }
-  const log = base.log;
-  if (message) {
-    const prevMsg = log[log.length - 1];
-    if (!prevMsg || prevMsg.message !== message || prevMsg.step !== step) {
-      log.push({ at: Date.now(), step, message, status });
-      if (log.length > 16) log.splice(0, log.length - 16);
-    }
-  }
-  const lastError = patch?.error || patch?.lastError || extras.lastError || (status === 'fail' ? message : null) || base.lastError;
-  return {
-    ...base,
-    ...patch,
-    step,
-    status: status === 'fail' ? 'fail' : (status === 'ok' && step === 'saved' ? 'ok' : status),
-    steps,
-    log,
-    compression: patch?.compression || base.compression,
-    upload: patch?.upload || extras.upload || base.upload,
-    lastError,
-    attempt: patch?.attempt ?? extras.attempt ?? base.attempt,
-    updatedAt: Date.now()
-  };
-}
-
-function seedCanvaPageProgress(project, { reset = false } = {}) {
-  const previous = reset ? [] : (Array.isArray(project?.canvaPageProgress) ? project.canvaPageProgress : []);
-  const byPage = new Map(previous.map((item) => [Number(item.pageNumber), item]));
-  return (project?.jobs || []).map((job) => {
-    const prior = byPage.get(Number(job.pageNumber)) || {};
-    return {
-      pageNumber: Number(job.pageNumber) || 0,
-      jobId: job.id,
-      uploaded: Boolean(prior.uploaded || prior.imported),
-      imported: Boolean(prior.imported || prior.uploaded),
-      started: Boolean(prior.started || prior.layered || prior.error),
-      layered: Boolean(prior.layered),
-      error: reset ? null : (prior.error || null),
-      layerCount: reset ? null : (prior.layerCount ?? null),
-      status: reset ? 'PENDING' : (prior.status || (prior.layered ? 'SUCCESS' : prior.error ? 'FAILED' : 'PENDING')),
-      attempts: reset ? 0 : (Number(prior.attempts) || 0),
-      lastState: reset ? null : (prior.lastState || null),
-      lastAction: reset ? null : (prior.lastAction || null),
-      lastVerification: reset ? null : (prior.lastVerification || null),
-      timestamp: reset ? null : (prior.timestamp || null),
-      detectionMethod: reset ? null : (prior.detectionMethod || null),
-      confidence: reset ? null : (prior.confidence ?? null)
-    };
-  });
-}
-
-function persistCanvaPageLayered(projectId, pageNumber, patch = {}) {
-  const updated = store.persistCanvaPageLayered(projectId, pageNumber, patch);
-  if (!updated) return null;
-  if (liveOperation?.projectId === projectId) {
-    setLiveOperation({
-      ...liveOperation,
-      canvaPageProgress: updated.canvaPageProgress
-    });
-  }
-  return updated.canvaPageProgress;
-}
-
-function applyCanvaPagesPatch(list, pages) {
-  let progress = Array.isArray(list) ? list : [];
-  for (const item of Array.isArray(pages) ? pages : []) {
-    if (item?.pageNumber) progress = mergeCanvaPageProgress(progress, item.pageNumber, item);
-  }
-  return progress;
-}
-
 function setLiveOperation(next = null) {
   if (!next) {
     liveOperation = null;
     return;
   }
-  const dashboard = next.kind === 'canva'
-    ? mergeCanvaDashboard(
-      canvaLiveDashboard || liveOperation?.canvaDashboard || null,
-      next.canvaDashboard,
-      {
-        message: next.message,
-        lastError: next.lastError,
-        attempt: next.attempt
-      }
-    )
-    : (next.canvaDashboard || liveOperation?.canvaDashboard || null);
-  if (next.kind === 'canva') canvaLiveDashboard = dashboard;
   liveOperation = {
     kind: next.kind || 'work',
     label: next.label || 'Working',
@@ -584,17 +514,9 @@ function setLiveOperation(next = null) {
     stepIndex: Number.isFinite(Number(next.stepIndex)) ? Number(next.stepIndex) : null,
     stepCount: Number(next.stepCount) || null,
     projectId: next.projectId || null,
-    canvaPageProgress: Array.isArray(next.canvaPageProgress)
-      ? next.canvaPageProgress
-      : (Array.isArray(liveOperation?.canvaPageProgress) ? liveOperation.canvaPageProgress : null),
-    canvaDashboard: dashboard,
-    lastError: next.lastError !== undefined ? next.lastError : (liveOperation?.lastError || dashboard?.lastError || null),
-    attempt: next.attempt ?? liveOperation?.attempt ?? dashboard?.attempt ?? 0,
-    activeCanvaPage: Number.isFinite(Number(next.activeCanvaPage))
-      ? Number(next.activeCanvaPage)
-      : (liveOperation?.kind === (next.kind || 'work') && liveOperation?.projectId === (next.projectId || null)
-        ? liveOperation.activeCanvaPage
-        : null),
+    jobId: next.jobId || null,
+    lastError: next.lastError !== undefined ? next.lastError : (liveOperation?.lastError || null),
+    attempt: next.attempt ?? liveOperation?.attempt ?? 0,
     pageFileName: next.pageFileName !== undefined
       ? next.pageFileName
       : (liveOperation?.kind === (next.kind || 'work') && liveOperation?.projectId === (next.projectId || null)
@@ -617,24 +539,23 @@ function setLiveOperation(next = null) {
     intervention: next.intervention !== undefined
       ? next.intervention
       : (liveOperation?.kind === (next.kind || 'work') ? liveOperation.intervention : null),
-    canvaState: next.canvaState || next.jobState?.state || (liveOperation?.kind === (next.kind || 'work') ? liveOperation.canvaState : null),
+    jobState: next.jobState || (liveOperation?.kind === (next.kind || 'work') ? liveOperation.jobState : null),
     browserUrl: next.browserUrl || next.url || (liveOperation?.kind === (next.kind || 'work') ? liveOperation.browserUrl : null),
     jobStream: Array.isArray(next.jobStream)
       ? next.jobStream
       : (Array.isArray(next.jobState?.stream)
         ? next.jobState.stream
         : (liveOperation?.kind === (next.kind || 'work') ? liveOperation.jobStream : null)),
-    lockMessage: (next.kind || liveOperation?.kind) === 'canva'
-      ? 'Canva browser currently controlled by VERSA.'
-      : null
+    recovering: Boolean(next.recovering),
+    remainingMs: next.remainingMs != null ? Number(next.remainingMs) : (liveOperation?.remainingMs ?? null),
+    phase: next.phase || (liveOperation?.kind === (next.kind || 'work') ? liveOperation.phase : null),
+    lockMessage: null
   };
 }
 
 async function publishLiveOperation(next) {
   setLiveOperation(next);
   await broadcastState();
-  // Emit telemetry for live operation updates to renderer UI
-  telemetryEmit({ type: 'liveOperation', payload: liveOperation });
 }
 
 function finishLiveWork() {
@@ -647,46 +568,125 @@ function tryRemovePath(filePath) {
   try { rmSync(filePath, { force: true }); } catch {}
 }
 
+async function assembleMazeProductExports(projectId, { onProgress = null } = {}) {
+  const existing = mazeAssembleInflight.get(projectId);
+  if (existing) return existing;
+  const run = (async () => {
+    const { assembleMazeDeliverables } = require('./maze-export.cjs');
+    return assembleMazeDeliverables(store, projectId, { fileManager, onProgress });
+  })();
+  mazeAssembleInflight.set(projectId, run);
+  try {
+    return await run;
+  } finally {
+    if (mazeAssembleInflight.get(projectId) === run) mazeAssembleInflight.delete(projectId);
+  }
+}
+
+async function continueMazeProductPipeline(projectId, { fromAutomation = false } = {}) {
+  const existing = mazeContinueInflight.get(projectId);
+  if (existing) return existing;
+  const run = (async () => {
+    const project = store.getProject(projectId);
+    if (!project || project.productFormat !== 'maze') return null;
+    // #region agent log
+    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H201',location:'src/main.cjs:continueMazeProductPipeline',message:'maze pipeline continuing after generate',data:{projectId,fromAutomation,stepMaze:project.stepMazeStatus||null},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    const occupyAssemble = !liveOperation || liveOperation.kind === 'maze-assemble' || liveOperation.kind === 'print-pdf';
+    if (occupyAssemble) {
+      await publishLiveOperation({
+        kind: 'maze-assemble',
+        label: 'Assembling exports',
+        percent: 8,
+        message: 'Assembling…',
+        projectId
+      });
+    }
+    try {
+      await assembleMazeProductExports(projectId, {
+        onProgress: async (info) => {
+          if (!occupyAssemble) return;
+          await publishLiveOperation({
+            kind: 'maze-assemble',
+            label: 'Assembling exports',
+            percent: Number(info?.percent) || 20,
+            message: info?.message || 'Assembling maze exports…',
+            projectId
+          });
+        }
+      });
+      store.appendEvent({
+        projectId,
+        level: 'success',
+        message: 'Assembling. Mockups next.'
+      });
+    } finally {
+      if (liveOperation?.kind === 'maze-assemble' && liveOperation.projectId === projectId) {
+        setLiveOperation(null);
+        await broadcastState();
+      }
+    }
+    if (fromAutomation) return { assembled: true, continued: 'automation' };
+    const liveKind = liveOperation?.kind;
+    if (liveOperation?.projectId === projectId && ['thumbnails', 'preview', 'export'].includes(liveKind)) {
+      return { assembled: true, continued: liveKind };
+    }
+    const auto = automation?.getStatus?.();
+    if (auto?.active && auto.currentProjectId === projectId) return { assembled: true, continued: 'automation' };
+    if (auto?.active) return { assembled: true, continued: false };
+    await automation.start({ projectId });
+    return { assembled: true, continued: 'started' };
+  })();
+  mazeContinueInflight.set(projectId, run);
+  try {
+    return await run;
+  } finally {
+    if (mazeContinueInflight.get(projectId) === run) mazeContinueInflight.delete(projectId);
+  }
+}
+
 async function ensureProductPdf(projectId, { force = false, onProgress = null } = {}) {
+  const mazeProject = store.getProject(projectId);
+  if (mazeProject?.productFormat === 'maze') {
+    const assembled = await assembleMazeProductExports(projectId, { onProgress });
+    return assembled?.pdfPath || null;
+  }
   const existingRun = printPdfInflight.get(projectId);
   if (existingRun) return existingRun;
 
   const run = (async () => {
     const project = store.getProject(projectId);
     if (!project) return null;
+    // Editable products ship as .pptx; teachers do not want a flattened PDF of them.
+    if (project.productFormat === 'editable') return null;
     if (!project.stats?.total || project.stats.complete !== project.stats.total) return null;
     if (!allInteriorPagesComplete(project)) {
       throw Object.assign(new Error('PDF export is locked until every page is complete.'), { code: 'BOOK_INCOMPLETE' });
     }
 
     const checksum = printPdfPageChecksum(project.jobs);
-    const existingProduct = project.productPdfPath || project.tptListing?.productPdfPath || project.printPdfJson?.productPdfPath;
-    const existingCompressed = project.compressedPdfPath || project.printPdfJson?.compressedPdfPath;
+    const pdf = getPdf(project);
+    const existingProduct = pdf.productPath;
+    const existingCompressed = pdf.compressedPath;
     if (!force && printPdfPackageIsCurrent(project)) {
-      if (existingProduct !== project.productPdfPath || existingCompressed !== project.compressedPdfPath) {
-        store.updateProject(projectId, {
-          productPdfPath: existingProduct,
-          compressedPdfPath: existingCompressed
-        });
+      if (getPdf(project).productPath !== existingProduct || getPdf(project).compressedPath !== existingCompressed) {
+        store.updateProjectTransactionally(projectId, (p) => applyPdfToProject(p, { productPath: existingProduct, compressedPath: existingCompressed }));
       }
       return existingProduct;
     }
-    if (!force && existingProduct && existsSync(existingProduct) && existingCompressed && existsSync(existingCompressed) && project.printPdfJson?.checksum === checksum && project.printPdfJson?.stage === 'ready') {
+    if (!force && hasValidPdfFile(existingProduct) && hasValidPdfFile(existingCompressed) && pdf.metadata.checksum === checksum && pdf.metadata.stage === 'ready') {
       return existingProduct;
     }
 
     const publishedLive = !liveOperation || liveOperation.kind === 'print-pdf';
-    const mergePrintPdfJson = (patch) => {
-      const current = store.getProject(projectId);
-      return {
-        ...(current?.printPdfJson || {}),
-        checksum,
-        ...patch,
-        updatedAt: new Date().toISOString()
-      };
-    };
     const report = async (patch) => {
-      store.updateProject(projectId, { printPdfJson: mergePrintPdfJson(patch) });
+      store.updateProjectTransactionally(projectId, (p) => applyPdfToProject(p, {
+        metadata: {
+          checksum,
+          ...patch,
+          updatedAt: new Date().toISOString()
+        }
+      }));
       if (typeof onProgress === 'function') await onProgress(patch);
       if (publishedLive) {
         await publishLiveOperation({
@@ -702,40 +702,37 @@ async function ensureProductPdf(projectId, { force = false, onProgress = null } 
     };
 
     try {
-      store.updateProject(projectId, {
-        printPdfJson: mergePrintPdfJson({
+      store.updateProjectTransactionally(projectId, (p) => applyPdfToProject(p, {
+        metadata: {
+          checksum,
           stage: 'converting',
           message: 'Converting pages to PDF…',
-          error: null
-        })
-      });
-      const pkg = await fileManager.buildPrintPdfPackage(project, { onProgress: report });
-      const listing = project.tptListing
-        ? { ...project.tptListing, productPdfPath: pkg.productPdfPath }
-        : project.tptListing;
-      store.updateProject(projectId, {
-        productPdfPath: pkg.productPdfPath,
-        compressedPdfPath: pkg.compressedPdfPath,
-        printPdfJson: mergePrintPdfJson({
+          error: null,
+          updatedAt: new Date().toISOString()
+        }
+      }));
+      const pkg = await fileManager.buildPrintPdfPackage(project, { onProgress: report, store });
+      store.updateProjectTransactionally(projectId, (p) => applyPdfToProject(p, {
+        productPath: pkg.productPdfPath,
+        compressedPath: pkg.compressedPdfPath,
+        metadata: {
+          checksum,
           stage: 'ready',
-          productPdfPath: pkg.productPdfPath,
-          compressedPdfPath: pkg.compressedPdfPath,
           originalBytes: pkg.originalBytes,
           outputBytes: pkg.outputBytes,
           skipped: pkg.skipped,
           reason: pkg.reason,
           pageCount: pkg.pageCount,
-          checksum: pkg.checksum,
           error: null,
           message: pkg.skipped
             ? `Print PDF ready (${formatPrintPdfBytes(pkg.originalBytes)}).`
-            : `Print PDF ready (${formatPrintPdfBytes(pkg.originalBytes)} → ${formatPrintPdfBytes(pkg.outputBytes)}).`
-        }),
-        ...(listing ? { tptListing: listing } : {})
-      });
+            : `Print PDF ready (${formatPrintPdfBytes(pkg.originalBytes)} → ${formatPrintPdfBytes(pkg.outputBytes)}).`,
+          updatedAt: new Date().toISOString()
+        }
+      }));
       const sizeLine = pkg.skipped
-        ? `Print PDF ready (${formatPrintPdfBytes(pkg.originalBytes)}). Canva will reuse this file.`
-        : `Print PDF ready (${formatPrintPdfBytes(pkg.originalBytes)} → ${formatPrintPdfBytes(pkg.outputBytes)}). Canva will reuse this file.`;
+        ? `Print PDF ready (${formatPrintPdfBytes(pkg.originalBytes)}). Downstream stages will reuse this file.`
+        : `Print PDF ready (${formatPrintPdfBytes(pkg.originalBytes)} → ${formatPrintPdfBytes(pkg.outputBytes)}). Downstream stages will reuse this file.`;
       store.appendEvent({
         projectId,
         level: 'success',
@@ -743,13 +740,15 @@ async function ensureProductPdf(projectId, { force = false, onProgress = null } 
       });
       return pkg.productPdfPath;
     } catch (error) {
-      store.updateProject(projectId, {
-        printPdfJson: mergePrintPdfJson({
+      store.updateProjectTransactionally(projectId, (p) => applyPdfToProject(p, {
+        metadata: {
+          checksum,
           stage: 'error',
           error: error?.message || String(error),
-          message: error?.message || 'Print PDF conversion failed.'
-        })
-      });
+          message: error?.message || 'Print PDF conversion failed.',
+          updatedAt: new Date().toISOString()
+        }
+      }));
       throw error;
     } finally {
       if (liveOperation?.kind === 'print-pdf' && liveOperation.projectId === projectId) {
@@ -770,34 +769,58 @@ async function ensureProductPdf(projectId, { force = false, onProgress = null } 
 async function ensureListingShellForAssets(projectId) {
   const project = ensureProjectOutputDirectory(projectId);
   if (!project) return null;
-  const pdfPath = await ensureProductPdf(projectId);
+  const pdfPath = await ensureProductSourceDocument(projectId);
   if (!pdfPath) {
-    throw Object.assign(new Error('Complete every page before mockups or preview. The book PDF is built when pages finish.'), {
+    throw Object.assign(new Error('Complete every page before mockups or preview. The book file is built when pages finish.'), {
       code: 'BOOK_INCOMPLETE'
     });
   }
   const existing = sanitizeSeoListingFields(project.tptListing && typeof project.tptListing === 'object' ? project.tptListing : {});
-  const shell = {
+  const existingMockups = getMockups(project);
+  const defaultBriefs = [
+    `Hero mockup for ${project.name || 'this product'}`,
+    `Classroom use mockup for ${project.name || 'this product'}`,
+    `Feature highlight mockup for ${project.name || 'this product'}`,
+    `Close-up detail mockup for ${project.name || 'this product'}`
+  ];
+  const briefs = existingMockups.briefs.length ? existingMockups.briefs : defaultBriefs;
+  const existingSeo = getSeo(project);
+  let shell = applyMockupsToListing({
     ...existing,
     productPdfPath: existing.productPdfPath && existsSync(existing.productPdfPath) ? existing.productPdfPath : pdfPath,
-    title: existing.title || '',
-    description: existing.description || '',
-    tags: Array.isArray(existing.tags) ? existing.tags : [],
-    subjects: Array.isArray(existing.subjects) ? existing.subjects : [],
-    thumbnailPaths: Array.isArray(existing.thumbnailPaths) ? existing.thumbnailPaths : [],
-    thumbnailBriefs: Array.isArray(existing.thumbnailBriefs) && existing.thumbnailBriefs.length
-      ? existing.thumbnailBriefs
-      : [
-          `Hero mockup for ${project.name || 'this product'}`,
-          `Classroom use mockup for ${project.name || 'this product'}`,
-          `Feature highlight mockup for ${project.name || 'this product'}`,
-          `Close-up detail mockup for ${project.name || 'this product'}`
-        ],
     status: existing.status || 'assets_pending'
-  };
+  }, {
+    paths: existingMockups.paths,
+    briefs,
+    progress: existingMockups.progress,
+    conversationUrl: existingMockups.conversationUrl,
+    error: existingMockups.error,
+    mode: existingMockups.mode
+  });
+  // Phase 3C: dual-write SEO shell fields (empty ok — preserves legacy if present).
+  shell = applySeoToListing(shell, {
+    title: existingSeo.title || '',
+    description: existingSeo.description || '',
+    tags: Array.isArray(existingSeo.tags) ? existingSeo.tags : [],
+    subjects: Array.isArray(existingSeo.subjects) ? existingSeo.subjects : [],
+    seoText: existingSeo.seoText || '',
+    highlights: existingSeo.highlights,
+    grades: existingSeo.grades,
+    formats: existingSeo.formats,
+    customCategories: existingSeo.customCategories,
+    pageCount: existingSeo.pageCount,
+    teachingDuration: existingSeo.teachingDuration,
+    answerKey: existingSeo.answerKey,
+    standards: existingSeo.standards,
+    rawResponse: existingSeo.rawResponse,
+    conversationUrl: existingSeo.conversationUrl,
+    seoDocumentPath: existingSeo.seoDocumentPath
+  });
   const listingDirty = !project.tptListing
-    || project.tptListing.productPdfPath !== shell.productPdfPath
+    || getPdf(project).productPath !== shell.productPdfPath
     || !Array.isArray(project.tptListing.thumbnailBriefs)
+    || !project.tptListing.mockups
+    || !project.tptListing.seo
     || project.tptListing.description !== shell.description
     || JSON.stringify(project.tptListing.tags || []) !== JSON.stringify(shell.tags)
     || JSON.stringify(project.tptListing.subjects || []) !== JSON.stringify(shell.subjects);
@@ -813,32 +836,518 @@ async function ensureSeoBookDocument(projectId, { force = false } = {}) {
   if (!project.stats?.total || project.stats.complete !== project.stats.total) return null;
   const existing = !force ? findExistingBookDocument(project.outputDir) : null;
   if (existing && existsSync(existing)) {
-    // #region agent log
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      fs.appendFileSync(path.join(__dirname, '..', '.cursor', 'debug-1c3662.log'), `${JSON.stringify({
-        sessionId: '1c3662', runId: 'seo-stage', hypothesisId: 'DOC', location: 'main.cjs:ensureSeoBookDocument',
-        message: 'reusing existing book document for SEO',
-        data: { projectId, docPath: existing, ext: path.extname(existing) }, timestamp: Date.now()
-      })}\n`);
-    } catch { /* ignore */ }
-    // #endregion
     return existing;
   }
   const docPath = await fileManager.exportDocx(project);
-  // #region agent log
-  try {
-    const fs = require('fs');
-    const path = require('path');
-    fs.appendFileSync(path.join(__dirname, '..', '.cursor', 'debug-1c3662.log'), `${JSON.stringify({
-      sessionId: '1c3662', runId: 'seo-stage', hypothesisId: 'DOC', location: 'main.cjs:ensureSeoBookDocument',
-      message: 'built Word/Google-Doc style book document for SEO',
-      data: { projectId, docPath, bytes: existsSync(docPath) ? fs.statSync(docPath).size : 0 }, timestamp: Date.now()
-    })}\n`);
-  } catch { /* ignore */ }
-  // #endregion
   return docPath;
+}
+
+// The document SEO, mockups and preview upload. Editable products ship as .pptx and
+// never build a print PDF, so their source is the Word/Google-Doc export instead.
+async function ensureProductSourceDocument(projectId) {
+  const project = store.getProject(projectId);
+  if (project?.productFormat === 'editable') return ensureSeoBookDocument(projectId);
+  return ensureProductPdf(projectId);
+}
+
+/**
+ * The compiled .docx, which every marketing generator reads as ground truth.
+ *
+ * Mockups, the preview video and the listing copy all have to describe the book that
+ * actually shipped. Left to infer from a title and a theme, the model fills the gaps -
+ * it invents a grade level, a subject, page furniture that is not there - and the buyer
+ * receives a product that does not match what they were shown. That is a refund.
+ *
+ * So the document is compiled first and fed in as the context, for both engines. Static
+ * books previously sent the print PDF and editable books sent nothing at all for
+ * mockups, because they never build one.
+ */
+/**
+ * Build all three deliverables from the pages Interior Text rebuilt.
+ *
+ * The deck, the layered PDF and the Word document are one unit. They were not: only the
+ * PDF was assembled here, so the document existed nowhere until a marketing stage tried
+ * to read it - and the finder quietly handed over the .pptx instead, which is the
+ * "received book-editable.pptx" failure. Building all three together means the ground
+ * truth marketing depends on is produced by the stage that owns the book.
+ */
+async function assembleEditableDeliverables(projectId, onProgress = () => {}) {
+  const project = store.getProject(projectId);
+  if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+
+  onProgress(5);
+  const { isTextFreeProject } = require('./text-free-pipeline.cjs');
+  const textFree = isTextFreeProject(store, project);
+  const deck = await buildEditableDeck({
+    store, projectId, onProgress: (value) => onProgress(5 + Math.round(value * 0.45))
+  });
+  const deckPath = deck.outputPath || editableDeckPath(store.getProject(projectId));
+  const deckBytes = deckPath && existsSync(deckPath) ? statSync(deckPath).size : 0;
+  if (!deckPath || !existsSync(deckPath) || deckBytes < 2048) {
+    throw Object.assign(
+      new Error(`PPTX was not written or is empty: ${deckPath || '(missing path)'}`),
+      { code: 'PPTX_INVALID' }
+    );
+  }
+  let book = null;
+  let docxPath = null;
+  if (!textFree) {
+    book = await mergeEditableBook({
+      store, projectId, onProgress: (value) => onProgress(50 + Math.round(value * 0.3))
+    });
+    docxPath = await fileManager.exportDocx(store.getProject(projectId));
+  }
+  onProgress(100);
+
+  store.appendEvent({
+    projectId, level: 'success',
+    message: textFree
+      ? `Text-free deck ready: ${deck.slides} slides stamped from the layout template. Nothing was erased.`
+      : `Editable deliverables ready: ${deck.slides} slide deck, ${book.pages}-page layered PDF, and the Word document.`
+  });
+  console.log(`[editable_ppt] pptx ${Math.round(deck.bytes / 1024)}KB`
+    + (book ? `, pdf ${Math.round(book.bytes / 1024)}KB` : '')
+    + (docxPath ? `, docx -> ${docxPath}` : ''));
+  return { deck, book, docxPath };
+}
+
+
+/**
+ * The analysis stage.
+ *
+ * This used to be the body of an IPC handler: one call that scraped a listing,
+ * drove a browser, uploaded mockups and waited five minutes, holding every bit
+ * of its state in local variables. A stall had no exit and a restart had nothing
+ * to resume from.
+ *
+ * As a task it is bounded by a deadline it cannot exceed, abortable, and its
+ * outcome is a committed row. The checkpoints are coarse because the stage is
+ * coarse — there is one long call to the gem in the middle of it — but they are
+ * enough to say where a failed attempt got to.
+ */
+async function runAnalysisTask({ task, signal, checkpoint, progress }) {
+  // A prior pause leaves abortRequested set. This is a new analysis, so clear
+  // that leftover without disabling a pause the user sends once work starts.
+  browser.beginWork?.();
+  const listing = task.payload.listing;
+  checkpoint({ phase: 'scraping' });
+  progress(10, 'Reading the product listing…');
+  const cacheKey = parseTptProductUrl(listing.productUrl)?.productId || randomUUID();
+  const mockupDir = join(app.getPath('userData'), 'competitor-mockup-cache', cacheKey);
+  mkdirSync(mockupDir, { recursive: true });
+  progress(30, 'Asking the content gem to read the product…');
+  const result = await browser.analyzeProductWithGpt({ ...listing, mockupDestDir: mockupDir });
+  // The stage is abortable at every boundary, so a deadline or a pause stops it
+  // here rather than after it has created a half-formed project.
+  if (signal.aborted) throw signal.reason;
+  checkpoint({ phase: 'analysed', conversationUrl: result.conversationUrl ?? null });
+  progress(70, 'Reading the analysis…');
+  let analysis;
+  try {
+    analysis = parseAnalysisResponse(result.rawText);
+  } catch (error) {
+    // #region agent log
+    fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H93',location:'src/main.cjs:runAnalysisTask',message:'analysis parse failed after Gemini returned text',data:{textLength:String(result.rawText||'').length,preview:String(result.rawText||'').slice(0,220),tail:String(result.rawText||'').slice(-120),error:String(error?.message||error).slice(0,160)},timestamp:Date.now()})}).catch(()=>{});
+    try { require('node:fs').appendFileSync('/Users/abdelmouiz/Desktop/VERSA SOFTWARE ( TPT )/.cursor/debug-d45d8d.log', `${JSON.stringify({ sessionId: 'd45d8d', runId: 'post-fix', hypothesisId: 'H93', location: 'src/main.cjs:runAnalysisTask', message: 'analysis parse failed after Gemini returned text', data: { textLength: String(result.rawText || '').length, preview: String(result.rawText || '').slice(0, 220), error: String(error?.message || error).slice(0, 160) }, timestamp: Date.now() })}\n`); } catch {}
+    // #endregion
+    throw error;
+  }
+  // The analysis gem often omits productFormat. Defaulting to static sent editable
+  // listings down the print pipeline, so the listing itself decides when it is silent.
+  const detected = detectProductFormat(analysis, { ...listing, rawText: result.rawText });
+  const scrapedFacts = result.mockups?.listingFacts || null;
+  // #region agent log
+  fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'pre-fix',hypothesisId:'H1',location:'src/main.cjs:runAnalysisTask',message:'analysis created project with detected format',data:{detected,analysisFormat:analysis?.productFormat||null,analysisTitle:analysis?.title||'',listingTitle:listing?.title||listing?.concept||scrapedFacts?.title||'',keyword:listing?.keyword||listing?.trendMetadata?.query||'',productUrl:String(listing?.productUrl||'').slice(0,120),scrapedGrade:scrapedFacts?.grade||null,scrapedPageCount:scrapedFacts?.pageCount||null},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  const format = FORMAT_INSTRUCTIONS[listing.format] ? listing.format : 'LETTER';
+  const orientation = normalizeOrientation(listing.orientation);
+
+  const projectId = randomUUID();
+  const defaultBookName = analysis.title || `Book Project ${store.listProjects().length + 1}`;
+  const root = join(app.getPath('documents'), APP_NAME);
+  const outputDir = join(root, `${slugify(defaultBookName)}-${projectId.slice(0, 6)}`);
+  mkdirSync(outputDir, { recursive: true });
+  const competitorMockups = saveCompetitorMockups(result.mockups, outputDir);
+  const project = {
+    id: projectId,
+    name: defaultBookName,
+    theme: defaultBookName,
+    niche: analysis.description || 'analyzed competitor product',
+    format,
+    orientation,
+    style: 'Concept Only',
+    activityCount: 0,
+    status: 'draft',
+    outputDir,
+    conversationUrl: result.conversationUrl,
+    highlights: analysis.keyHighlights || [],
+    targetAge: analysis.targetAge || scrapedFacts?.grade || 'Pre-K to 2nd Grade',
+    description: analysis.description || scrapedFacts?.description || '',
+    competitorMockups,
+    productFormat: detected.productFormat,
+    tptListing: {
+      marketplace: 'tpt',
+      productUrl: listing.productUrl || scrapedFacts?.productUrl || '',
+      title: scrapedFacts?.title || listing.title || listing.concept || defaultBookName,
+      description: scrapedFacts?.description || analysis.description || '',
+      grade: scrapedFacts?.grade || analysis.targetAge || '',
+      pageCount: scrapedFacts?.pageCount || result.mockups?.scrapedPageCount || analysis.pageCount || null,
+      mockupCount: competitorMockupPaths(result.mockups).length,
+      scrapedAt: result.mockups?.scrapedAt || new Date().toISOString()
+    }
+  };
+
+  store.createProject(project, []);
+  persistModeForNewBook(projectId, detected.productFormat);
+  store.setSetting('selectedProjectId', projectId);
+  // #region agent log
+  fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H91',location:'src/main.cjs:runAnalysisTask',message:'analysis project persisted',data:{projectId,productFormat:detected.productFormat,title:project.name||''},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  store.appendEvent({
+    projectId,
+    level: 'info',
+    message: detected.productFormat === 'editable'
+      ? `Editable (${detected.source}).`
+      : detected.productFormat === 'maze'
+        ? `Maze (${detected.source}).`
+        : `Static (${detected.source}).`
+  });
+  checkpoint({ phase: 'project-created', projectId, conversationUrl: result.conversationUrl ?? null });
+  progress(90, 'Saving the book concept…');
+  store.updateProject(projectId, { competitorMockups });
+  const mockupCount = competitorMockupPaths(competitorMockups).length;
+  store.appendEvent({
+    projectId,
+    level: mockupCount ? 'success' : competitorMockups?.status === 'ok' ? 'success' : 'warn',
+    message: mockupCount
+      ? `Saved ${mockupCount} competitor listing mockup${mockupCount === 1 ? '' : 's'} for vision-based prompt generation.`
+      : competitorMockups?.warning || 'Competitor listing mockups were not captured. Prompt generation will use the URL and text analysis only.'
+  });
+  await broadcastState();
+  const finishedPayload = {
+    project: store.getProject(projectId),
+    analysis,
+    // The dialog uses this to select the pipeline instead of asking the user.
+    detectedFormat: detected,
+    conversationUrl: result.conversationUrl,
+    competitorMockups,
+    promptReceipt: result.promptReceipt || browser.lastPromptReceipt || null
+  };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('analysis:finished', finishedPayload);
+  }
+  // #region agent log
+  fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H130',location:'src/main.cjs:runAnalysisTask',message:'analysis finished event sent to renderer',data:{projectId,productFormat:detected.productFormat,hasWindow:Boolean(mainWindow && !mainWindow.isDestroyed())},timestamp:Date.now()})}).catch(()=>{});
+  try { require('node:fs').appendFileSync('/Users/abdelmouiz/Desktop/VERSA SOFTWARE ( TPT )/.cursor/debug-d45d8d.log', `${JSON.stringify({ sessionId: 'd45d8d', runId: 'post-fix', hypothesisId: 'H130', location: 'src/main.cjs:runAnalysisTask', message: 'analysis finished event sent to renderer', data: { projectId, productFormat: detected.productFormat, hasWindow: Boolean(mainWindow && !mainWindow.isDestroyed()) }, timestamp: Date.now() })}\n`); } catch {}
+  fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H91',location:'src/main.cjs:runAnalysisTask',message:'analysis broadcast finished; returning result',data:{projectId,productFormat:detected.productFormat},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  progress(100, "Analysis complete.");
+
+  return finishedPayload;
+
+}
+
+/**
+ * Adapt the pipeline's step runners into task handlers.
+ *
+ * A step runner is `async (projectId, onProgress)`. As a task it also gets an
+ * abort signal and a checkpoint, so the queue can stop it at a deadline and a
+ * retry knows what the last attempt achieved. The runner itself is unchanged —
+ * wrapping rather than rewriting is what keeps the manual path and the automated
+ * path from drifting apart.
+ */
+/** Which automated step maps to which durable task kind. Built after modules load. */
+function stepToTaskKind(step) {
+  return {
+    interior: TASK_KIND.INTERIOR,
+    interior_artwork: TASK_KIND.INTERIOR,
+    interior_text: TASK_KIND.INTERIOR_TEXT,
+    editable_ppt: TASK_KIND.EDITABLE_PPT,
+    thumbnails: TASK_KIND.THUMBNAILS,
+    preview: TASK_KIND.PREVIEW,
+    export: TASK_KIND.EXPORT
+  }[step];
+}
+
+function stageHandlers() {
+  const map = {
+    [TASK_KIND.INTERIOR]: 'interior',
+    [TASK_KIND.INTERIOR_TEXT]: 'interior_text',
+    [TASK_KIND.EDITABLE_PPT]: 'editable_ppt',
+    [TASK_KIND.THUMBNAILS]: 'thumbnails',
+    [TASK_KIND.PREVIEW]: 'preview',
+    [TASK_KIND.EXPORT]: 'export'
+  };
+  const handlers = {};
+  for (const [kind, defaultStep] of Object.entries(map)) {
+    handlers[kind] = async ({ task, signal, checkpoint, progress }) => {
+      // The kind picks the lane and the deadline; the step picks the runner. They
+      // are not the same thing — interior and interior_artwork share a lane but
+      // are different runners — so the step travels in the payload.
+      const step = task.payload?.step || defaultStep;
+      const runner = pipelineStepRunners?.[step];
+      if (typeof runner !== 'function') {
+        throw Object.assign(new Error(`No step runner registered for "${step}".`), { retryable: false });
+      }
+      const projectId = task.projectId || task.payload?.projectId;
+      if (!projectId) throw Object.assign(new Error(`Task ${task.kind} has no project.`), { retryable: false });
+      checkpoint({ step, phase: 'running', percent: 0 });
+      const onProgress = (percent) => {
+        const value = Math.max(0, Math.min(100, Number(percent) || 0));
+        // Written, not just emitted: after a restart the stage can say how far it
+        // got even though nobody was listening at the time.
+        checkpoint({ step, phase: 'running', percent: value });
+        progress(value, step);
+      };
+      const outcome = await runner(projectId, onProgress);
+      if (signal.aborted) throw signal.reason;
+      checkpoint({ step, phase: 'done', percent: 100 });
+      return outcome ?? { step, projectId };
+    };
+  }
+  return handlers;
+}
+
+/**
+ * VERSA AGENT — the market-research stage.
+ *
+ * Reads the public trend and marketplace pages, ranks what it finds, and hands
+ * the best candidate to the analysis stage as a URL plus the metadata the
+ * listing states about itself. Everything after that is the pipeline that
+ * already exists: analysis writes the concept, and its specs end up in the
+ * compiled .docx that mockups, preview and SEO all read.
+ *
+ * It runs in the browser lane, so it can never scrape while a generation is
+ * driving the managed Chrome instance.
+ *
+ * Public trend reads use a visible marketplace tab in the bundled Chromium,
+ * not a hidden scratch window and not the Gemini tab.
+ */
+async function runTrendScanTask({ task, signal, checkpoint, progress }) {
+  const seed = String(task.payload?.query || '').trim().slice(0, 120);
+  const marketplace = normalizeTrendMarketplace(task.payload?.marketplace ?? task.payload?.marketplaces);
+  const marketplaces = [marketplace];
+
+  return browser.withVisibleMarketContext(async (context) => {
+    const openPage = () => context.newPage();
+
+    if (marketplace === 'tpt') {
+      const queryLabel = seed || 'trending';
+      progress(12, seed
+        ? `Opening Teachers Pay Teachers for "${seed}"…`
+        : 'Opening trending Teachers Pay Teachers books…');
+      checkpoint({ phase: 'discovering', marketplace, query: queryLabel });
+      const result = await scrapeSource({ source: 'tpt', query: seed, openPage, signal });
+      const listings = Array.isArray(result.candidates) ? result.candidates : [];
+      if (!listings.length) {
+        throw Object.assign(
+          new Error(seed
+            ? `VERSA AGENT found no trendy educational books on Teachers Pay Teachers for "${seed}".`
+            : 'VERSA AGENT found no trending educational books on Teachers Pay Teachers.'),
+          { code: 'TREND_SCAN_EMPTY' }
+        );
+      }
+      const excludeUrls = recentTrendPickUrls(store);
+      const best = pickTrendListing(listings, { query: queryLabel, excludeUrls });
+      if (!best) {
+        throw Object.assign(
+          new Error(seed
+            ? `VERSA AGENT found no trendy educational books on Teachers Pay Teachers for "${seed}".`
+            : 'VERSA AGENT found no trending educational books on Teachers Pay Teachers.'),
+          { code: 'TREND_SCAN_EMPTY' }
+        );
+      }
+      rememberTrendPick(store, best);
+      const analysisInput = toAnalysisInput(best, { source: 'tpt', query: queryLabel });
+      // #region agent log
+      fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'pre-fix',hypothesisId:'H5',location:'src/main.cjs:runTrendScanTask',message:'versa agent handed listing to analysis',data:{query:queryLabel,title:best?.title||'',url:String(best?.url||'').slice(0,160),listingCount:listings.length},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      analysisInput.trendMetadata.opportunity = {
+        keyword: queryLabel,
+        score: best.score || 0,
+        listings: listings.length,
+        marketplaces: ['tpt']
+      };
+      const choice = {
+        keyword: queryLabel,
+        score: best.score || 0,
+        candidate: best,
+        evidence: {
+          marketplaces: ['tpt'],
+          listings: listings.length,
+          medianPrice: null,
+          topReviews: 0,
+          problems: []
+        },
+        runnersUp: listings.slice(1, 4).map((item) => ({ keyword: item.title, score: item.score || 0 }))
+      };
+      store.appendEvent({
+        level: 'success',
+        message: `Found "${best.title}".`
+      });
+      checkpoint({ phase: 'handed-off', keyword: queryLabel, marketplace });
+      progress(100, 'Ready for analysis.');
+      await broadcastState();
+      return {
+        chosen: analysisInput,
+        analysisInput,
+        opportunity: choice,
+        keywords: [{ keyword: queryLabel, score: best.score || 0, seenIn: listings.length, example: best.title }],
+        marketplace,
+        degradedDiscovery: false
+      };
+    }
+
+    // Phase 1 — what is rising.
+    progress(8, 'Reading the trending feed…');
+    checkpoint({ phase: 'discovering', marketplace });
+    const discovery = await discoverKeywords({ openPage, signal, seed });
+    if (discovery.degraded) {
+      store.appendEvent({
+        level: 'warn',
+        message: `Validating "${seed}".`
+      });
+    }
+    store.appendEvent({
+      level: 'info',
+      message: `Validating ${discovery.keywords.length} keyword${discovery.keywords.length === 1 ? '' : 's'}.`
+    });
+
+    // Phase 2 — does it sell.
+    const validations = [];
+    for (let index = 0; index < discovery.keywords.length; index += 1) {
+      if (signal.aborted) throw signal.reason;
+      const { keyword, score } = discovery.keywords[index];
+      progress(15 + Math.round((index / discovery.keywords.length) * 65), `Checking ${TREND_SOURCES[marketplace]?.label || marketplace} for "${keyword}"…`);
+      const validation = await validateKeyword({ keyword, marketplaces, openPage, signal });
+      validations.push({ ...validation, demandScore: score });
+      // Committed per keyword, so an interrupted scan resumes with what it proved
+      // rather than repeating the whole tour.
+      checkpoint({
+        phase: 'validating',
+        marketplace,
+        done: validations.map((v) => v.keyword),
+        remaining: discovery.keywords.length - validations.length
+      });
+    }
+
+    // Phase 3 — pick, and say why.
+    progress(85, 'Weighing demand against competition…');
+    const choice = chooseOpportunity(validations, { excludeUrls: recentTrendPickUrls(store) });
+    if (!choice) {
+      throw Object.assign(
+        new Error('Nothing the agent found is selling in the selected marketplace, or every candidate was outside the allowed educational scope.'),
+        { code: 'TREND_SCAN_EMPTY' }
+      );
+    }
+
+    rememberTrendPick(store, choice.candidate);
+    const analysisInput = toAnalysisInput(choice.candidate, { source: choice.candidate.source, query: choice.keyword });
+    // The evidence travels with the handoff, so analysis is told what the market
+    // looks like rather than just given a link.
+    analysisInput.trendMetadata.opportunity = {
+      keyword: choice.keyword,
+      score: choice.score,
+      ...choice.evidence
+    };
+
+    const evidence = choice.evidence;
+    store.appendEvent({
+      level: 'success',
+      message: `Chose "${choice.keyword}".`
+        + `${evidence.medianPrice ? `, median ${evidence.medianPrice}` : ''}`
+        + `${evidence.topReviews ? `, leader has ${evidence.topReviews} reviews` : ''}. Ready for URL analysis.`
+    });
+    checkpoint({ phase: 'handed-off', keyword: choice.keyword, marketplace });
+    progress(100, 'Ready for analysis.');
+    await broadcastState();
+
+    return {
+      chosen: analysisInput,
+      analysisInput,
+      opportunity: choice,
+      keywords: discovery.keywords,
+      marketplace,
+      degradedDiscovery: Boolean(discovery.degraded)
+    };
+  });
+}
+
+async function ensureMarketingGroundTruth(projectId) {
+  const project = store.getProject(projectId);
+  if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+  if (!project.stats?.total || project.stats.complete !== project.stats.total) {
+    throw Object.assign(
+      new Error('Finish pages first.'),
+      { code: 'MARKETING_SOURCE_INCOMPLETE' }
+    );
+  }
+  const docPath = await ensureSeoBookDocument(projectId);
+  if (!docPath || !existsSync(docPath)) {
+    throw Object.assign(
+      new Error('The book document could not be compiled, so marketing assets cannot be written from it.'),
+      { code: 'MARKETING_SOURCE_MISSING' }
+    );
+  }
+  return docPath;
+}
+
+async function persistSeoListingDetails(project, seoText) {
+  const text = String(seoText || '').trim();
+  if (!project?.outputDir || !text) return null;
+  const dir = join(project.outputDir, 'seo');
+  mkdirSync(dir, { recursive: true });
+  const filePath = join(dir, 'listing_details.txt');
+  await atomicWrite(filePath, Buffer.from(`${text}\n`, 'utf8'));
+  return filePath;
+}
+
+function reconcileCompletedPipelineSteps() {
+  if (!store) return;
+  const reopen = (projectId, step, reason) => {
+    store.updateProjectStepStatus(projectId, step, 'pending');
+    store.appendEvent({
+      projectId,
+      level: 'warn',
+      message: `[Recovery] Step "${step}" was marked complete but its artifact contract is no longer valid. It will run again. ${reason}`
+    });
+  };
+  for (const listed of store.listProjects()) {
+    const project = store.getProject(listed.id) || listed;
+    const projectId = project.id;
+    const pagesReady = allInteriorPagesComplete(project);
+    const pdf = getPdf(project);
+    const printPdfsReady = String(project.productFormat || '').toLowerCase() === 'editable'
+      || (hasValidPdfFile(pdf.productPath) && hasValidPdfFile(pdf.compressedPath));
+    const artworkReady = pagesReady && printPdfsReady;
+    if (artworkReady && project.stepInteriorStatus !== 'completed') {
+      store.updateProjectStepStatus(projectId, 'interior_artwork', 'completed');
+    } else if (project.stepInteriorStatus === 'completed' && !artworkReady) {
+      reopen(projectId, 'interior_artwork', pagesReady
+        ? 'Print PDFs are missing/invalid.'
+        : 'Interior page files are missing/invalid.');
+    }
+    if (project.stepEditableGenerationStatus === 'completed') {
+      try {
+        verifyEditableOutput(project);
+      } catch (error) {
+        reopen(projectId, 'editable_generation', error.message || 'Editable output is stale.');
+      }
+    }
+    if (project.stepThumbnailsStatus === 'completed' && countValidMockupPaths(project) < 4) {
+      reopen(projectId, 'thumbnails', 'Four valid mockup files are required.');
+    }
+    if (project.stepPreviewStatus === 'completed' && !hasValidVideoFile(project)) {
+      reopen(projectId, 'preview', 'Preview video is missing or invalid.');
+    }
+    if (project.stepExportStatus === 'completed') {
+      try {
+        verifyExportZip(project);
+      } catch (error) {
+        reopen(projectId, 'export', error.message || 'Final ZIP is missing or invalid.');
+      }
+    }
+  }
 }
 
 function isPauseError(error) {
@@ -846,11 +1355,14 @@ function isPauseError(error) {
 }
 
 async function pauseAllWork(reason = 'Stopped. You paused this work.') {
+  pendingNativeStart = null;
+  editableAbortController?.abort();
+  require('./maze-lab.cjs').abortAllMazeGeneration();
   const projectId = liveOperation?.projectId || queue?.status()?.activeProjectId || automation?.getStatus()?.currentProjectId || null;
   if (liveOperation) {
     setLiveOperation({
       ...liveOperation,
-      message: 'Stopping — pause received.'
+      message: 'Stopping.'
     });
   }
   try { queue.pause(); } catch {}
@@ -861,345 +1373,73 @@ async function pauseAllWork(reason = 'Stopped. You paused this work.') {
   return { paused: true, projectId };
 }
 
-async function runCanvaEditableForProject(projectId, onProgress = () => {}, options = {}) {
-  if (!isCanvaAvailable()) throw canvaUnavailableError();
-  requireCanva('Canva editable layer');
-  const project = ensureProjectOutputDirectory(projectId);
-  if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
-  if (project.productFormat !== 'editable') {
-    onProgress(100);
-    return { skipped: true };
-  }
-  const pageImagePaths = collectProductPageImagePaths(project.jobs || []);
-  const expectedPages = (project.jobs || []).length;
-  if (!pageImagePaths.length || pageImagePaths.length < expectedPages) {
-    throw Object.assign(new Error('Generate every interior page before sending the book to Canva.'), {
-      code: 'CANVA_PAGES_MISSING'
-    });
-  }
-  let importPdf = null;
-  let rememberedPdf = null;
-  const destImport = compressedPrintPdfDest(project.outputDir, project);
-  const preparedCompressed = project.compressedPdfPath && existsSync(project.compressedPdfPath)
-    ? project.compressedPdfPath
-    : (project.printPdfJson?.compressedPdfPath && existsSync(project.printPdfJson.compressedPdfPath)
-      ? project.printPdfJson.compressedPdfPath
-      : (existsSync(destImport) ? destImport : null));
-  let pdfPath = project.productPdfPath && existsSync(project.productPdfPath)
-    ? project.productPdfPath
-    : null;
-  importPdf = preparedCompressed;
-  if (!importPdf) {
-    importPdf = await restoreCanvaImportPdfIfMissing({
-      destPath: destImport,
-      tempPdf: project.canvaJobJson?.tempPdf,
-      store
-    }).catch(() => null);
-  }
-  if (!importPdf && !pdfPath) {
-    pdfPath = await ensureProductPdf(projectId);
-    const refreshed = store.getProject(projectId);
-    importPdf = refreshed?.compressedPdfPath && existsSync(refreshed.compressedPdfPath)
-      ? refreshed.compressedPdfPath
-      : null;
-    pdfPath = pdfPath || (refreshed?.productPdfPath && existsSync(refreshed.productPdfPath) ? refreshed.productPdfPath : null);
-  }
-  if (!importPdf && pdfPath && existsSync(pdfPath)) {
-    importPdf = await prepareCanvaImportPdf(
-      pdfPath,
-      project.outputDir,
-      project.format,
-      project.orientation,
-      expectedPages,
-      pageImagePaths
-    );
-  } else if (importPdf && existsSync(importPdf)) {
-    importPdf = await prepareCanvaImportPdf(
-      importPdf,
-      project.outputDir,
-      project.format,
-      project.orientation,
-      expectedPages,
-      pageImagePaths
-    );
-  }
-  if (!importPdf || !existsSync(importPdf)) {
-    throw Object.assign(new Error('Export the print PDF before sending the book to Canva.'), {
-      code: 'CANVA_PDF_MISSING'
-    });
-  }
-  rememberedPdf = await rememberCanvaImportPdf({
-    projectId,
-    jobId: project.canvaJobJson?.state || null,
-    localPath: importPdf,
-    store
-  }).catch((error) => {
-    console.warn('[canva] Supabase temp PDF remember failed:', error?.message || error);
-    return project.canvaJobJson?.tempPdf || null;
-  });
-  const resumeDesignUrl = toCanvaDesignUrl(project.canvaDesignUrl);
-  const resumePdfUploaded = Boolean(project.canvaPdfUploaded || resumeDesignUrl);
-  const canvaPageProgress = seedCanvaPageProgress(project, { reset: !resumeDesignUrl });
-  const firstUnlayered = canvaPageProgress.findIndex((item) => !item?.layered);
-  const resumeFromIndex = resumeDesignUrl
-    ? (firstUnlayered === -1 ? expectedPages : firstUnlayered)
-    : 0;
-  const layeredPageNumbers = canvaPageProgress
-    .filter((item) => item?.layered)
-    .map((item) => item.pageNumber);
-  store.updateProject(projectId, {
-    canvaPageProgress,
-    stepEditableStatus: options.dryRun ? (project.stepEditableStatus || 'pending') : 'processing',
-    canvaJobJson: {
-      ...(project.canvaJobJson || {}),
-      ...(project.canvaJobJson?.interrupted ? { interrupted: false } : {}),
-      ...(rememberedPdf?.objectPath ? { tempPdf: rememberedPdf } : {})
+async function runNativeEditableForProject(projectId, onProgress = () => {}, options = {}) {
+  if (editableAbortController) throw Object.assign(new Error('Editable generation is already running.'), {code:'QUEUE_BUSY'});
+  verifyOverview(store.getProject(projectId));
+  ensureProjectOutputDirectory(projectId);
+  editableAbortController = new AbortController();
+  const signal = editableAbortController.signal;
+  let activeNativeJobId = null;
+  let lastNativePhase = null;
+  const activity = info => {
+    if (signal.aborted) return;
+    activeNativeJobId = info.jobId || activeNativeJobId;
+    const phase = ['complete','retry_wait','downloading','validating','generating'].includes(info.phase) ? info.phase : 'preparing';
+    if (info.jobId && lastNativePhase !== `${info.jobId}:${phase}`) {
+      lastNativePhase = `${info.jobId}:${phase}`;
+      store.updateJob(info.jobId,{status:phase});
+      broadcastState().catch(()=>{});
     }
-  });
-  await onProgress(4);
-  const printMeta = store.getProject(projectId)?.printPdfJson || project.printPdfJson || {};
-  const preparedSize = existsSync(importPdf) ? statSync(importPdf).size : Number(printMeta.outputBytes) || 0;
-  const preparedMessage = printMeta.originalBytes && printMeta.outputBytes && printMeta.originalBytes !== printMeta.outputBytes
-    ? `Using the print PDF prepared in Interior (${formatPrintPdfBytes(printMeta.originalBytes)} → ${formatPrintPdfBytes(printMeta.outputBytes)}).`
-    : `Using the print PDF prepared in Interior (${formatPrintPdfBytes(preparedSize)}).`;
-  store.appendEvent({ projectId, message: preparedMessage });
-  canvaLiveDashboard = mergeCanvaDashboard(null, { step: 'pdf', status: 'running' }, {
-    message: preparedMessage,
-    compression: {
-      path: importPdf,
-      originalBytes: Number(printMeta.originalBytes) || preparedSize,
-      outputBytes: Number(printMeta.outputBytes) || preparedSize,
-      skipped: Boolean(printMeta.skipped),
-      reason: printMeta.reason || 'prepared in Interior'
-    }
-  });
-  await publishLiveOperation({
-    kind: 'canva',
-    label: 'Canva editable',
-    percent: 4,
-    stepIndex: 1,
-    stepCount: 7,
-    message: preparedMessage,
-    projectId,
-    canvaPageProgress,
-    canvaDashboard: canvaLiveDashboard
-  });
-  let result;
+    setLiveOperation({kind:'editable-generation',projectId,jobId:activeNativeJobId,percent:liveOperation?.percent || 0,message:info.message || `Page generation: ${info.phase}`});
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('queue:heartbeat',{...info,jobId:activeNativeJobId,projectId});
+  };
+  store.updateProjectStepStatus(projectId, 'editable_generation', 'processing');
+  setLiveOperation({kind:'editable-generation',projectId,percent:0,message:'Generating…'});
   try {
-    result = await browser.runCanvaBulkCreate({
-      projectId,
-      pdfPath: importPdf,
-      expectedPages,
-      format: project.format,
-      orientation: project.orientation,
-      resumeDesignUrl,
-      resumeFromIndex,
-      layeredPageNumbers,
-      applyMagicLayers: !options.dryRun,
-      downloadDir: options.dryRun ? null : join(project.outputDir, 'canva-export'),
-      dryRun: Boolean(options.dryRun),
-      humanEnabled: false,
-      resumePdfUploaded,
-      tempPdf: rememberedPdf || project.canvaJobJson?.tempPdf || null,
-      diagnosticsDir: join(app.getPath('userData'), 'canva-diagnostics', String(projectId)),
-      onProgress: async (info) => {
-        const percent = typeof info === 'number' ? info : Number(info?.percent);
-        if (Number.isFinite(percent)) onProgress(percent);
-        if (info && typeof info === 'object' && isPdfImportOpenDesignStage(info.intervention, info)) {
-          info.intervention = null;
-        }
-        const message = info?.message || liveOperation?.message || '';
-        const current = store.getProject(projectId);
-        let progress = Array.isArray(current?.canvaPageProgress) ? current.canvaPageProgress : canvaPageProgress;
-        if (Array.isArray(info?.canvaPages) && info.canvaPages.length) {
-          progress = applyCanvaPagesPatch(progress, info.canvaPages);
-          store.updateProject(projectId, { canvaPageProgress: progress });
-        }
-        if (info?.canvaPage?.pageNumber) {
-          progress = mergeCanvaPageProgress(progress, info.canvaPage.pageNumber, info.canvaPage);
-          store.updateProject(projectId, { canvaPageProgress: progress });
-        }
-        const persistPatch = {};
-        if (info?.abandonDesignUrl) {
-          persistPatch.canvaDesignUrl = null;
-          persistPatch.canvaPdfUploaded = false;
-        }
-        if (info?.designUrl) {
-          persistPatch.canvaDesignUrl = toCanvaDesignUrl(info.designUrl) || info.designUrl;
-        }
-        if (info?.pdfUploaded || info?.designUrl) persistPatch.canvaPdfUploaded = true;
-        if (info?.jobState && !info?.heartbeat) {
-          const currentJob = store.getProject(projectId);
-          persistPatch.canvaJobJson = {
-            ...(currentJob?.canvaJobJson || {}),
-            ...info.jobState,
-            tempPdf: info.jobState?.tempPdf || currentJob?.canvaJobJson?.tempPdf || rememberedPdf || null,
-            interrupted: false
-          };
-          if (isPdfImportOpenDesignStage(persistPatch.canvaJobJson.intervention, persistPatch.canvaJobJson)) {
-            persistPatch.canvaJobJson.intervention = null;
-          }
-        }
-        if (info?.designUrl) {
-          const currentJob = store.getProject(projectId);
-          const tempPdf = persistPatch.canvaJobJson?.tempPdf || currentJob?.canvaJobJson?.tempPdf || rememberedPdf;
-          if (tempPdf?.objectPath) {
-            forgetCanvaImportPdf({ tempPdf, store }).then((ok) => {
-              if (!ok) return;
-              const latest = store.getProject(projectId);
-              store.updateProject(projectId, {
-                canvaJobJson: { ...(latest?.canvaJobJson || {}), tempPdf: null }
-              });
-            }).catch(() => {});
-          }
-        }
-        if (Object.keys(persistPatch).length) store.updateProject(projectId, persistPatch);
-        setLiveOperation({
-          kind: 'canva',
-          label: options.dryRun ? 'Canva dry run' : 'Canva editable',
-          percent: Number.isFinite(percent) ? percent : (liveOperation?.percent || 0),
-          stepIndex: canvaStepFromProgress(message, percent, info?.dashboard),
-          stepCount: 7,
-          message,
-          projectId,
-          canvaPageProgress: progress,
-          canvaDashboard: info?.dashboard,
-          lastError: info?.dashboard?.error || info?.dashboard?.lastError || info?.lastError,
-          attempt: info?.dashboard?.attempt ?? info?.attempt,
-          activeCanvaPage: info?.canvaPage?.pageNumber,
-          pageFileName: info?.pageFileName,
-          waitExplanation: info?.waitExplanation,
-          controller: info?.controller,
-          liveFrame: info?.liveFrame,
-          intervention: info?.intervention && !isPdfImportOpenDesignStage(info.intervention, info) ? info.intervention : null,
-          canvaState: info?.jobState?.state,
-          browserUrl: info?.url || persistPatch.canvaDesignUrl,
-          jobStream: info?.jobState?.stream
-        });
-        if (info?.intervention && !isPdfImportOpenDesignStage(info.intervention, info) && mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('canva:intervention', info.intervention);
-        }
-        if (info?.message && !info?.heartbeat && !/^Checking layer count on page \d+ of \d+/i.test(info.message) && !/^Still (importing|applying|on Canva)|Waiting for Magic Layer to start|Canva opened a design/i.test(info.message)) {
-          store.appendEvent({ projectId, message: info.message, details: info?.waitExplanation ? { waitExplanation: info.waitExplanation } : null });
-        }
-        await broadcastState();
-      }
-    });
-  } catch (error) {
-    if (isPauseError(error)) {
-      store.appendEvent({ projectId, level: 'warn', message: 'Canva paused. Start again when you are ready.' });
-      await broadcastState();
-      throw Object.assign(new Error('Stopped. You paused this work.'), { code: 'QUEUE_PAUSED' });
+    const result = await runEditableProject({store,projectId,signal,jobIds:options.jobIds,onActivity:activity,onProgress: percent => {
+      setLiveOperation({kind:"editable-generation",projectId,jobId:activeNativeJobId,percent,message:"Generating…"});
+      onProgress(percent);
+      broadcastState().catch(() => {});
+    }});
+    if (signal.aborted) throw Object.assign(new Error('Editable generation cancelled.'), {code:'STEP_ABORTED'});
+    if (result.partial) {
+      store.updateProjectStepStatus(projectId, "editable_generation", "pending");
+      return result;
     }
-    const current = store.getProject(projectId);
-    const text = String(error.message || liveOperation?.message || '');
-    const pageMatch = text.match(/page (\d+)/i);
-    const fallbackPage = (current?.canvaPageProgress || []).find((item) => item?.imported && !item?.layered)?.pageNumber
-      || (current?.canvaPageProgress || []).find((item) => item?.uploaded && !item?.layered)?.pageNumber
-      || 1;
-    const pageNumber = pageMatch ? Number(pageMatch[1]) : fallbackPage;
-    const intervention = isPdfImportOpenDesignStage(error)
-      ? null
-      : (liveOperation?.intervention && !isPdfImportOpenDesignStage(liveOperation.intervention)
-        ? liveOperation.intervention
-        : (current?.canvaJobJson?.intervention && !isPdfImportOpenDesignStage(current.canvaJobJson.intervention)
-          ? current.canvaJobJson.intervention
-          : (isMagicLayerControlMissing(error) ? {
-            happened: error.message,
-            expected: 'The Edit image panel shows Magic Layers, then this page has more than one layer.',
-            undetermined: 'Whether Magic Layers is visible in the Edit image panel.',
-            userShouldClick: 'In Chrome Canary: click the page image, Edit, then Magic Layers. Press I HAVE DONE IT when the page has more than one layer.'
-          } : null)));
-    canvaLiveDashboard = mergeCanvaDashboard(canvaLiveDashboard, {
-      status: 'fail',
-      error: error.message,
-      lastError: error.message
-    }, { lastError: error.message, message: error.message });
-    store.updateProject(projectId, {
-      canvaPageProgress: mergeCanvaPageProgress(current?.canvaPageProgress, pageNumber, {
-        error: error.message,
-        layered: false,
-        status: 'FAILED'
-      }),
-      stepEditableStatus: current?.canvaDesignUrl || current?.canvaPdfUploaded ? 'processing' : 'pending',
-      canvaJobJson: {
-        ...(current?.canvaJobJson || liveOperation?.controller || {}),
-        interrupted: true,
-        lastError: error.message,
-        pageNumber,
-        intervention,
-        waitExplanation: liveOperation?.waitExplanation || (intervention
-          ? { expected: intervention.expected, detected: 'job stopped', message: error.message, state: 'MANUAL_INTERVENTION_REQUIRED' }
-          : current?.canvaJobJson?.waitExplanation)
-      }
-    });
-    store.appendEvent({
-      projectId,
-      level: 'error',
-      message: error.message,
-      details: { kind: 'canva_failure', pageNumber, code: error.code || null }
-    });
+    if (signal.aborted) throw Object.assign(new Error("Editable generation cancelled."), {code:"STEP_ABORTED"});
+    store.updateProjectStepStatus(projectId, 'editable_generation', 'completed');
+    onProgress(100);
+    return result;
+  } catch (error) {
+    store.updateProjectStepStatus(projectId, 'editable_generation', signal.aborted ? 'pending' : 'failed');
     throw error;
   } finally {
-    if (liveOperation?.kind === 'canva' && liveOperation.projectId) {
-      const current = store.getProject(liveOperation.projectId);
-      if (current) {
-        store.updateProject(liveOperation.projectId, {
-          canvaJobJson: {
-            ...(current.canvaJobJson || {}),
-            ...(liveOperation.controller || {}),
-            state: liveOperation.canvaState || current.canvaJobJson?.state,
-            updatedAt: Date.now()
-          }
-        });
-      }
+    editableAbortController = null;
+    setLiveOperation(null);
+    await broadcastState();
+    const next=pendingNativeStart;
+    pendingNativeStart=null;
+    if (next) startNativeEditableInBackground(next.projectId,next.options);
+  }
+}
+
+function startNativeEditableInBackground(projectId, options = {}) {
+  if (editableAbortController) {
+    if (liveOperation?.projectId !== projectId) throw Object.assign(new Error('Another book is generating.'),{code:'QUEUE_BUSY'});
+    if (editableAbortController.signal.aborted || options.jobIds) {
+      pendingNativeStart={projectId,options: pendingNativeStart && !pendingNativeStart.options.jobIds ? {} : {jobIds:[...new Set([...(pendingNativeStart?.options.jobIds || []),...(options.jobIds || [])])]}};
+      if (!options.jobIds) pendingNativeStart.options={};
     }
-    finishLiveWork();
-    await broadcastState();
+    return {running:true,stopping:editableAbortController.signal.aborted};
   }
-  if (result?.dryRun) {
-    store.appendEvent({ projectId, message: 'Canva dry run finished. No image upload or Magic Layer clicks were sent.' });
-    await broadcastState();
-    return result;
-  }
-  if (Array.isArray(result?.canvaPageProgress) && result.canvaPageProgress.length) {
-    store.updateProject(projectId, {
-      canvaPageProgress: applyCanvaPagesPatch(store.getProject(projectId)?.canvaPageProgress, result.canvaPageProgress)
-    });
-  }
-  const verifiedLink = isCanvaTemplateLink(result.templateLink)
-    ? (toCanvaTemplateLink(result.templateLink) || result.templateLink)
-    : '';
-  const finished = store.getProject(projectId);
-  const layered = (finished?.canvaPageProgress || []).filter((item) => item?.layered).length;
-  const total = (finished?.jobs || []).length;
-  const missedPages = (finished?.canvaPageProgress || [])
-    .filter((item) => !item?.layered)
-    .map((item) => item.pageNumber);
-  store.updateProject(projectId, {
-    canvaDesignUrl: toCanvaDesignUrl(result.designUrl || finished?.canvaDesignUrl) || project.canvaDesignUrl,
-    canvaExportPath: result.exportPath || finished?.canvaExportPath,
-    canvaPdfUploaded: true,
-    canvaJobJson: { ...(finished?.canvaJobJson || {}), interrupted: false, state: 'JOB_COMPLETE' },
-    ...(verifiedLink ? { canvaTemplateLink: verifiedLink } : {}),
-    stepEditableStatus: verifiedLink ? 'completed' : 'pending'
+  verifyOverview(store.getProject(projectId));
+  if (options.jobIds) for (const id of options.jobIds) store.resetJob(id);
+  runNativeEditableForProject(projectId,()=>{},options).catch(error=>{
+    if (!['STEP_ABORTED','QUEUE_PAUSED'].includes(error.code)) store.appendEvent({projectId,level:'error',message:error.message});
+    broadcastState().catch(()=>{});
   });
-  if (!verifiedLink) {
-    throw Object.assign(new Error('Canva did not return a verified template link. The editor URL was not saved as the buyer link.'), {
-      code: 'CANVA_TEMPLATE_LINK_MISSING'
-    });
-  }
-  store.appendEvent({
-    projectId,
-    level: missedPages.length ? 'warn' : 'success',
-    message: missedPages.length
-      ? `Canva Magic Layer applied to ${layered} of ${total} pages. Not separated: ${missedPages.join(', ')}. Template link saved.`
-      : result.resumed
-        ? `Canva design continued from saved pages. Template link saved.`
-        : `Canva imported the print PDF and applied Magic Layer to every page. Template link saved.`
-  });
-  await broadcastState();
-  return result;
+  broadcastState().catch(()=>{});
+  return {running:true,projectId};
 }
 
 async function openStudioById(studioId = 'planning') {
@@ -1233,17 +1473,17 @@ async function generatePreviewVideoForProject(projectId, { onProgress = null, fo
       code: 'TPT_LISTING_REQUIRED'
     });
   }
-  if (!force && listing.videoPreviewPath && existsSync(listing.videoPreviewPath)) {
+  const existingVideo = getVideo(project);
+  if (!force && existingVideo.path && existsSync(existingVideo.path)) {
     onProgress?.(100);
     return store.getProject(projectId);
   }
   store.updateProject(projectId, {
-    tptListing: {
-      ...listing,
-      videoPreviewStatus: 'generating',
-      videoPreviewError: null,
-      ...(force ? { videoPreviewPath: null } : {})
-    }
+    tptListing: applyVideoToListing(listing, {
+      status: 'generating',
+      error: null,
+      ...(force ? { path: null } : {})
+    })
   });
   await publishLiveOperation({
     kind: 'preview',
@@ -1253,28 +1493,55 @@ async function generatePreviewVideoForProject(projectId, { onProgress = null, fo
     projectId
   });
   const previousEngine = getActiveEngine();
+  // Veo reports no percentage, so progress is derived from elapsed time on an
+  // asymptotic curve: it always advances, never reaches 100, and only the finished
+  // video completes it. A bar that stalls at a number is worse than one that keeps
+  // moving slowly, and claiming a percentage the model never gave us would be a lie.
+  const onPreviewHeartbeat = (payload) => {
+    if (payload?.phase !== 'preview_video') return;
+    const elapsedMs = Number(payload.elapsedMs) || 0;
+    const minutes = elapsedMs / 60_000;
+    const percent = Math.min(96, Math.round(8 + 88 * (1 - Math.exp(-minutes / 4))));
+    publishLiveOperation({
+      kind: 'preview',
+      label: 'Preview video',
+      percent,
+      elapsedMs,
+      message: payload.generating
+        ? 'Gemini is rendering the preview video…'
+        : 'Waiting for the preview video…',
+      projectId
+    }).catch(() => {});
+  };
+  browser.on('heartbeat', onPreviewHeartbeat);
   try {
     browser.setEngine('gemini');
-    const generated = await browser.generateTptPreviewVideoWithGpt({
+    // The document is required but not uploaded. Gemini's video model cannot read a
+    // .docx, so the preview animates real interior pages instead — but compiling the
+    // document is the completeness gate every marketing stage shares, and a book whose
+    // pages are not all finished has no representative middle pages to show.
+    await ensureMarketingGroundTruth(projectId);
+    const { generateStitchedPreviewVideo } = require('./preview-video-engine.cjs');
+    const generated = await generateStitchedPreviewVideo({
+      browser,
       project,
-      listing: { ...listing, videoPreviewPath: force ? null : listing.videoPreviewPath },
-      pdfPath: listing.productPdfPath
+      listing: { ...listing, videoPreviewPath: listing.videoPreviewPath },
+      pdfPath: listing.productPdfPath,
+      tempDir: join(app.getPath('temp'), `versa-preview-${projectId}`),
+      onProgress
     });
     const outputPath = await fileManager.saveGeneratedPreviewVideo({
       buffer: generated.buffer,
       contentType: generated.contentType,
-      outputDir: project.outputDir
+      outputDir: project.outputDir,
+      fileName: 'preview_final.mp4'
     });
-    const current = store.getProject(projectId)?.tptListing ?? listing;
-    store.updateProject(projectId, {
-      tptListing: {
-        ...current,
-        videoPreviewPath: outputPath,
-        videoPreviewStatus: 'ready',
-        videoPreviewError: null,
-        videoPreviewConversationUrl: generated.conversationUrl
-      }
-    });
+    store.updateProjectTransactionally(projectId, (c) => ({ tptListing: applyVideoToListing((c.tptListing || listing || {}), {
+        path: outputPath,
+        status: 'ready',
+        error: null,
+        conversationUrl: generated.conversationUrl
+      }) }));
     store.appendEvent({
       projectId,
       level: 'success',
@@ -1285,24 +1552,36 @@ async function generatePreviewVideoForProject(projectId, { onProgress = null, fo
     return store.getProject(projectId);
   } catch (error) {
     if (isPauseError(error)) {
+      // Pausing used to throw without clearing the status set at the start of the run,
+      // so the card kept reporting "Generating…" forever against nothing - a false
+      // state the operator could not clear from the UI.
+      store.updateProjectTransactionally(projectId, (c) => ({
+        tptListing: applyVideoToListing((c.tptListing || listing || {}), { status: 'idle', error: null })
+      }));
       store.appendEvent({ projectId, level: 'warn', message: 'Preview paused. Start again when you are ready.' });
       throw Object.assign(new Error('Stopped. You paused this work.'), { code: 'QUEUE_PAUSED' });
     }
-    require('fs').writeFileSync('/tmp/tpt-error.log', error.stack || String(error));
-    const current = store.getProject(projectId)?.tptListing ?? listing;
-    store.updateProject(projectId, {
-      tptListing: {
-        ...current,
-        videoPreviewStatus: 'failed',
-        videoPreviewError: error.message
-      }
-    });
+    store.updateProjectTransactionally(projectId, (c) => ({ tptListing: applyVideoToListing((c.tptListing || listing || {}), {
+        status: 'failed',
+        error: error.message
+      }) }));
     store.appendEvent({ projectId, level: 'error', message: `Preview video generation paused: ${error.message}` });
     await broadcastState();
     throw error;
   } finally {
+    // The listener is per-run; leaving it attached would stack one per preview and keep
+    // publishing progress for a step that already ended.
+    browser.removeListener('heartbeat', onPreviewHeartbeat);
     browser.setEngine(previousEngine);
     finishLiveWork();
+    // Last line of defence. However this run ended - return, throw, cancel - the status
+    // must not still say generating, because nothing is generating any more.
+    const settled = store.getProject(projectId);
+    if (getVideo(settled).status === 'generating') {
+      store.updateProjectTransactionally(projectId, (c) => ({
+        tptListing: applyVideoToListing((c.tptListing || {}), { status: 'idle', error: null })
+      }));
+    }
     await broadcastState();
   }
 }
@@ -1348,7 +1627,8 @@ function preferenceDefaults() {
       soundVolume: 80,
       toastsEnabled: true,
       desktopEnabled: true
-    }
+    },
+    customization: normalizeCustomization({})
   };
 }
 
@@ -1365,17 +1645,6 @@ function normalizePreferences(preferences = {}) {
   const workflow = preferences.workflow ?? {};
   const rawTags = preferenceList(listingDefaults.tags, 6);
   const rawSubjects = preferenceList(listingDefaults.subjects, 3);
-  const invalidTags = rawTags.filter((value) => !canonicalTptTaxonomyValue(value, TPT_TAG_OPTIONS));
-  const invalidSubjects = rawSubjects.filter((value) => !canonicalTptTaxonomyValue(value, TPT_SUBJECT_AREA_OPTIONS));
-  if (invalidTags.length || invalidSubjects.length) {
-    const details = [
-      invalidTags.length ? `Invalid TPT tags: ${invalidTags.join(', ')}` : '',
-      invalidSubjects.length ? `Invalid TPT subjects: ${invalidSubjects.join(', ')}` : ''
-    ].filter(Boolean).join('. ');
-    throw Object.assign(new Error(`${details}. Use the exact names shown by Teachers Pay Teachers.`), {
-      code: 'SETTINGS_TPT_TAXONOMY_INVALID'
-    });
-  }
   const trimValue = (value, max = 240) => cleanText(value).slice(0, max);
   const emailValue = (value) => trimValue(value, 254);
   return {
@@ -1395,8 +1664,8 @@ function normalizePreferences(preferences = {}) {
       projectNotes: String(projectIdentity.projectNotes ?? '').trim().slice(0, 4_000)
     },
     listingDefaults: {
-      tags: canonicalizeTptTaxonomyValues(rawTags, TPT_TAG_OPTIONS, 6),
-      subjects: canonicalizeTptTaxonomyValues(rawSubjects, TPT_SUBJECT_AREA_OPTIONS, 3),
+      tags: rawTags,
+      subjects: rawSubjects,
       grades: preferenceList(listingDefaults.grades, 4),
       formats: preferenceList(listingDefaults.formats, 3),
       taxCode: trimValue(listingDefaults.taxCode, 180),
@@ -1428,7 +1697,8 @@ function normalizePreferences(preferences = {}) {
         : defaults.notifications.soundVolume,
       toastsEnabled: preferences.notifications?.toastsEnabled !== false,
       desktopEnabled: preferences.notifications?.desktopEnabled !== false
-    }
+    },
+    customization: normalizeCustomization(preferences.customization)
   };
 }
 
@@ -1474,35 +1744,9 @@ function mergeUniqueValues(preferred, generated, limit) {
   return [...new Set([...(preferred ?? []), ...(generated ?? [])].map((value) => cleanText(value)).filter(Boolean))].slice(0, limit);
 }
 
-function applyListingDefaults(listing, preferences) {
-  const defaults = preferences.listingDefaults;
-  const isFreeResource = defaults.pricingMode === 'free';
-  return {
-    ...listing,
-    tags: canonicalizeTptTaxonomyValues([...(defaults.tags ?? []), ...(listing.tags ?? [])], TPT_TAG_OPTIONS, 6),
-    subjects: canonicalizeTptTaxonomyValues([...(defaults.subjects ?? []), ...(listing.subjects ?? [])], TPT_SUBJECT_AREA_OPTIONS, 3),
-    grades: mergeUniqueValues(defaults.grades, listing.grades, 4),
-    formats: mergeUniqueValues(defaults.formats, listing.formats, 3),
-    taxCode: defaults.taxCode || listing.taxCode || '',
-    copyrightDeclaration: defaults.copyrightDeclaration || listing.copyrightDeclaration || '',
-    isFreeResource,
-    suggestedPrice: isFreeResource ? '' : (defaults.suggestedPrice || listing.suggestedPrice || ''),
-    multipleLicensePrice: defaults.multipleLicensePrice || listing.multipleLicensePrice || '',
-    publicationStatus: defaults.publicationStatus,
-    thumbnailMode: defaults.thumbnailMode,
-    sellerProfile: {
-      businessName: preferences.profile.businessName,
-      sellerName: preferences.profile.sellerName,
-      authorName: preferences.projectIdentity.authorName,
-      publisherName: preferences.projectIdentity.publisherName,
-      copyrightHolder: preferences.projectIdentity.copyrightHolder,
-      copyrightYear: preferences.projectIdentity.copyrightYear
-    }
-  };
-}
-
 function tptListingReviewApproved(listing) {
-  return Boolean(listing?.reviewApprovedAt || listing?.reviewedAt || listing?.uploadStartedAt);
+  const m = getMarketplace({ tptListing: listing });
+  return Boolean(m.review.approvedAt || listing?.reviewedAt || listing?.uploadStartedAt);
 }
 
 function invalidateTptListingReview(listing, changes = {}) {
@@ -1598,17 +1842,70 @@ if (process.env.TPT_TEST_USER_DATA) {
 }
 
 const singleInstanceAcquired = app.requestSingleInstanceLock();
+agentLog('main.cjs:lock', 'single-instance', { acquired: singleInstanceAcquired }, 'H1');
 
-if (!singleInstanceAcquired) app.quit();
+if (!singleInstanceAcquired) {
+  try { console.error('[versa] already running; this npm start will exit.'); } catch {}
+  app.quit();
+}
 
-app.on('second-instance', () => {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    if (store) createWindow();
-    return;
+function workAreaFor(bounds) {
+  try {
+    return screen.getDisplayMatching(bounds || { x: 0, y: 0, width: 1, height: 1 }).workArea;
+  } catch {
+    try { return screen.getPrimaryDisplay().workArea; } catch { return { x: 0, y: 0, width: 1480, height: 940 }; }
   }
+}
+
+function windowCreateBounds() {
+  const work = workAreaFor({ x: 0, y: 0, width: 1, height: 1 });
+  const width = Math.min(1480, Math.max(1120, work.width));
+  const height = Math.min(940, Math.max(720, work.height));
+  return {
+    x: work.x + Math.max(0, Math.floor((work.width - width) / 2)),
+    y: work.y + Math.max(0, Math.floor((work.height - height) / 2)),
+    width,
+    height
+  };
+}
+
+function fitWindowToWorkArea(win) {
+  const bounds = win.getBounds();
+  const work = workAreaFor(bounds);
+  const width = Math.min(bounds.width, work.width);
+  const height = Math.min(bounds.height, work.height);
+  let x = bounds.x;
+  let y = bounds.y;
+  if (x < work.x || x + width > work.x + work.width) {
+    x = work.x + Math.max(0, Math.floor((work.width - width) / 2));
+  }
+  if (y < work.y || y + height > work.y + work.height) {
+    y = work.y + Math.max(0, Math.floor((work.height - height) / 2));
+  }
+  if (x !== bounds.x || y !== bounds.y || width !== bounds.width || height !== bounds.height) {
+    win.setBounds({ x, y, width, height });
+  }
+}
+
+function presentMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
   if (mainWindow.isMinimized()) mainWindow.restore();
+  fitWindowToWorkArea(mainWindow);
   mainWindow.show();
   mainWindow.focus();
+  agentLog('main.cjs:present', 'present-main-window', { visible: mainWindow.isVisible(), bounds: mainWindow.getBounds() }, 'H5');
+  if (typeof mainWindow.moveTop === 'function') {
+    try { mainWindow.moveTop(); } catch {}
+  }
+  if (process.platform === 'darwin') {
+    app.dock?.show();
+    app.focus({ steal: true });
+  }
+  return true;
+}
+
+app.on('second-instance', () => {
+  if (!presentMainWindow() && store) createWindow();
 });
 
 function nativeWindowIcon() {
@@ -1619,7 +1916,7 @@ function nativeWindowIcon() {
 }
 
 function createSplashWindow() {
-  if (process.env.TPT_TEST_USER_DATA && !process.env.TPT_TEST_SHOW_SPLASH) return;
+  if (process.env.TPT_TEST_USER_DATA && !process.env.TPT_TEST_SHOW_SPLASH) return Promise.resolve();
   splashShownAt = Date.now();
   splashWindow = new BrowserWindow({
     width: 560,
@@ -1643,14 +1940,23 @@ function createSplashWindow() {
   const showSplash = () => {
     if (splashWindow && !splashWindow.isDestroyed() && !splashWindow.isVisible()) splashWindow.show();
   };
-  splashWindow.once('ready-to-show', showSplash);
-  splashWindow.webContents.once('did-fail-load', (_event, code, desc) => {
-    bootLog('splash did-fail-load', `${code} ${desc}`);
-    showSplash();
-  });
-  splashWindow.webContents.once('did-finish-load', () => setTimeout(showSplash, 0));
-  splashWindow.on('closed', () => {
-    splashWindow = null;
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      showSplash();
+      resolve();
+    };
+    splashWindow.once('ready-to-show', done);
+    splashWindow.webContents.once('did-fail-load', (_event, code, desc) => {
+      bootLog('splash did-fail-load', `${code} ${desc}`);
+      done();
+    });
+    splashWindow.webContents.once('did-finish-load', done);
+    splashWindow.on('closed', () => {
+      splashWindow = null;
+    });
   });
 }
 
@@ -1661,16 +1967,19 @@ function revealMainWindow() {
   setTimeout(() => {
     if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.show();
-      mainWindow.focus();
+      presentMainWindow();
     }
   }, delay);
 }
 
 function createWindow() {
+  agentLog('main.cjs:createWindow', 'create-window', { hadWindow: Boolean(mainWindow && !mainWindow.isDestroyed()) }, 'H5');
+  const createBounds = windowCreateBounds();
   mainWindow = new BrowserWindow({
-    width: 1480,
-    height: 940,
+    x: createBounds.x,
+    y: createBounds.y,
+    width: createBounds.width,
+    height: createBounds.height,
     minWidth: 1120,
     minHeight: 720,
     backgroundColor: windowBackground(appearanceState().resolved),
@@ -1687,7 +1996,9 @@ function createWindow() {
     }
   });
   mainWindow.loadFile(join(__dirname, '..', 'renderer', 'index.html'));
-  mainWindow.once('ready-to-show', revealMainWindow);
+  mainWindow.once('ready-to-show', () => {
+    revealMainWindow();
+  });
   mainWindow.webContents.once('did-fail-load', (_event, code, desc, url) => {
     bootLog('main did-fail-load', `${code} ${desc} ${url}`);
     revealMainWindow();
@@ -1748,25 +2059,345 @@ function prewarmBackgroundBrowser() {
   }, 500);
 }
 
+let cachedBrowserStatus = {connected:false};
+let browserStatusReading = false;
+let browserStatusReadAt = 0;
+function readBrowserStatus() {
+  if (!browserStatusReading && Date.now()-browserStatusReadAt > 2000) {
+    browserStatusReading=true;
+    browserStatusReadAt=Date.now();
+    runOperation(()=>browser.status(),{timeoutMs:1500,phase:'browser status'})
+      .then(status=>{cachedBrowserStatus=status;})
+      .catch(()=>{cachedBrowserStatus={...cachedBrowserStatus,unresponsive:true};})
+      .finally(()=>{browserStatusReading=false;});
+  }
+  return cachedBrowserStatus;
+}
+
+// Runs the page queue for one project and resolves once every page is complete.
+// Shared by the static interior step and the editable artwork step.
+function runQueueToCompletion(projectId, onProgress) {
+  queue.start(projectId);
+  return new Promise((resolve, reject) => {
+    const reportQueueProgress = () => {
+      const p = store.getProject(projectId);
+      const pct = p?.stats?.total ? Math.round((p.stats.complete / p.stats.total) * 100) : 0;
+      onProgress(Math.min(95, pct));
+      return p;
+    };
+    const cleanup = () => {
+      queue.removeListener('changed', checkDone);
+      queue.removeListener('heartbeat', keepAlive);
+    };
+    const keepAlive = () => {
+      if (queue.status()?.activeProjectId === projectId) reportQueueProgress();
+    };
+    const checkDone = async () => {
+      const p = reportQueueProgress();
+      if (p?.stats?.complete === p?.stats?.total && p?.stats?.total > 0) {
+        cleanup();
+        resolve();
+      } else if (!queue.running) {
+        if (automation?.getStatus()?.paused) return;
+        cleanup();
+        reject(Object.assign(new Error('Queue stopped before all pages completed.'), { code: 'QUEUE_STOPPED' }));
+      }
+    };
+    queue.on('changed', checkDone);
+    queue.on('heartbeat', keepAlive);
+    checkDone().catch(reject);
+  });
+}
+
+// Stage 1 sends the refusal-proof artwork wrapper, so pages come back as themed
+// backgrounds with blank frames and no typography baked into the pixels.
+// Recover the page's own brief from a prompt that may already carry the wrapper, so
+// re-running a page never nests the wrapper inside itself.
+function artworkBrief(job) {
+  const current = String(job.imagePrompt || '').trim();
+  if (current.startsWith(ARTWORK_PROMPT)) {
+    const match = current.match(/PAGE TOPIC & THEME:\s*\n\s*\d+[AT]?:\s*([\s\S]*)$/);
+    return (match ? match[1] : '').trim() || String(job.prompt || '').trim();
+  }
+  return current || String(job.prompt || '').trim();
+}
+
+function attachTextLabObserver(projectId, pages) {
+  const observer = createTextLabObserver();
+  let beat = 0;
+  observer.on('heartbeat', (snap) => {
+    setLiveOperation({
+      kind: 'editable-text',
+      label: 'Text Lab',
+      projectId,
+      jobId: snap.jobId,
+      percent: snap.percent,
+      message: snap.message,
+      remainingMs: snap.remainingMs,
+      phase: snap.phase
+    });
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('text-lab:heartbeat', snap);
+    }
+  });
+  observer.start({ projectId, pages });
+  return observer;
+}
+
+function textLabPageActivity(observer) {
+  return (event) => {
+    if (!event) return;
+    if (event.state === 'start') observer.pageBegin(event);
+    else observer.pageEnd(event);
+  };
+}
+
+function restoreDefaultArtworkPrompts(projectId, jobIds = null) {
+  const project = store.getProject(projectId);
+  if (!project || project.productFormat !== 'editable') return;
+  const wanted = jobIds ? new Set(jobIds) : null;
+  for (const job of project.jobs || []) {
+    if (wanted ? !wanted.has(job.id) : job.status === 'complete') continue;
+    // Interior Artwork draws the same page the static Interior section draws, using the
+    // prompt the prompt builder wrote. It used to be wrapped in an instruction demanding
+    // text-free artwork with empty frames, because the old pipeline needed somewhere to
+    // put text it generated separately. That is no longer true: Interior Text now reads
+    // the words off the finished page, erases them and redraws them as live text, so the
+    // artwork should arrive complete, exactly as the static engine produces it.
+    //
+    // Prompts stored by the previous behaviour are unwrapped back to their brief here,
+    // so existing books recover the default without needing to be recreated.
+    const current = String(job.imagePrompt || '').trim();
+    if (!current.startsWith(ARTWORK_PROMPT)) continue;
+    const restored = artworkBrief(job);
+    // Only the prompt is written. conversationUrl and baselineJson belong to the queue:
+    // the baseline is how it recognises the newly generated image, so clearing them left
+    // it submitting prompts and then waiting on state it no longer had.
+    if (restored && restored !== current) store.updateJob(job.id, { imagePrompt: restored });
+  }
+}
+
+// Derived, read-only: what the editable PowerPoint currently contains.
+function enrichProjectWithEditableBuild(project) {
+  if (!project || project.productFormat !== 'editable') return project;
+  const meta = project.editableOutputJson;
+  const fresh = Boolean(meta) && (() => { try { verifyEditableOutput(project); return true; } catch { return false; } })();
+  const metaSlides = (meta?.pages || [])
+    .map((page) => ({
+      jobId: page.jobId,
+      pageNumber: page.pageNumber ?? project.jobs?.find((job) => job.id === page.jobId)?.pageNumber ?? null,
+      textBoxes: Number(page.textBoxes) || 0
+    }))
+    .sort((a, b) => (a.pageNumber || 0) - (b.pageNumber || 0));
+  let compiledPages = [];
+  try { compiledPages = listEditablePages(project); } catch { compiledPages = []; }
+  const textByPage = new Map();
+  try {
+    for (const entry of collectPageVision(store, project)) {
+      textByPage.set(entry.job.pageNumber, Number(entry.vision?.counts?.text) || 0);
+    }
+  } catch { /* vision cache is optional here */ }
+  const slides = compiledPages.length
+    ? compiledPages.map((file) => {
+        const pageNumber = Number(String(file).match(/page_(\d+)\.pdf$/i)?.[1] || 0);
+        const match = metaSlides.find((slide) => slide.pageNumber === pageNumber);
+        const job = (project.jobs || []).find((item) => item.pageNumber === pageNumber);
+        return {
+          jobId: match?.jobId || job?.id || null,
+          pageNumber,
+          textBoxes: match?.textBoxes || textByPage.get(pageNumber) || 0,
+        };
+      })
+    : metaSlides;
+  const deckPath = meta?.pptxPath || (project.outputDir ? editableDeckPath(project) : null);
+  const deckReady = Boolean(deckPath && existsSync(deckPath));
+  return {
+    ...project,
+    editableBuild: {
+      built: compiledPages.length > 0 && (fresh || deckReady),
+      stale: Boolean(meta) && !fresh,
+      pptxPath: deckReady ? deckPath : (meta?.pptxPath || null),
+      slides,
+      totalTextBoxes: slides.reduce((sum, slide) => sum + slide.textBoxes, 0)
+    }
+  };
+}
+
+// Derived, read-only: how many editable pages already have Stage 2 text written.
+function enrichProjectWithEditableText(project) {
+  if (!project || project.productFormat !== 'editable') return project;
+  const jobs = Array.isArray(project.jobs) ? project.jobs : [];
+  // What the local pipeline actually produced, read from disk and from the cached
+  // layer models. The dashboard needs both: the per-page vision counts it displays,
+  // and whether a compiled editable page exists yet, which is what unlocks export.
+  let compiledPages = [];
+  try { compiledPages = listEditablePages(project); } catch { compiledPages = []; }
+  const visionByJob = new Map();
+  try {
+    for (const entry of collectPageVision(store, project)) {
+      visionByJob.set(entry.job.id, entry.vision);
+    }
+  } catch { /* no vision cached yet */ }
+
+  const { isTextFreeProject, readStoredManifest } = require('./text-free-pipeline.cjs');
+  const textFree = isTextFreeProject(store, project);
+  const pages = jobs
+    .map((job) => {
+      let text = null;
+      try { text = readCachedPageText(store, project, job); } catch {}
+      const vision = visionByJob.get(job.id) || null;
+      const manifest = textFree ? readStoredManifest(store, project, job) : null;
+      return {
+        jobId: job.id,
+        pageNumber: job.pageNumber,
+        artworkReady: job.status === 'complete',
+        written: Boolean(text) || Boolean(vision) || Boolean(manifest),
+        read: Boolean(vision) || Boolean(manifest),
+        zoneCount: manifest?.zones?.length || 0,
+        built: compiledPages.some((file) => Number(String(file).match(/page_(\d+)\.pdf$/i)?.[1] || 0) === job.pageNumber) || Boolean(manifest),
+        flat: Boolean(vision?.flat),
+        layers: vision?.counts?.layers || 0,
+        textRuns: vision?.counts?.text || 0,
+        orphans: vision?.counts?.orphans || 0,
+        title: text?.title || '',
+        instruction: text?.instruction || '',
+        sections: text?.sections?.length || 0,
+        footer: text?.footer || ''
+      };
+    })
+    .sort((a, b) => (a.pageNumber || 0) - (b.pageNumber || 0));
+  return {
+    ...project,
+    editableText: {
+      ready: pages.filter((page) => page.written).length,
+      total: pages.length,
+      read: pages.filter((page) => page.read).length,
+      pagesBuilt: compiledPages.length,
+      pages
+    }
+  };
+}
+
+const enrichCache = new Map();
+let visionStatusCache = { at: 0, value: null };
+let buildStateLogTick = 0;
+
+function projectEnrichKey(project) {
+  if (!project) return '';
+  const jobs = (project.jobs || []).map((job) => `${job.id}:${job.status}:${job.outputPath || ''}`).join(',');
+  const listing = project.tptListing || {};
+  let compiled = 0;
+  let visionPages = 0;
+  try { compiled = listEditablePages(project).length; } catch { compiled = 0; }
+  try { visionPages = collectPageVision(store, project).length; } catch { visionPages = 0; }
+  return [
+    project.id,
+    project.productFormat || '',
+    project.editableOutputJson ? 1 : 0,
+    listing.videoPreviewPath || '',
+    (listing.thumbnailPaths || []).join(','),
+    jobs,
+    `pdfs:${compiled}`,
+    `vision:${visionPages}`,
+    `mode:${store.getSetting?.(`generationMode:${project.id}`, 'fixed')}`
+  ].join('|');
+}
+
+function cachedEnrichProject(project) {
+  if (!project) return project;
+  const key = projectEnrichKey(project);
+  const hit = enrichCache.get(project.id);
+  if (hit && hit.key === key) return hit.value;
+  const enrichStarted = Date.now();
+  const value = enrichProjectWithEditableBuild(enrichProjectWithEditableText(enrichProjectWithSeo(enrichProjectWithVideo(enrichProjectWithMockups(project)))));
+  enrichCache.set(project.id, { key, value });
+  return value;
+}
+
+async function cachedVisionStatus() {
+  if (visionStatusCache.value && (Date.now() - visionStatusCache.at) < 15_000) return visionStatusCache.value;
+  let vision = { ok: false, ready: false, code: 'VISION_UNKNOWN', error: null };
+  try {
+    vision = await visionBridge.status();
+  } catch (error) {
+    vision = { ok: false, ready: false, code: error.code || 'VISION_UNAVAILABLE', error: error.message };
+  }
+  visionStatusCache = { at: Date.now(), value: vision };
+  return vision;
+}
+
+function attachGenerationMode(project) {
+  if (!project) return project;
+  const { resolveStoredGenerationMode } = require('./editable-mode.cjs');
+  const { isRebuildPipelineEnabled } = require('./rebuild-page-record.cjs');
+  return attachMazeProject({
+    ...project,
+    generationMode: resolveStoredGenerationMode(store, project),
+    rebuildPipeline: isRebuildPipelineEnabled(store, project),
+  });
+}
+
+function persistModeForNewBook(projectId, productFormat) {
+  const { persistGenerationMode } = require('./editable-mode.cjs');
+  persistGenerationMode(store, projectId, 'fixed');
+  if (productFormat === 'maze') {
+    require('./maze-service.cjs').ensureMazeProject(store, projectId);
+  }
+}
+
+function attachMazeProject(project) {
+  if (!project || project.productFormat !== 'maze') return project;
+  const { getMazeProject } = require('./maze-service.cjs');
+  const { getMazeLabState } = require('./maze-lab.cjs');
+  return {
+    ...project,
+    mazeProject: getMazeProject(store, project.id),
+    mazeLab: getMazeLabState(store, project.id)
+  };
+}
+
 async function buildState() {
+  const buildStarted = Date.now();
   const dashboard = store.getDashboardState();
   const whenCompleteAction = store.getSetting('whenCompleteAction', 'nothing');
   const aiEngine = getActiveEngine();
   const chatgptConfirmed = Boolean(store.getSetting('chatgptLoginConfirmed', false));
   const geminiConfirmed = Boolean(store.getSetting('geminiLoginConfirmed', false));
   const metaConfirmed = Boolean(store.getSetting('metaLoginConfirmed', false));
-  const canvaConfirmed = Boolean(store.getSetting('canvaLoginConfirmed', false));
   const loginRequired = !isEngineConfirmed(aiEngine);
   const detectedChatGptProfile = store.getSetting('chatgptAccountProfile', null);
   const selectedChatGptProfile = store.getSetting('chatgptSelectedProfile', null);
   const detectedGeminiProfile = store.getSetting('geminiAccountProfile', null);
   const detectedMetaProfile = store.getSetting('metaAccountProfile', null);
-  const detectedCanvaProfile = store.getSetting('canvaAccountProfile', null);
+  // Only the open book needs derived mockups/text. List rows already carry stats.
+  const activeProject = attachGenerationMode(cachedEnrichProject(dashboard.activeProject));
+  const projects = (dashboard.projects || []).map((project) => attachGenerationMode(
+    activeProject && project.id === activeProject.id ? activeProject : project
+  ));
+  // What the queue actually holds, read from the table rather than from whatever
+  // progress events the window happened to be open for. After a restart this is
+  // still the truth; live events are not.
+  const tasks = pipelineRunner && store.tasks
+    ? {
+        runner: pipelineRunner.status(),
+        byProject: Object.fromEntries(
+          projects.map((project) => [project.id, projectTaskState(store, project.id)])
+        )
+      }
+    : null;
+  const vision = await cachedVisionStatus();
   return {
+    vision,
+    tasks,
     ...dashboard,
+    projects,
+    activeProject,
     queue: queue.status(),
-    browser: await browser.status(),
-    settings: getPreferences(),
+    browser: readBrowserStatus(),
+    settings: {
+      ...getPreferences(),
+      customizationDefaults: customizationDefaults()
+    },
     integrations: {
       aiEngine,
       chatgpt: {
@@ -1785,13 +2416,6 @@ async function buildState() {
         connected: metaConfirmed,
         active: aiEngine === 'meta',
         profile: detectedMetaProfile
-      },
-      canva: {
-        connected: isCanvaAvailable() ? canvaConfirmed : false,
-        available: isCanvaAvailable(),
-        locked: !isCanvaAvailable(),
-        lockMessage: isCanvaAvailable() ? '' : CANVA_COMING_SOON_MESSAGE,
-        profile: detectedCanvaProfile
       },
       customGpt: {
         name: CONTENT_GEM_NAME,
@@ -1818,6 +2442,29 @@ async function buildState() {
         gpts: listChatGptStudios().map((studio) => ({ ...studio, connected: chatgptConfirmed }))
       }
     },
+    browserSupervisor: (() => {
+      const snap = browser?.supervisorSnapshot?.() || null;
+      if (!snap) return null;
+      const mazePages = activeProject?.mazeProject?.pages || [];
+      const jobs = activeProject?.jobs || [];
+      if (mazePages.length) {
+        return {
+          ...snap,
+          pagesCompleted: mazePages.filter((page) => page.generationStatus === 'ready').length,
+          pagesQueued: mazePages.filter((page) => page.generationStatus !== 'ready').length,
+          pagesTotal: mazePages.length
+        };
+      }
+      if (jobs.length) {
+        return {
+          ...snap,
+          pagesCompleted: jobs.filter((job) => job.status === 'complete').length,
+          pagesQueued: jobs.filter((job) => job.status !== 'complete').length,
+          pagesTotal: jobs.length
+        };
+      }
+      return snap;
+    })(),
     profileRotation: browser ? browser.getProfileRotation() : null,
     bundleUpload: {
       active: bundleUploadActive,
@@ -1829,13 +2476,12 @@ async function buildState() {
       currentBookIndex: 0, totalBooks: 0, stepRetryCount: 0, awaitingAsk: false
     },
     automationSettings: store ? store.getAutomationSettings() : {},
-    canvaTemplates: store ? store.getCanvaTemplates() : [],
     liveOperation,
-    canvaLiveDashboard,
     workBusy: {
       queue: Boolean(queue?.running),
       automation: Boolean(automation?.getStatus()?.active && !automation?.getStatus()?.paused),
       liveOperation: Boolean(liveOperation),
+      comfyRecovering: Boolean(liveOperation?.recovering || comfy.isRecovering?.()),
       tptListing: Boolean(tptListingAutomationActive),
       bundle: Boolean(bundleUploadActive),
       characters: Boolean(storybookAssetGenerationActive),
@@ -1844,13 +2490,10 @@ async function buildState() {
     app: {
       version: app.getVersion(),
       platform: process.platform,
-      canvaAvailable: isCanvaAvailable(),
-      canvaLockMessage: isCanvaAvailable() ? '' : CANVA_COMING_SOON_MESSAGE,
       loginRequired,
       appearance: appearanceState(),
       whenCompleteAction,
       systemAction: systemActionPayload,
-      supabase: describeCanvaTempStorage(store),
       update: updateManager?.getState() ?? {
         status: 'disabled',
         currentVersion: app.getVersion(),
@@ -1863,9 +2506,29 @@ async function buildState() {
   };
 }
 
-async function broadcastState() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send('state:changed', await buildState());
+let broadcastTimer = null;
+let broadcastWaiters = [];
+let lastBrowserStatusKey = '';
+
+function broadcastState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve();
+  return new Promise((resolve) => {
+    broadcastWaiters.push(resolve);
+    if (broadcastTimer) return;
+    broadcastTimer = setTimeout(async () => {
+      broadcastTimer = null;
+      const waiters = broadcastWaiters;
+      broadcastWaiters = [];
+      try {
+        const payload = await buildState();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('state:changed', payload);
+        }
+      } finally {
+        for (const waiter of waiters) waiter();
+      }
+    }, 200);
+  });
 }
 
 function getFirstInstalledAt() {
@@ -1951,7 +2614,7 @@ async function installReadyUpdate(options = {}) {
       quitting = false;
     }
     return updateManager.getState();
-  } catch (error) { require("fs").writeFileSync("/tmp/tpt-error.log", error.stack || String(error));
+  } catch (error) {
     installingUpdate = false;
     quitting = false;
     throw error;
@@ -1984,14 +2647,14 @@ async function promptForUpdateInstall(info) {
 }
 
 function configureAutoUpdates() {
+  const updatesEnabled = false;
   updateManager = new UpdateManager({
-    autoUpdater,
+    autoUpdater: updatesEnabled ? getAutoUpdater() : null,
     currentVersion: app.getVersion(),
-    enabled: false, // Disabled per user request
+    enabled: updatesEnabled,
     onStateChange: () => broadcastState().catch((error) => console.error('Failed to broadcast update state:', error)),
     onDownloaded: (info) => promptForUpdateInstall(info).catch((error) => console.error('Failed to show update prompt:', error))
   });
-  // updateManager.start(); // Disabled per user request
 }
 
 function storybookPackage(project, parsed = null) {
@@ -2055,21 +2718,10 @@ function uniqueExportDirectory(rootDirectory, projectName) {
   return candidate;
 }
 
-async function ensureThankYouPdfForProject(projectId) {
-  const project = store.getProject(projectId);
-  if (!project || project.productFormat !== 'editable' || !project.canvaTemplateLink) return project;
-  // Local SVG packages are file paths, not Canva template URLs — skip thank-you stamp.
-  if (!/^https?:\/\//i.test(String(project.canvaTemplateLink || ''))) return project;
-  const existing = project.printPdfJson?.thankYouPdfPath;
-  if (existing && existsSync(existing)) return { ...project, thankYouPdfPath: existing };
-  const thankYouPdfPath = await fileManager.exportThankYouPdf(project, project.canvaTemplateLink);
-  store.updateProject(projectId, {
-    printPdfJson: {
-      ...(project.printPdfJson || {}),
-      thankYouPdfPath
-    }
-  });
-  return { ...store.getProject(projectId), thankYouPdfPath };
+
+/** The folder every book's output lives under. Nothing outside it may ever be deleted. */
+function getLibraryRoot() {
+  return join(app.getPath('documents'), APP_NAME);
 }
 
 function ensureProjectOutputDirectory(projectId) {
@@ -2081,7 +2733,7 @@ function ensureProjectOutputDirectory(projectId) {
     : join(app.getPath('documents'), APP_NAME, `${slugify(project.name)}-${project.id.slice(0, 6)}`);
   try {
     mkdirSync(outputDir, { recursive: true });
-  } catch (error) { require("fs").writeFileSync("/tmp/tpt-error.log", error.stack || String(error));
+  } catch (error) {
     throw Object.assign(new Error(`The book output folder is unavailable: ${outputDir}`), {
       code: 'OUTPUT_DIRECTORY_UNAVAILABLE',
       cause: error
@@ -2184,7 +2836,7 @@ async function saveStorybookCharacterReference(projectId, characterIndex, { forc
       message: `${attachmentPath ? 'Photo-based main character' : 'Independent character'} reference generated for ${character.name}.`
     });
     return updated;
-  } catch (error) { require("fs").writeFileSync("/tmp/tpt-error.log", error.stack || String(error));
+  } catch (error) {
     store.updateCharacter(record.id, { status: 'failed', error: error.message });
     throw error;
   }
@@ -2345,7 +2997,7 @@ async function runStorybookWorkflow(projectId, { reuseCurrentPage = false } = {}
       parsed: pageResult.parsed,
       conversationUrl: pageResult.conversationUrl
     });
-  } catch (error) { require("fs").writeFileSync("/tmp/tpt-error.log", error.stack || String(error));
+  } catch (error) {
     const current = store.getProject(projectId);
     if (current) {
       const failedStage = current.storybookPhase;
@@ -2373,11 +3025,15 @@ function generatingProjectName() {
 
 function liveWorkLabel() {
   if (queue?.running) return `interior generation on "${generatingProjectName()}"`;
-  if (liveOperation?.kind === 'print-pdf') return 'print PDF conversion';
-  if (liveOperation?.kind === 'canva') return liveOperation.label || 'Canva editable';
+  // Print-PDF and maze assemble are local file compose. They must not hold the
+  // Gemini/browser lane or Mockups Lab cannot start after Maze Lab finishes.
+  if (liveOperation?.kind === 'print-pdf') return '';
+  if (liveOperation?.kind === 'maze-assemble') return '';
+  if (liveOperation?.kind === 'editable-generation') return 'native editable generation';
   if (liveOperation?.kind === 'listing') return 'TPT listing';
   if (liveOperation?.kind === 'thumbnails') return 'mockups';
   if (liveOperation?.kind === 'preview') return 'preview video';
+  if (liveOperation?.recovering || comfy.isRecovering?.()) return 'Text Lab engine self-heal';
   if (tptListingAutomationActive) return 'TPT upload';
   if (storybookAssetGenerationActive) return 'character generation';
   if (bundleUploadActive) return 'bundle upload';
@@ -2396,6 +3052,7 @@ function assertBrowserFree(action = 'starting this stage') {
 }
 
 function assertIdle(action = 'starting this workflow') {
+  if (editableAbortController) throw Object.assign(new Error('Pause native editable generation before starting another workflow.'), {code:'QUEUE_RUNNING'});
   if (queue.running) {
     throw Object.assign(
       new Error(`"${generatingProjectName()}" is still generating. Pause it before ${action}. You can keep opening other books while it runs.`),
@@ -2412,6 +3069,7 @@ function assertIdle(action = 'starting this workflow') {
 }
 
 function assertNotGeneratingProject(projectId, action = 'changing this book') {
+  if (editableAbortController && liveOperation?.projectId === projectId) throw Object.assign(new Error(`This book is generating. Pause it before ${action}.`), {code:'QUEUE_RUNNING'});
   if (queue.running && queue.status()?.activeProjectId === projectId) {
     throw Object.assign(new Error(`This book is generating. Pause it before ${action}.`), { code: 'QUEUE_RUNNING' });
   }
@@ -2421,27 +3079,38 @@ function startAutomationIfIdle() {
   // Full automation starts only when the user clicks Start Full Automation on the current book.
 }
 
-function registerIpc() {
-  ipcMain.handle('state:get', () => buildState());
-  // #region agent log
-  ipcMain.handle('debug:agent-log', async (_event, payload = {}) => {
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      const logPath = path.join(__dirname, '..', '.cursor', 'debug-1c3662.log');
-      fs.mkdirSync(path.dirname(logPath), { recursive: true });
-      const line = JSON.stringify({
-        sessionId: '1c3662',
-        timestamp: Date.now(),
-        ...payload
-      }) + '\n';
-      fs.appendFileSync(logPath, line, 'utf8');
-      return { ok: true };
-    } catch (error) {
-      return { ok: false, error: String(error?.message || error) };
+comfy.onRecovery((event) => {
+  if (event.recovering) {
+    setLiveOperation({
+      kind: liveOperation?.kind || 'interior_text',
+      projectId: liveOperation?.projectId || null,
+      label: 'Restarting engine',
+      message: event.message || 'Restarting engine',
+      percent: liveOperation?.percent || 0,
+      recovering: true
+    });
+  } else if (liveOperation?.recovering) {
+    if (editableAbortController) {
+      setLiveOperation({
+        ...liveOperation,
+        recovering: false,
+        message: event.message || liveOperation.message || 'Engine recovered'
+      });
+    } else {
+      setLiveOperation(null);
     }
+  }
+  broadcastState().catch(() => {});
+});
+
+function registerIpc() {
+  registerBookManagementIpc({
+    ipcMain,
+    fileManager,
+    store,
+    broadcastState
   });
-  // #endregion
+  ipcMain.handle('state:get', () => buildState());
   ipcMain.handle('app:open-external', (_event, rawUrl) => {
     let parsed;
     try {
@@ -2454,8 +3123,7 @@ function registerIpc() {
       'skool.com', 'www.skool.com',
       'youtube.com', 'www.youtube.com',
       'instagram.com', 'www.instagram.com',
-      'printolli.com', 'www.printolli.com',
-      'canva.com', 'www.canva.com'
+      'printolli.com', 'www.printolli.com'
     ]);
     if (parsed.protocol !== 'https:' || !allowedHosts.has(parsed.hostname.toLowerCase())) {
       throw Object.assign(new Error('This resource is not on the approved POD Network link list.'), { code: 'EXTERNAL_URL_NOT_ALLOWED' });
@@ -2508,7 +3176,7 @@ function registerIpc() {
     if (url) store.setSetting('supabaseUrl', url);
     if (serviceRoleKey) store.setSetting('supabaseServiceRoleKey', serviceRoleKey);
     await broadcastState();
-    return describeCanvaTempStorage(store);
+    return { configured: Boolean(url && serviceRoleKey) };
   });
 
   ipcMain.handle('settings:set-appearance', async (_event, appearance) => {
@@ -2540,6 +3208,10 @@ function registerIpc() {
     store.setSetting('profileRotationList', profiles);
     store.setSetting('currentProfileIndex', currentIndex);
     store.setSetting('enableProfileSwapping', Boolean(enabled));
+    if (typeof browser.setAccountPool === 'function') {
+      browser.setAccountPool({ enabled: Boolean(enabled) });
+      store.setSetting('accountPool', browser.accountPool.toJSON());
+    }
     await broadcastState();
     return browser.getProfileRotation();
   });
@@ -2561,10 +3233,68 @@ function registerIpc() {
   ipcMain.handle('project:set-format', async (_event, projectId, productFormat) => {
     const project = store.getProject(projectId);
     if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
-    const next = String(productFormat || '').trim().toLowerCase() === 'editable' ? 'editable' : 'static';
+    const { normalizeProductFormat } = require('./product-engine-boundary.cjs');
+    const next = normalizeProductFormat(productFormat);
     store.updateProject(projectId, { productFormat: next });
+    if (next === 'maze') require('./maze-service.cjs').ensureMazeProject(store, projectId);
     await broadcastState();
     return store.getProject(projectId);
+  });
+
+  ipcMain.handle('maze:get', async (_event, projectId) => {
+    const project = store.getProject(projectId);
+    require('./maze-service.cjs').assertMazeEngine(project);
+    return require('./maze-service.cjs').getMazeProject(store, projectId);
+  });
+
+  ipcMain.handle('maze:set-config', async (_event, projectId, config) => {
+    const project = store.getProject(projectId);
+    require('./maze-service.cjs').assertMazeEngine(project);
+    if (config != null && (typeof config !== 'object' || Array.isArray(config))) {
+      throw Object.assign(new Error('Maze config must be an object.'), { code: 'MAZE_CONTRACT_INVALID' });
+    }
+    const mazeProject = require('./maze-service.cjs').setMazeConfig(store, projectId, config);
+    await broadcastState();
+    return mazeProject;
+  });
+
+  ipcMain.handle('maze:generate', async (_event, projectId, options) => {
+    const project = store.getProject(projectId);
+    require('./maze-service.cjs').assertMazeEngine(project);
+    if (options != null && (typeof options !== 'object' || Array.isArray(options))) {
+      throw Object.assign(new Error('Maze generate options must be an object.'), { code: 'MAZE_CONTRACT_INVALID' });
+    }
+    try {
+      return require('./maze-service.cjs').generateMaze(store, projectId, options || {});
+    } finally {
+      await broadcastState();
+    }
+  });
+
+  require('./maze-ipc.cjs').registerMazeLabIpc({
+    ipcMain,
+    store,
+    broadcastState,
+    setLiveOperation,
+    onMazeBookReady: (projectId) => continueMazeProductPipeline(projectId)
+  });
+
+  ipcMain.handle('project:set-rebuild-pipeline', async (_event, projectId, enabled) => {
+    const project = store.getProject(projectId);
+    if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+    const { persistRebuildPipeline, isRebuildPipelineEnabled } = require('./rebuild-page-record.cjs');
+    persistRebuildPipeline(store, projectId, enabled);
+    await broadcastState();
+    return { ...store.getProject(projectId), rebuildPipeline: isRebuildPipelineEnabled(store, project) };
+  });
+
+  ipcMain.handle('project:set-generation-mode', async (_event, projectId, mode) => {
+    const project = store.getProject(projectId);
+    if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+    const { persistGenerationMode, resolveStoredGenerationMode } = require('./editable-mode.cjs');
+    persistGenerationMode(store, projectId, mode);
+    await broadcastState();
+    return { ...store.getProject(projectId), generationMode: resolveStoredGenerationMode(store, project) };
   });
 
   ipcMain.handle('project:create', async (_event, input = {}) => {
@@ -2593,7 +3323,12 @@ function registerIpc() {
       activityCount: sourceMode === 'bulk' ? generated.jobs.length : generated.normalized.activityCount,
       status: 'draft',
       outputDir,
-      conversationUrl: input.conversationUrl ?? null
+      conversationUrl: input.conversationUrl ?? null,
+      productFormat: (() => {
+        const { normalizeProductFormat } = require('./product-engine-boundary.cjs');
+        try { return normalizeProductFormat(input.productFormat || 'static'); }
+        catch { return 'static'; }
+      })()
     };
 
     if (input.conversationUrl) {
@@ -2603,6 +3338,7 @@ function registerIpc() {
     }
 
     store.createProject(project, generated.jobs);
+    persistModeForNewBook(projectId, project.productFormat);
     store.appendEvent({
       projectId,
       level: 'success',
@@ -2637,61 +3373,74 @@ function registerIpc() {
   });
 
   ipcMain.handle('analysis:analyze', async (_event, input = {}) => {
-    assertIdle();
-    requireGeminiForPlanning('starting analysis');
     const listing = resolveListingAnalysisInput(input);
-    const cacheKey = parseTptProductUrl(listing.productUrl)?.productId || randomUUID();
-    const mockupDir = join(app.getPath('userData'), 'competitor-mockup-cache', cacheKey);
-    mkdirSync(mockupDir, { recursive: true });
-    const result = await browser.analyzeProductWithGpt({ ...listing, mockupDestDir: mockupDir });
-    const analysis = parseAnalysisResponse(result.rawText);
-    const format = FORMAT_INSTRUCTIONS[listing.format] ? listing.format : 'LETTER';
-    const orientation = normalizeOrientation(listing.orientation);
-
-    const projectId = randomUUID();
-    const defaultBookName = analysis.title || `Book Project ${store.listProjects().length + 1}`;
-    const root = join(app.getPath('documents'), APP_NAME);
-    const outputDir = join(root, `${slugify(defaultBookName)}-${projectId.slice(0, 6)}`);
-    mkdirSync(outputDir, { recursive: true });
-    const competitorMockups = saveCompetitorMockups(result.mockups, outputDir);
-
-    const project = {
-      id: projectId,
-      name: defaultBookName,
-      theme: defaultBookName,
-      niche: analysis.description || 'analyzed competitor product',
-      format,
-      orientation,
-      style: 'Concept Only',
-      activityCount: 0,
-      status: 'draft',
-      outputDir,
-      conversationUrl: result.conversationUrl,
-      highlights: analysis.keyHighlights || [],
-      targetAge: analysis.targetAge || 'Pre-K to 2nd Grade',
-      description: analysis.description || '',
-      competitorMockups,
-      productFormat: analysis.productFormat || 'static'
-    };
-
-    store.createProject(project, []);
-    store.updateProject(projectId, { competitorMockups });
-    const mockupCount = competitorMockupPaths(competitorMockups).length;
-    store.appendEvent({
-      projectId,
-      level: mockupCount ? 'success' : competitorMockups?.status === 'ok' ? 'success' : 'warn',
-      message: mockupCount
-        ? `Saved ${mockupCount} competitor listing mockup${mockupCount === 1 ? '' : 's'} for vision-based prompt generation.`
-        : competitorMockups?.warning || 'Competitor listing mockups were not captured. Prompt generation will use the URL and text analysis only.'
+    // A product URL from Gate / VERSA AGENT is a handoff, not a second
+    // generation. Do not wait for the page queue to go idle.
+    if (!listing.productUrl) assertIdle();
+    requireGeminiForPlanning('starting analysis');
+    // The work is a durable task, not this call's stack. If the window closes,
+    // the app restarts, or the caller stops waiting, the analysis keeps its place
+    // in the queue and its result is committed when it lands — instead of the
+    // stage sitting in "analyzing" with nothing behind it.
+    const task = store.tasks.enqueue({
+      kind: TASK_KIND.ANALYSIS,
+      projectId: null,
+      dedupeKey: dedupeKey(TASK_KIND.ANALYSIS, null, listing.productUrl || listing.concept || 'adhoc'),
+      payload: { listing },
+      maxAttempts: 6
     });
     await broadcastState();
+    const finished = await awaitTask(store, task.id, { timeoutMs: 15 * 60_000 });
+    return finished.result;
+  });
 
+  /**
+   * Start VERSA AGENT.
+   *
+   * Returns as soon as the scan is queued. The scan and the analysis it triggers
+   * are both durable tasks, so closing the dialog — or the app — does not stop
+   * them, and the result appears in the library when it lands.
+   */
+  ipcMain.handle('agent:scan-trends', async (_event, input = {}) => {
+    const query = String(input?.query || '').trim().slice(0, 120);
+    const marketplace = normalizeTrendMarketplace(input?.marketplace ?? input?.sources);
+    const scanKey = dedupeKey(TASK_KIND.TREND_SCAN, null, `${marketplace}:${query || 'all'}`);
+    const analysisOpen = (store.tasks.listOpen() || []).some((item) => item.kind === TASK_KIND.ANALYSIS);
+    const recentScan = (store.tasks.latestByKinds([TASK_KIND.TREND_SCAN], { limit: 8 }) || [])
+      .find((item) => item.dedupeKey === scanKey);
+    if (analysisOpen && recentScan?.state === 'done') {
+      // #region agent log
+      fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H163',location:'src/main.cjs:agent:scan-trends',message:'reused finished scan instead of starting a second one',data:{query,marketplace,taskId:recentScan.id,analysisOpen:true},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      return { taskId: recentScan.id, state: recentScan.state, reused: true };
+    }
+    const task = store.tasks.enqueue({
+      kind: TASK_KIND.TREND_SCAN,
+      dedupeKey: scanKey,
+      payload: { query, marketplace },
+      maxAttempts: 2
+    });
+    store.appendEvent({
+      level: 'info',
+      message: query
+        ? `VERSA AGENT is scanning ${TREND_SOURCES[marketplace]?.label || marketplace} for "${query}".`
+        : `VERSA AGENT is scanning trending products on ${TREND_SOURCES[marketplace]?.label || marketplace}.`
+    });
+    await broadcastState();
+    return { taskId: task.id, state: task.state };
+  });
+
+  /** What the agent found, for the panel that shows it. */
+  ipcMain.handle('agent:scan-result', async (_event, taskId) => {
+    const task = store.tasks.get(taskId);
+    if (!task) return null;
     return {
-      project: store.getProject(projectId),
-      analysis,
-      conversationUrl: result.conversationUrl,
-      competitorMockups,
-      promptReceipt: result.promptReceipt || browser.lastPromptReceipt || null
+      id: task.id,
+      state: task.state,
+      attempts: task.attempts,
+      checkpoint: task.checkpoint,
+      lastError: task.lastError,
+      result: task.result
     };
   });
 
@@ -2852,6 +3601,22 @@ function registerIpc() {
 
       const includeMockups = payload.includeCompetitorMockups !== false;
       const attachmentPaths = competitorMockupAttachments(existingProject, includeMockups);
+      const { normalizeProductFormat } = require('./product-engine-boundary.cjs');
+      const chosenFormat = normalizeProductFormat(payload.productFormat || existingProject.productFormat || 'static');
+      if (payload.productFormat) {
+        store.updateProject(projectId, { productFormat: chosenFormat });
+      }
+      if (chosenFormat === 'maze') {
+        require('./maze-service.cjs').ensureMazeProject(store, projectId);
+        store.appendEvent({
+          projectId,
+          level: 'success',
+          message: 'Maze Lab opened.'
+        });
+        await broadcastState();
+        return store.getProject(projectId);
+      }
+
       const result = await browser.generatePromptsWithGpt({
         conversationUrl: activeUrl,
         pageCount,
@@ -2861,10 +3626,19 @@ function registerIpc() {
         title: existingProject.name,
         theme: existingProject.theme,
         niche: existingProject.niche,
-        productFormat: existingProject.productFormat || 'static',
-        seed: `${existingProject.id} | ${existingProject.name} | ${existingProject.theme} | ${existingProject.niche} | ${existingProject.productFormat || 'static'}`
+        productFormat: chosenFormat,
+        seed: `${existingProject.id} | ${existingProject.name} | ${existingProject.theme} | ${existingProject.niche} | ${chosenFormat}`,
+        onBatch: (payload) => {
+          const { startPage, endPage, have, total, phase } = payload || {};
+          console.log(`[analysis] Content Gem prompt batch: pages ${startPage}–${endPage} (${have}/${total} saved)${phase ? ` [${phase}]` : ''}.`);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('analysis:prompt-progress', payload);
+          }
+        }
       });
-      const prompts = parseGeneratedPrompts(result.rawText, pageCount);
+      const prompts = Array.isArray(result.prompts) && result.prompts.length
+        ? result.prompts
+        : parseGeneratedPrompts(result.rawText, pageCount);
       const generated = prompts.pages
         ? buildImportedJobs({
           pages: prompts.pages,
@@ -2905,9 +3679,16 @@ function registerIpc() {
       title: name,
       theme,
       niche,
-      seed: `${name} | ${theme} | ${niche} | ${pageCount}`
+      seed: `${name} | ${theme} | ${niche} | ${pageCount}`,
+      onBatch: (payload) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('analysis:prompt-progress', payload);
+        }
+      }
     });
-    const prompts = parseGeneratedPrompts(result.rawText, pageCount);
+    const prompts = Array.isArray(result.prompts) && result.prompts.length
+      ? result.prompts
+      : parseGeneratedPrompts(result.rawText, pageCount);
     const promptsText = prompts.join('\n');
 
     const newProjectId = randomUUID();
@@ -2935,10 +3716,12 @@ function registerIpc() {
       conversationUrl: activeUrl,
       highlights: [],
       targetAge: '',
-      description: ''
+      description: '',
+      productFormat: payload.productFormat || 'static'
     };
 
     store.createProject(project, generated.jobs);
+    persistModeForNewBook(newProjectId, project.productFormat);
     store.appendEvent({
       projectId: newProjectId,
       level: 'success',
@@ -2995,25 +3778,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('browser:open-login', async (_event, target = null) => {
-    const rawTarget = String(target && typeof target === 'object' ? (target.target ?? target.engine ?? '') : (target || '')).trim().toLowerCase();
     const selectedProfile = store.getSetting('chatgptSelectedProfile', null);
-    // #region agent log
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      fs.appendFileSync(path.join(__dirname, '..', '.cursor', 'debug-1c3662.log'), `${JSON.stringify({
-        sessionId: '1c3662', runId: 'browser-lock', hypothesisId: 'L', location: 'main.cjs:browser:open-login',
-        message: 'UNLOCK for profile sign-in only',
-        data: { rawTarget }, timestamp: Date.now()
-      })}\n`);
-    } catch { /* ignore */ }
-    // #endregion
-    if (rawTarget === 'canva') {
-      if (!isCanvaAvailable()) throw canvaUnavailableError();
-      const result = await browser.openLoginBrowser(selectedProfile, { target: 'canva' });
-      await broadcastState();
-      return result;
-    }
     const engine = normalizeEngine(target || getActiveEngine());
     const result = await browser.openLoginBrowser(selectedProfile, { target: engine });
     await broadcastState();
@@ -3028,37 +3793,6 @@ function registerIpc() {
   });
 
   ipcMain.handle('browser:verify-login', async (_event, target = null) => {
-    const rawTarget = String(target && typeof target === 'object' ? (target.target ?? target.engine ?? '') : (target || '')).trim().toLowerCase();
-    if (rawTarget === 'canva') {
-      if (!isCanvaAvailable()) throw canvaUnavailableError();
-      const selectedProfile = store.getSetting('chatgptSelectedProfile', null);
-      try {
-        const result = await browser.verifyLogin(selectedProfile, { target: 'canva' });
-        store.setSetting('canvaLoginConfirmed', Boolean(result.authenticated));
-        store.setSetting('canvaAccountProfile', {
-          name: cleanText(result.accountProfile?.name),
-          email: cleanText(result.accountProfile?.email),
-          label: cleanText(result.accountProfile?.label),
-          sourceBrowser: cleanText(result.sourceBrowser),
-          sourceProfile: cleanText(result.sourceProfile),
-          verifiedAt: new Date().toISOString()
-        });
-        store.appendEvent({ level: result.authenticated ? 'success' : 'warn', message: result.authenticated ? 'Canva Pro login verified.' : 'Canva is not signed in yet.' });
-        if (result.authenticated) await lockBrowserDesk('after-canva-verify');
-        await broadcastState();
-        return { ...result, engine: 'canva' };
-      } catch (error) {
-        store.setSetting('canvaLoginConfirmed', false);
-        store.appendEvent({
-          level: 'warn',
-          message: `Canva login verification failed: ${error.message}`,
-          details: { code: error.code ?? 'CANVA_VERIFICATION_FAILED' }
-        });
-        await lockBrowserDesk('after-canva-verify-fail');
-        await broadcastState();
-        throw error;
-      }
-    }
     const engine = normalizeEngine(target || getActiveEngine());
     const selectedProfile = store.getSetting('chatgptSelectedProfile', null);
     const serviceName = engineDisplayName(engine);
@@ -3094,11 +3828,30 @@ function registerIpc() {
     }
   });
 
+  // Clipboard, cancel and the debug sink. The preload exposed all three, so every call
+  // rejected with "No handler registered" - which is what made Copy do nothing and the
+  // countdown Cancel button report a failure it could not explain.
+  ipcMain.handle('util:copy', async (_event, text) => {
+    clipboard.writeText(String(text ?? ''));
+    return true;
+  });
+
+  ipcMain.handle('app:cancel-system-action', async () => {
+    // Whatever shutdown/sleep countdown is pending, this stops it.
+    const cancelled = cancelPendingSystemAction();
+    if (cancelled) store.appendEvent({ level: 'notice', message: 'Scheduled system action cancelled.' });
+    return cancelled;
+  });
+
+  // The renderer's debug sink. It is called with optional chaining, so a missing
+  // handler produced an unhandled rejection on every call rather than an error anyone
+  // could see. Kept deliberately quiet.
   ipcMain.handle('browser:logout-chatgpt', async () => {
     await browser.logout('chatgpt');
     store.setSetting('chatgptLoginConfirmed', false);
     store.setSetting('chatgptAccountProfile', null);
     store.appendEvent({ level: 'info', message: 'ChatGPT session logged out. Gemini was left signed in.' });
+    syncBrowserVerifiedAccounts();
     await broadcastState();
     return { success: true };
   });
@@ -3108,6 +3861,7 @@ function registerIpc() {
     store.setSetting('geminiLoginConfirmed', false);
     store.setSetting('geminiAccountProfile', null);
     store.appendEvent({ level: 'info', message: 'Gemini session logged out. ChatGPT was left signed in.' });
+    syncBrowserVerifiedAccounts();
     await broadcastState();
     return { success: true };
   });
@@ -3117,173 +3871,205 @@ function registerIpc() {
     store.setSetting('metaLoginConfirmed', false);
     store.setSetting('metaAccountProfile', null);
     store.appendEvent({ level: 'info', message: 'Meta AI session logged out. ChatGPT and Gemini were left signed in.' });
+    syncBrowserVerifiedAccounts();
     await broadcastState();
     return { success: true };
   });
 
-  ipcMain.handle('browser:logout-canva', async () => {
-    await browser.logout('canva');
-    store.setSetting('canvaLoginConfirmed', false);
-    store.setSetting('canvaAccountProfile', null);
-    store.appendEvent({ level: 'info', message: 'Canva session logged out. ChatGPT, Gemini, and Meta were left signed in.' });
-    await broadcastState();
-    return { success: true };
-  });
-
-  ipcMain.handle('settings:get-canva-templates', () => store.getCanvaTemplates());
-
-  ipcMain.handle('settings:set-canva-templates', async (_event, templates) => {
-    const list = Array.isArray(templates) ? templates : [];
-    store.setCanvaTemplates(list);
-    await broadcastState();
-    return store.getCanvaTemplates();
-  });
-
-  ipcMain.handle('project:run-canva-editable', async (_event, projectId, options = {}) => {
-    assertIdle();
-    const result = await runCanvaEditableForProject(projectId, () => {}, options || {});
-    return result;
-  });
-
-  ipcMain.handle('project:canva-dry-run', async (_event, projectId) => {
-    assertIdle();
-    return runCanvaEditableForProject(projectId, () => {}, { dryRun: true, humanEnabled: false });
-  });
-
-  ipcMain.handle('project:canva-health-check', async (_event, projectId) => {
-    if (!isCanvaAvailable()) throw canvaUnavailableError();
+  ipcMain.handle('project:run-editable-generation', async (_event, projectId) => {
+    if (!editableAbortController) assertIdle();
+    store.lockProductEngine(projectId);
+    // The manual button and the automated stage assemble the same three deliverables.
+    // They used to diverge, which is how the deck and PDF could exist without the Word
+    // document that every marketing generator then went looking for.
     const project = store.getProject(projectId);
-    if (liveOperation?.kind && liveOperation.kind !== 'canva') assertBrowserFree('Canva health check');
-    const designUrl = liveOperation?.kind === 'canva' ? null : (project?.canvaDesignUrl || null);
-    return browser.inspectCanvaEnvironment({ designUrl });
-  });
-
-  ipcMain.handle('canva:pause-job', async () => {
-    const help = {
-      happened: 'Operator paused the Canva controller.',
-      expected: 'The current verified Canva state, unchanged.',
-      undetermined: 'Nothing — the job is paused on purpose.',
-      userShouldClick: 'Leave Canva as it is, then press Resume. If the Upload dialog is waiting, drop the print PDF first.'
-    };
-    const lastError = liveOperation?.lastError || store.getProject(liveOperation?.projectId || store.getSetting('selectedProjectId'))?.canvaJobJson?.lastError;
-    const payload = lastError && isHumanRecoverableCanvaError({ message: lastError }) && !isPdfImportOpenDesignStage({ message: lastError })
-      ? pdfImportHumanHelp(lastError)
-      : help;
-    browser.pauseForHuman(payload);
-    const intervention = browser.canvaJob?.intervention || payload;
-    if (liveOperation?.kind === 'canva') {
-      setLiveOperation({
-        ...liveOperation,
-        message: 'Paused. Canva stays open. Resume when you are ready.',
-        intervention
-      });
-    } else {
-      const projectId = store.getSetting('selectedProjectId');
-      const current = projectId ? store.getProject(projectId) : null;
-      if (current) {
-        store.updateProject(projectId, {
-          canvaJobJson: {
-            ...(current.canvaJobJson || {}),
-            intervention,
-            interrupted: true
-          }
+    const { isTextFreeProject } = require('./text-free-pipeline.cjs');
+    if (isTextFreeProject(store, project) || (project && listEditablePages(project).length)) {
+      setLiveOperation({ kind: 'editable-generation', projectId, percent: 0, message: 'Assembling deliverables…' });
+      try {
+        const built = await assembleEditableDeliverables(projectId, (percent) => {
+          setLiveOperation({ kind: 'editable-generation', projectId, percent, message: 'Assembling deliverables…' });
+          broadcastState().catch(() => {});
         });
+        return built;
+      } catch (error) {
+        const fatal = /cannot import name|ImportError|ModuleNotFoundError|FATAL_ENGINE_ERROR/i.test(String(error.message || ''));
+        const wrapped = Object.assign(error, { code: error.code || (fatal ? 'FATAL_ENGINE_ERROR' : error.code) });
+        store.appendEvent({ projectId, level: 'error', message: wrapped.message });
+        throw wrapped;
+      } finally {
+        setLiveOperation(null);
+        await broadcastState();
       }
     }
-    await broadcastState();
-    return { paused: true, lockMessage: 'Canva browser currently controlled by VERSA.' };
+    return startNativeEditableInBackground(projectId);
   });
 
-  ipcMain.handle('canva:resume-job', async () => {
-    if (liveOperation?.kind === 'canva') {
-      setLiveOperation({ ...liveOperation, intervention: null, message: 'Resuming Canva editable…' });
+  // Stage 2. Separate from assembly so the editable build itself stays local and instant.
+  ipcMain.handle('project:generate-editable-text', async (_event, projectId, options) => {
+    assertIdle();
+    const project = store.getProject(projectId);
+    if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+    store.lockProductEngine(projectId);
+
+    const { isTextFreeProject, prepareTextFreeManifests } = require('./text-free-pipeline.cjs');
+    if (isTextFreeProject(store, project)) {
+      const prepared = prepareTextFreeManifests({ store, project });
+      store.appendEvent({
+        projectId,
+        level: 'success',
+        message: `Text-free masters confirmed: ${prepared.pages} page(s), ${prepared.zones} zone(s). Nothing was erased.`
+      });
+      try {
+        await assembleEditableDeliverables(projectId, () => {});
+      } catch (error) {
+        store.appendEvent({ projectId, level: 'error', message: error.message });
+      }
+      await broadcastState();
+      return { total: prepared.pages, written: prepared.pages, source: 'manifest', zones: prepared.zones };
+    }
+
+    // Local pipeline first. This handler used to require a Gemini session and go
+    // straight to the gem, which is why pressing Run on Interior Text sat at 0% -
+    // it was waiting on a browser, not on the engine that does the work.
+    const visionReady = await visionBridge.status().then((s) => s.ok && s.ready).catch(() => false);
+    if (visionReady) {
+      const localController = new AbortController();
+      editableAbortController = localController;
+      const watchPages = (project.jobs || [])
+        .filter((job) => !options?.jobIds || options.jobIds.includes(job.id))
+        .map((job) => ({ jobId: job.id, pageNumber: job.pageNumber }));
+      const observer = attachTextLabObserver(projectId, watchPages);
+      try {
+        observer.setPhase('starting');
+        observer.setPhase('reading');
+        const read = await runPageVision({
+          store,
+          projectId,
+          jobIds: options?.jobIds || null,
+          force: Boolean(options?.force),
+          signal: localController.signal,
+          onActivity: textLabPageActivity(observer),
+          onProgress: (percent) => {
+            setLiveOperation({
+              kind: 'editable-text', projectId,
+              percent: Math.round(percent * 0.5),
+              message: 'Reading pages (MobileSAM + PaddleOCR)…',
+              remainingMs: observer.snapshot()?.remainingMs,
+              phase: 'reading'
+            });
+            broadcastState().catch(() => {});
+          }
+        });
+        observer.setPhase('rebuilding');
+        const built = await buildEditablePages({
+          store,
+          projectId,
+          jobIds: options?.jobIds || null,
+          // A single page is re-read on demand, so its compiled page must be rebuilt
+          // even though one already exists on disk.
+          force: Boolean(options?.force) || Boolean(options?.jobIds),
+          signal: localController.signal,
+          onActivity: textLabPageActivity(observer),
+          onProgress: (percent) => {
+            setLiveOperation({
+              kind: 'editable-text', projectId,
+              percent: 50 + Math.round(percent * 0.5),
+              message: 'Erasing text and rebuilding pages…',
+              remainingMs: observer.snapshot()?.remainingMs,
+              phase: 'rebuilding'
+            });
+            broadcastState().catch(() => {});
+          }
+        });
+        store.appendEvent({
+          projectId, level: built.failures?.length ? 'warn' : 'success',
+          message: `Interior Text: ${built.pages} editable page(s), ${built.editableText} live text run(s)`
+            + `${built.bakedText ? `, ${built.bakedText} left in artwork` : ''}.`
+        });
+        if (read.failures.length) {
+          store.appendEvent({
+            projectId, level: 'warn',
+            message: `${read.failures.length} page(s) could not be read: `
+              + read.failures.map((f) => `p${f.pageNumber} ${f.code}`).join(', ')
+          });
+        }
+        if (built.failures?.length) {
+          store.appendEvent({
+            projectId, level: 'warn',
+            message: `${built.failures.length} page(s) could not be rebuilt: `
+              + built.failures.map((f) => `p${f.pageNumber} ${f.code}`).join(', ')
+          });
+        }
+        if (!built.failures?.length) {
+          try {
+            const ready = store.getProject(projectId);
+            if (ready && listEditablePages(ready).length) {
+              await assembleEditableDeliverables(projectId, () => {});
+            }
+          } catch (error) {
+            store.appendEvent({ projectId, level: 'error', message: error.message });
+          }
+        }
+        return { total: built.pages, written: built.pages, editableText: built.editableText, bakedText: built.bakedText, source: 'vision' };
+      } catch (error) {
+        if (error.code !== 'STEP_ABORTED' && error.code !== 'CANCELLED') {
+          store.appendEvent({ projectId, level: 'error', message: error.message });
+        }
+        throw error;
+      } finally {
+        observer.stop();
+        editableAbortController = null;
+        setLiveOperation(null);
+        await broadcastState();
+      }
+    }
+
+    // No local vision environment: fall back to the gem, exactly as before.
+    assertBrowserFree('writing page text');
+    requireGeminiForPlanning('page text');
+    const controller = new AbortController();
+    editableAbortController = controller;
+    browser.beginWork?.();
+    setLiveOperation({ kind: 'editable-text', projectId, percent: 0, message: 'Writing page text…' });
+    try {
+      const result = await generateEditablePageText({
+        store,
+        projectId,
+        provider: createEditableBrowserProvider(browser, { signal: controller.signal, onActivity: () => {} }),
+        signal: controller.signal,
+        jobIds: options?.jobIds || null,
+        force: Boolean(options?.force),
+        onProgress: (percent) => {
+          setLiveOperation({ kind: 'editable-text', projectId, percent, message: 'Writing page text…' });
+          broadcastState().catch(() => {});
+        }
+      });
+      store.appendEvent({ projectId, level: 'success', message: `Page text ready for ${result.total} page(s).` });
+      return result;
+    } catch (error) {
+      if (error.code !== 'STEP_ABORTED') store.appendEvent({ projectId, level: 'error', message: error.message });
+      throw error;
+    } finally {
+      editableAbortController = null;
+      setLiveOperation(null);
       await broadcastState();
     }
-    const projectId = store.getSetting('selectedProjectId') || liveOperation?.projectId;
-    if (!projectId) throw Object.assign(new Error('Select a book first.'), { code: 'PROJECT_NOT_FOUND' });
-    const current = store.getProject(projectId);
-    if (current?.canvaJobJson?.intervention) {
-      store.updateProject(projectId, {
-        canvaJobJson: { ...current.canvaJobJson, intervention: null, interrupted: false }
-      });
-    }
-    return runCanvaEditableForProject(projectId, () => {}, {});
   });
 
-  ipcMain.handle('canva:retry-step', async () => {
-    const projectId = store.getSetting('selectedProjectId') || liveOperation?.projectId;
-    if (!projectId) throw Object.assign(new Error('Select a book first.'), { code: 'PROJECT_NOT_FOUND' });
-    return runCanvaEditableForProject(projectId, () => {}, {});
-  });
-
-  ipcMain.handle('canva:retry-page', async () => {
-    const projectId = store.getSetting('selectedProjectId') || liveOperation?.projectId;
-    if (!projectId) throw Object.assign(new Error('Select a book first.'), { code: 'PROJECT_NOT_FOUND' });
-    return runCanvaEditableForProject(projectId, () => {}, {});
-  });
-
-  ipcMain.handle('canva:resume-from-page', async (_event, pageNumber) => {
-    const projectId = store.getSetting('selectedProjectId') || liveOperation?.projectId;
-    if (!projectId) throw Object.assign(new Error('Select a book first.'), { code: 'PROJECT_NOT_FOUND' });
-    return runCanvaEditableForProject(projectId, () => {}, { resumeFromPage: Number(pageNumber) || null });
-  });
-
-  ipcMain.handle('canva:abort', async () => {
-    return pauseAllWork('Canva editable aborted. Re-run Build Canva layer when ready.');
-  });
-
-  ipcMain.handle('canva:resolve-intervention', async (_event, decision) => {
-    const choice = String(decision || 'done').trim().toLowerCase();
-    const projectId = store.getSetting('selectedProjectId') || liveOperation?.projectId;
-    const current = projectId ? store.getProject(projectId) : null;
-    if (choice === 'abort') {
-      return pauseAllWork('Canva editable aborted. Re-run Build Canva layer when ready.');
-    }
-    if (current) {
-      store.updateProject(projectId, {
-        canvaJobJson: { ...(current.canvaJobJson || {}), intervention: null, interrupted: false }
-      });
-    }
-    if (!projectId) throw Object.assign(new Error('Select a book first.'), { code: 'PROJECT_NOT_FOUND' });
-    const result = await runCanvaEditableForProject(projectId, () => {}, {});
-    return { decision: choice === 'retry' ? 'retry' : 'done', result };
-  });
-
-  ipcMain.handle('project:clear-canva-template', async (_event, projectId) => {
-    const project = store.getProject(projectId);
-    if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
-    assertNotGeneratingProject(projectId, 'removing the Canva template');
-    store.updateProject(projectId, {
-      canvaTemplateLink: null,
-      canvaDesignUrl: null,
-      canvaExportPath: null,
-      canvaPageProgress: [],
-      canvaPdfUploaded: false,
-      canvaJobJson: null,
-      stepEditableStatus: 'pending'
-    });
-    store.appendEvent({ projectId, message: 'Canva template cleared. You can re-run Build Canva layer.' });
+  ipcMain.handle('queue:generate-job', async (_event, jobId) => {
+    const existing=store.getJob(jobId);
+    if (existing) restoreDefaultArtworkPrompts(existing.projectId, [jobId]);
+    const job=store.getJob(jobId);
+    if (!job) throw Object.assign(new Error('Page not found.'),{code:'JOB_NOT_FOUND'});
+    const project=store.getProject(job.projectId);
+    if (!project.outputDir) throw Object.assign(new Error('Choose the output folder first.'),{code:'OUTPUT_DIR_REQUIRED'});
+    if (!queue.running) assertBrowserFree('generating this image');
+    requireActiveEngine('generating this image');
+    store.lockProductEngine(project.id);
+    const result=queue.generate(jobId);
     await broadcastState();
-    return store.getProject(projectId);
-  });
-
-  ipcMain.handle('project:clear-tpt-listing', async (_event, projectId) => {
-    const project = store.getProject(projectId);
-    if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
-    assertNotGeneratingProject(projectId, 'deleting the listing');
-    const listing = project.tptListing || {};
-    for (const filePath of [...(listing.thumbnailPaths || []), listing.previewPdfPath, listing.videoPreviewPath]) {
-      tryRemovePath(filePath);
-    }
-    store.updateProject(projectId, {
-      tptListing: null,
-      stepListingStatus: 'pending',
-      stepThumbnailsStatus: 'pending',
-      stepPreviewStatus: 'pending'
-    });
-    store.appendEvent({ projectId, message: 'Listing, mockups, and preview were deleted. Generate a new draft when ready.' });
-    await broadcastState();
-    return store.getProject(projectId);
+    return result;
   });
 
   ipcMain.handle('project:clear-tpt-thumbnail', async (_event, projectId, index) => {
@@ -3292,16 +4078,21 @@ function registerIpc() {
     if (!project || !listing) throw Object.assign(new Error('Create the listing draft first.'), { code: 'TPT_LISTING_REQUIRED' });
     assertNotGeneratingProject(projectId, 'deleting a mockup');
     const slot = Math.max(0, Math.min(3, Number(index) || 0));
-    const thumbnailPaths = [...(listing.thumbnailPaths || [])];
+    const thumbnailPaths = [...getMockups(project).paths];
     tryRemovePath(thumbnailPaths[slot]);
     thumbnailPaths[slot] = null;
+    const completed = thumbnailPaths.filter(Boolean).length;
     store.updateProject(projectId, {
-      tptListing: invalidateTptListingReview(listing, {
-        thumbnailPaths,
-        status: thumbnailPaths.filter(Boolean).length ? 'draft_reviewing' : 'draft_ready',
-        thumbnailProgress: { completed: thumbnailPaths.filter(Boolean).length, total: 4 }
-      }),
-      stepThumbnailsStatus: thumbnailPaths.filter(Boolean).length ? project.stepThumbnailsStatus : 'pending'
+      tptListing: applyMockupsToListing(
+        invalidateTptListingReview(listing, {
+          status: completed ? 'draft_reviewing' : 'draft_ready'
+        }),
+        {
+          paths: thumbnailPaths,
+          progress: { completed, total: 4 }
+        }
+      ),
+      stepThumbnailsStatus: completed ? project.stepThumbnailsStatus : 'pending'
     });
     store.appendEvent({ projectId, message: `Listing mockup ${slot + 1} deleted.` });
     await broadcastState();
@@ -3313,13 +4104,16 @@ function registerIpc() {
     const listing = project?.tptListing;
     if (!project || !listing) throw Object.assign(new Error('Create the listing draft first.'), { code: 'TPT_LISTING_REQUIRED' });
     assertNotGeneratingProject(projectId, 'deleting mockups');
-    for (const filePath of listing.thumbnailPaths || []) tryRemovePath(filePath);
+    for (const filePath of getMockups(project).paths) tryRemovePath(filePath);
     store.updateProject(projectId, {
-      tptListing: invalidateTptListingReview(listing, {
-        thumbnailPaths: [],
-        status: 'draft_ready',
-        thumbnailProgress: { completed: 0, total: 4 }
-      }),
+      tptListing: applyMockupsToListing(
+        invalidateTptListingReview(listing, { status: 'draft_ready' }),
+        {
+          paths: [],
+          progress: { completed: 0, total: 4 },
+          error: null
+        }
+      ),
       stepThumbnailsStatus: 'pending'
     });
     store.appendEvent({ projectId, message: 'All listing mockups were deleted.' });
@@ -3360,6 +4154,77 @@ function registerIpc() {
     return updated;
   });
 
+  ipcMain.handle('job:clear-all', async (_event, projectId) => {
+    const project = store.getProject(projectId);
+    if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+    assertNotGeneratingProject(projectId, 'deleting page images');
+    const jobs = store.listJobs(projectId);
+    for (const job of jobs) {
+      tryRemovePath(job.outputPath);
+      store.updateJob(job.id, {
+        status: job.editInstruction ? 'edit_pending' : 'pending',
+        outputPath: null,
+        width: null,
+        height: null,
+        attempts: 0,
+        lastError: null,
+        lastErrorCode: null,
+        baselineJson: null
+      });
+    }
+    store.updateProjectStepStatus(projectId, 'interior', 'pending');
+    store.appendEvent({ projectId, message: 'All page images were deleted.' });
+    await broadcastState();
+    return store.getProject(projectId);
+  });
+
+  ipcMain.handle('text-lab:clear-all', async (_event, projectId) => {
+    const project = store.getProject(projectId);
+    if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+    assertNotGeneratingProject(projectId, 'deleting text lab work');
+    clearPageVision(store, project);
+    for (const job of store.listJobs(projectId)) {
+      store.updateJob(job.id, { textOverlays: [], baselineJson: null });
+    }
+    try { clearEditablePages(project); } catch { /* nothing compiled */ }
+    store.updateProjectStepStatus(projectId, 'interior_text', 'pending');
+    store.appendEvent({ projectId, message: 'Text Lab was cleared.' });
+    await broadcastState();
+    return store.getProject(projectId);
+  });
+
+  ipcMain.handle('editable:clear-all', async (_event, projectId) => {
+    const project = store.getProject(projectId);
+    if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+    assertNotGeneratingProject(projectId, 'deleting editable files');
+    try { clearEditablePages(project); } catch { /* nothing compiled */ }
+    store.updateProject(projectId, { editableOutputJson: null, printPdfJson: null });
+    store.updateProjectStepStatus(projectId, 'editable_ppt', 'pending');
+    store.appendEvent({ projectId, message: 'Editable Lab was cleared.' });
+    await broadcastState();
+    return store.getProject(projectId);
+  });
+
+  ipcMain.handle('project:clear-preview', async (_event, projectId) => {
+    const project = store.getProject(projectId);
+    if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+    assertNotGeneratingProject(projectId, 'deleting the preview');
+    const listing = project.tptListing || {};
+    tryRemovePath(listing.videoPreviewPath || listing.video?.path);
+    store.updateProject(projectId, {
+      tptListing: applyVideoToListing(listing, {
+        path: null,
+        status: 'pending',
+        error: null,
+        conversationUrl: null
+      }),
+      stepPreviewStatus: 'pending'
+    });
+    store.appendEvent({ projectId, message: 'Preview was deleted.' });
+    await broadcastState();
+    return store.getProject(projectId);
+  });
+
   ipcMain.handle('browser:get-system-profiles', async () => {
     return await browser.getSystemProfiles();
   });
@@ -3393,8 +4258,14 @@ function registerIpc() {
 
   ipcMain.handle('queue:start', async (_event, projectId, options = {}) => {
     const opts = options && typeof options === 'object' ? options : {};
+    restoreDefaultArtworkPrompts(projectId);
     if (opts.engine) setActiveEngine(opts.engine);
-    requireActiveEngine('starting generation');
+    const pausedAutomation=automation?.getStatus();
+    if (pausedAutomation?.active && pausedAutomation.paused && pausedAutomation.currentProjectId === projectId) {
+      return automation.start({projectId});
+    }
+    if (queue.running && queue.pauseRequested && queue.activeProjectId === projectId) return queue.start(projectId);
+    if (editableAbortController && liveOperation?.projectId === projectId) return startNativeEditableInBackground(projectId);
     if (!opts.automation) assertBrowserFree('interior pages');
     let project = store.getProject(projectId);
     if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
@@ -3423,6 +4294,8 @@ function registerIpc() {
         project = store.getProject(projectId);
       }
     }
+    requireActiveEngine('starting generation');
+    store.lockProductEngine(projectId);
     queue.start(projectId);
     await broadcastState();
     return queue.status();
@@ -3592,8 +4465,8 @@ function registerIpc() {
   });
 
   ipcMain.handle('project:export-pdf', async (_event, projectId, options) => {
-    const project = await ensureThankYouPdfForProject(projectId);
-    const outputPath = await fileManager.exportPdf(project, options);
+    const project = store.getProject(projectId);
+    const outputPath = await fileManager.exportPdf(project, { ...(options || {}), store });
     const modeLabel = options?.exportMode === 'BOOKLET_SADDLE_STITCH' ? 'Booklet Spreads PDF' : 'PDF';
     store.appendEvent({ projectId, level: 'success', message: `${modeLabel} created: ${outputPath}` });
     await broadcastState();
@@ -3601,18 +4474,29 @@ function registerIpc() {
   });
 
   ipcMain.handle('project:export-zip', async (_event, projectId, options) => {
-    const project = await ensureThankYouPdfForProject(projectId);
-    const outputPath = await fileManager.exportZip(project, options);
+    const project = store.getProject(projectId);
+    const outputPath = await fileManager.exportZip(project, { ...(options || {}), store });
     const modeLabel = options?.exportMode === 'BOOKLET_SADDLE_STITCH' ? 'Booklet Spreads ZIP' : 'ZIP';
     store.appendEvent({ projectId, level: 'success', message: `${modeLabel} created: ${outputPath}` });
     await broadcastState();
     return outputPath;
   });
 
-  ipcMain.handle('project:export-pptx', async (_event, projectId, options) => {
-    const project = await ensureThankYouPdfForProject(projectId);
+  ipcMain.handle('project:export-docx', async (_event, projectId) => {
+    const project = store.getProject(projectId);
     if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
-    const outputPath = await fileManager.exportPptx(project, options);
+    const outputPath = await fileManager.exportDocx(project, { store });
+    store.appendEvent({ projectId, level: 'success', message: `Word document created: ${outputPath}` });
+    await broadcastState();
+    return outputPath;
+  });
+
+  ipcMain.handle('project:export-pptx', async (_event, projectId, options) => {
+    const project = store.getProject(projectId);
+    if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+    // The store goes through so the editable path can find the analysed pages. Without
+    // it that lookup silently fails and the export falls back to the flat deck.
+    const outputPath = await fileManager.exportPptx(project, { ...(options || {}), store });
     const modeLabel = options?.exportMode === 'BOOKLET_SADDLE_STITCH' ? 'Booklet Spreads PPTX' : 'PPTX';
     store.appendEvent({ projectId, level: 'success', message: `${modeLabel} created: ${outputPath}` });
     await broadcastState();
@@ -3620,185 +4504,34 @@ function registerIpc() {
   });
 
   ipcMain.handle('project:export-all-files', async (_event, projectId, options) => {
-    const project = await ensureThankYouPdfForProject(projectId);
+    const project = store.getProject(projectId);
     if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
     if (project.stats.complete !== project.stats.total || project.stats.total === 0) {
       throw Object.assign(new Error('Export All Files is available after every page is complete.'), { code: 'BOOK_INCOMPLETE' });
     }
-    const choice = await dialog.showOpenDialog(mainWindow, {
-      title: 'Choose where to export the complete book folder',
-      defaultPath: app.getPath('desktop'),
-      buttonLabel: 'Export all files here',
-      properties: ['openDirectory', 'createDirectory']
+    const destination = requireManagementDestination(options?.managementDestination);
+    const exported = await exportToManagementFolder({
+      project,
+      destination,
+      exportMode: options?.exportMode,
+      fileManager,
+      store,
+      bookName: options?.bookName || project.name
     });
-    if (choice.canceled || !choice.filePaths[0]) return null;
-    await fileManager.exportPdf(project, options);
-    await fileManager.exportZip(project, options);
-    const exportDirectory = uniqueExportDirectory(choice.filePaths[0], project.name);
-    cpSync(project.outputDir, exportDirectory, { recursive: true, errorOnExist: true, filter: (src) => !src.endsWith(".raw.png") });
-    store.appendEvent({ projectId, level: 'success', message: `All book files exported to: ${exportDirectory}` });
+    const exportDirectory = exported.exportDirectory;
+    const missingNote = (exported.result?.manifest?.missing || [])
+      .filter((item) => !item.required)
+      .map((item) => item.type)
+      .join(', ');
+    store.appendEvent({
+      projectId,
+      level: 'success',
+      message: missingNote
+        ? `Exported to Versa Management ${destination.productId}: ${exportDirectory} (optional missing: ${missingNote})`
+        : `Exported to Versa Management ${destination.productId}: ${exportDirectory}`
+    });
     await broadcastState();
     return exportDirectory;
-  });
-
-  ipcMain.handle('project:generate-tpt-listing', async (_event, projectId) => {
-    assertBrowserFree('SEO');
-    await assertListingChatSessionReady('preparing SEO');
-    const project = store.getProject(projectId);
-    if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
-    // #region agent log
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      const logPath = path.join(__dirname, '..', '.cursor', 'debug-1c3662.log');
-      fs.mkdirSync(path.dirname(logPath), { recursive: true });
-      fs.appendFileSync(logPath, `${JSON.stringify({
-        sessionId: '1c3662',
-        runId: 'seo-functional',
-        hypothesisId: 'SEO',
-        location: 'main.cjs:generate-tpt-listing',
-        message: 'SEO generate invoked',
-        data: {
-          projectId,
-          engine: getActiveEngine(),
-          stepListingStatus: project.stepListingStatus || null,
-          pagesComplete: project.stats?.complete,
-          pagesTotal: project.stats?.total,
-          hasExistingListing: Boolean(project.tptListing?.title)
-        },
-        timestamp: Date.now()
-      })}\n`);
-    } catch { /* ignore */ }
-    // #endregion
-    if (project.stats.complete !== project.stats.total || project.stats.total === 0) {
-      throw Object.assign(new Error('Complete every page before preparing SEO.'), { code: 'BOOK_INCOMPLETE' });
-    }
-    try {
-      await publishLiveOperation({
-        kind: 'listing',
-        label: 'SEO',
-        percent: 8,
-        message: 'Building the finished book PDF for SEO…',
-        projectId
-      });
-      const pdfPath = await ensureProductPdf(projectId);
-      if (!pdfPath) {
-        throw Object.assign(new Error('Complete every page before preparing SEO. The book PDF is built automatically when pages finish.'), {
-          code: 'BOOK_INCOMPLETE'
-        });
-      }
-      // Keep Word/Google-Doc export for the ZIP pack, but Gemini listing reads the PDF
-      // the same way TPT Book Automation did.
-      let seoDocPath = null;
-      try {
-        seoDocPath = await ensureSeoBookDocument(projectId);
-      } catch {
-        seoDocPath = null;
-      }
-      await publishLiveOperation({
-        kind: 'listing',
-        label: 'SEO',
-        percent: 32,
-        message: 'Uploading the finished book PDF and drafting best-seller SEO…',
-        projectId
-      });
-      // #region agent log
-      try {
-        const fs = require('fs');
-        const path = require('path');
-        fs.appendFileSync(path.join(__dirname, '..', '.cursor', 'debug-1c3662.log'), `${JSON.stringify({
-          sessionId: '1c3662', runId: 'seo-stage', hypothesisId: 'DOC', location: 'main.cjs:generate-tpt-listing:attach',
-          message: 'SEO attachment chosen',
-          data: {
-            projectId,
-            usedDoc: Boolean(seoDocPath),
-            attachmentExt: path.extname(pdfPath || ''),
-            attachmentBytes: pdfPath && existsSync(pdfPath) ? fs.statSync(pdfPath).size : 0,
-            attachMode: 'pdf-like-tpt-book-automation'
-          },
-          timestamp: Date.now()
-        })}\n`);
-      } catch { /* ignore */ }
-      // #endregion
-      const result = await browser.generateTptListingWithGpt({ project, pdfPath });
-      await publishLiveOperation({
-        kind: 'listing',
-        label: 'SEO',
-        percent: 88,
-        message: 'Saving title, description, and tags into one SEO draft…',
-        projectId
-      });
-      const previous = project.tptListing || {};
-      const listing = {
-        ...previous,
-        ...applyListingDefaults(parseTptListingResponse(result.rawText), getPreferences()),
-        rawResponse: result.rawText,
-        productPdfPath: pdfPath,
-        seoDocumentPath: seoDocPath || previous.seoDocumentPath || null,
-        conversationUrl: result.conversationUrl,
-        status: 'draft_ready',
-        thumbnailPaths: Array.isArray(previous.thumbnailPaths) ? previous.thumbnailPaths : [],
-        previewPdfPath: previous.previewPdfPath || null,
-        videoPreviewPath: previous.videoPreviewPath || null,
-        videoPreviewStatus: previous.videoPreviewStatus || null,
-        formContract: previous.formContract || null
-      };
-      listing.seoText = formatSeoBundleText(listing);
-      // #region agent log
-      try {
-        const fs = require('fs');
-        const path = require('path');
-        const logPath = path.join(__dirname, '..', '.cursor', 'debug-1c3662.log');
-        fs.appendFileSync(logPath, `${JSON.stringify({
-          sessionId: '1c3662',
-          runId: 'listing-debug',
-          hypothesisId: 'D',
-          location: 'main.cjs:generate-tpt-listing:parsed',
-          message: 'listing extracted from chat',
-          data: {
-            projectId,
-            engine: getActiveEngine(),
-            hasTitle: Boolean(listing.title),
-            hasDescription: Boolean(listing.description),
-            tagCount: Array.isArray(listing.tags) ? listing.tags.length : 0,
-            subjectCount: Array.isArray(listing.subjects) ? listing.subjects.length : 0,
-            rawLen: String(result.rawText || '').length,
-            conversationUrl: Boolean(result.conversationUrl)
-          },
-          timestamp: Date.now()
-        })}\n`);
-      } catch { /* ignore */ }
-      // #endregion
-      store.updateProject(projectId, { tptListing: listing, stepListingStatus: 'completed' });
-      store.appendEvent({ projectId, level: 'success', message: 'Best-seller SEO drafted from the finished book PDF.' });
-      return store.getProject(projectId);
-    } catch (error) {
-      // #region agent log
-      try {
-        const fs = require('fs');
-        const path = require('path');
-        const logPath = path.join(__dirname, '..', '.cursor', 'debug-1c3662.log');
-        fs.appendFileSync(logPath, `${JSON.stringify({
-          sessionId: '1c3662',
-          runId: 'listing-debug',
-          hypothesisId: 'D',
-          location: 'main.cjs:generate-tpt-listing:error',
-          message: 'listing generate failed',
-          data: { projectId, code: error?.code || null, err: String(error?.message || error).slice(0, 200) },
-          timestamp: Date.now()
-        })}\n`);
-      } catch { /* ignore */ }
-      // #endregion
-      store.updateProject(projectId, { stepListingStatus: 'pending' });
-      if (isPauseError(error)) {
-        store.appendEvent({ projectId, level: 'warn', message: 'Listing paused. Start again when you are ready.' });
-        throw Object.assign(new Error('Stopped. You paused this work.'), { code: 'QUEUE_PAUSED' });
-      }
-      throw error;
-    } finally {
-      finishLiveWork();
-      await broadcastState();
-    }
   });
 
   ipcMain.handle('project:generate-tpt-thumbnails', async (_event, projectId) => {
@@ -3809,8 +4542,17 @@ function registerIpc() {
     if (!project || !listing?.productPdfPath) {
       throw Object.assign(new Error('Complete every page before mockups.'), { code: 'BOOK_INCOMPLETE' });
     }
-    const thumbnailPaths = [...(listing.thumbnailPaths ?? [])];
-    store.updateProject(projectId, { tptListing: invalidateTptListingReview(listing, { thumbnailPaths, status: 'thumbnails_generating', thumbnailProgress: { completed: thumbnailPaths.length, total: 4 } }) });
+    const thumbnailPaths = [...getMockups(project).paths];
+    store.updateProject(projectId, {
+      tptListing: applyMockupsToListing(
+        invalidateTptListingReview(listing, { status: 'thumbnails_generating' }),
+        {
+          paths: thumbnailPaths,
+          progress: { completed: thumbnailPaths.filter(Boolean).length, total: 4 },
+          error: null
+        }
+      )
+    });
     await publishLiveOperation({
       kind: 'thumbnails',
       label: 'Listing mockups',
@@ -3819,12 +4561,23 @@ function registerIpc() {
       projectId
     });
     try {
-      const generated = await browser.generateTptThumbnailsWithGpt({ project, pdfPath: listing.productPdfPath, listing, onThumbnail: async ({ index, buffer, conversationUrl }) => {
+      // The mockups must depict this book. getPdf().productPath is null for editable
+      // products - they never build a print PDF - so those were being generated with no
+      // document at all, from the title alone.
+      const sourceDocPath = await ensureMarketingGroundTruth(projectId);
+      const generated = await browser.generateTptThumbnailsWithGpt({ project, pdfPath: sourceDocPath, listing, onThumbnail: async ({ index, buffer, conversationUrl }) => {
         const outputPath = await fileManager.saveGeneratedThumbnail({ buffer, fileName: `thumbnail_${index + 1}.png`, outputDir: project.outputDir });
         thumbnailPaths[index] = outputPath;
         const current = store.getProject(projectId)?.tptListing ?? listing;
         const completed = thumbnailPaths.filter(Boolean).length;
-        store.updateProject(projectId, { tptListing: { ...current, thumbnailPaths, thumbnailConversationUrl: conversationUrl, status: 'thumbnails_generating', thumbnailProgress: { completed, total: 4 } } });
+        store.updateProject(projectId, {
+          tptListing: applyMockupsToListing(current, {
+            paths: thumbnailPaths,
+            conversationUrl,
+            progress: { completed, total: 4 },
+            error: null
+          }, { status: 'thumbnails_generating' })
+        });
         store.appendEvent({ projectId, level: 'success', message: `TPT thumbnail ${index + 1}/4 saved.` });
         await publishLiveOperation({
           kind: 'thumbnails',
@@ -3834,8 +4587,12 @@ function registerIpc() {
           projectId
         });
       }});
-      const current = store.getProject(projectId)?.tptListing ?? listing;
-      store.updateProject(projectId, { tptListing: { ...current, thumbnailPaths, thumbnailConversationUrl: generated.conversationUrl, status: 'assets_ready', thumbnailProgress: { completed: 4, total: 4 } } });
+      store.updateProjectTransactionally(projectId, (c) => ({ tptListing: applyMockupsToListing((c.tptListing || listing || {}), {
+          paths: thumbnailPaths,
+          conversationUrl: generated.conversationUrl,
+          progress: { completed: 4, total: 4 },
+          error: null
+        }, { status: 'assets_ready' }) }));
       store.appendEvent({ projectId, level: 'success', message: 'Four listing thumbnails generated from the book pages.' });
       return store.getProject(projectId);
     } catch (error) {
@@ -3843,9 +4600,12 @@ function registerIpc() {
         store.appendEvent({ projectId, level: 'warn', message: 'Mockups paused. Start again when you are ready.' });
         throw Object.assign(new Error('Stopped. You paused this work.'), { code: 'QUEUE_PAUSED' });
       }
-      require("fs").writeFileSync("/tmp/tpt-error.log", error.stack || String(error));
-      const current = store.getProject(projectId)?.tptListing ?? listing;
-      store.updateProject(projectId, { tptListing: { ...current, thumbnailPaths, status: 'thumbnails_failed', thumbnailProgress: { completed: thumbnailPaths.filter(Boolean).length, total: 4 }, thumbnailError: error.message } });
+     
+      store.updateProjectTransactionally(projectId, (c) => ({ tptListing: applyMockupsToListing((c.tptListing || listing || {}), {
+          paths: thumbnailPaths,
+          progress: { completed: thumbnailPaths.filter(Boolean).length, total: 4 },
+          error: error.message
+        }, { status: 'thumbnails_failed' }) }));
       store.appendEvent({ projectId, level: 'error', message: `TPT thumbnail generation paused: ${error.message}` });
       throw error;
     } finally {
@@ -3859,21 +4619,6 @@ function registerIpc() {
     return generatePreviewVideoForProject(projectId, { force: Boolean(options?.force) });
   });
 
-  ipcMain.handle('project:regenerate-tpt-field', async (_event, projectId, field) => {
-    assertIdle();
-    const project = store.getProject(projectId);
-    const listing = project?.tptListing;
-    const listFields = new Set(['highlights', 'tags', 'grades', 'subjects', 'formats']);
-    const allowed = new Set(['title', 'description', 'teachingDuration', 'answerKey', ...listFields]);
-    if (!project || !listing?.productPdfPath || !allowed.has(field)) throw Object.assign(new Error('Select a valid listing field.'), { code: 'TPT_FIELD_INVALID' });
-    const rawValue = await browser.regenerateTptListingFieldWithGpt({ project, pdfPath: listing.productPdfPath, listing, field });
-    const value = listFields.has(field) ? rawValue.split(/[\n,]/).map((item) => cleanText(item.replace(/^[-•]\s*/, ''))).filter(Boolean) : rawValue;
-    store.updateProject(projectId, { tptListing: invalidateTptListingReview(listing, { [field]: value, status: 'draft_reviewing' }) });
-    store.appendEvent({ projectId, level: 'success', message: `TPT ${field} regenerated.` });
-    await broadcastState();
-    return store.getProject(projectId);
-  });
-
   ipcMain.handle('project:regenerate-tpt-thumbnail', async (_event, projectId, thumbnailIndex) => {
     assertIdle();
     const project = store.getProject(projectId);
@@ -3882,22 +4627,26 @@ function registerIpc() {
     if (!project || !listing?.productPdfPath || !Number.isInteger(index) || index < 0 || index > 3) {
       throw Object.assign(new Error('Select a valid thumbnail to regenerate.'), { code: 'TPT_THUMBNAIL_INVALID' });
     }
-    const thumbnailPaths = [...(listing.thumbnailPaths ?? [])];
+    const thumbnailPaths = [...getMockups(project).paths];
     thumbnailPaths[index] = null;
     store.updateProject(projectId, {
-      tptListing: invalidateTptListingReview(listing, {
-        thumbnailPaths,
-        status: 'thumbnails_generating',
-        thumbnailError: null,
-        thumbnailProgress: { completed: thumbnailPaths.filter(Boolean).length, total: 4 }
-      })
+      tptListing: applyMockupsToListing(
+        invalidateTptListingReview(listing, { status: 'thumbnails_generating' }),
+        {
+          paths: thumbnailPaths,
+          error: null,
+          progress: { completed: thumbnailPaths.filter(Boolean).length, total: 4 }
+        }
+      )
     });
     await broadcastState();
     try {
       const generated = await browser.generateTptThumbnailsWithGpt({
         project,
-        pdfPath: listing.productPdfPath,
-        listing: { ...listing, thumbnailPaths },
+        // Regenerating one mockup reads the same ground truth as generating all four,
+        // or the replacement would not match its siblings.
+        pdfPath: await ensureMarketingGroundTruth(projectId),
+        listing: applyMockupsToListing(listing, { paths: thumbnailPaths }),
         thumbnailIndex: index,
         onThumbnail: async ({ buffer, conversationUrl }) => {
           const outputPath = await fileManager.saveGeneratedThumbnail({
@@ -3906,44 +4655,29 @@ function registerIpc() {
             outputDir: project.outputDir
           });
           thumbnailPaths[index] = outputPath;
-          const current = store.getProject(projectId)?.tptListing ?? listing;
-          store.updateProject(projectId, {
-            tptListing: {
-              ...current,
-              thumbnailPaths,
-              thumbnailConversationUrl: conversationUrl,
-              status: 'assets_ready',
-              thumbnailError: null,
-              thumbnailProgress: { completed: thumbnailPaths.filter(Boolean).length, total: 4 }
-            }
-          });
+          store.updateProjectTransactionally(projectId, (c) => ({ tptListing: applyMockupsToListing((c.tptListing || listing || {}), {
+              paths: thumbnailPaths,
+              conversationUrl,
+              error: null,
+              progress: { completed: thumbnailPaths.filter(Boolean).length, total: 4 }
+            }, { status: 'assets_ready' }) }));
           store.appendEvent({ projectId, level: 'success', message: `TPT thumbnail ${index + 1}/4 regenerated and saved.` });
           await broadcastState();
         }
       });
-      const current = store.getProject(projectId)?.tptListing ?? listing;
-      store.updateProject(projectId, {
-        tptListing: {
-          ...current,
-          thumbnailPaths,
-          thumbnailConversationUrl: generated.conversationUrl || current.thumbnailConversationUrl,
-          status: 'assets_ready',
-          thumbnailProgress: { completed: thumbnailPaths.filter(Boolean).length, total: 4 }
-        }
-      });
+      store.updateProjectTransactionally(projectId, (c) => ({ tptListing: applyMockupsToListing((c.tptListing || listing || {}), {
+          paths: thumbnailPaths,
+          conversationUrl: generated.conversationUrl || getMockups({ tptListing: (c.tptListing || listing || {}) }).conversationUrl,
+          progress: { completed: thumbnailPaths.filter(Boolean).length, total: 4 }
+        }, { status: 'assets_ready' }) }));
       await broadcastState();
       return store.getProject(projectId);
-    } catch (error) { require("fs").writeFileSync("/tmp/tpt-error.log", error.stack || String(error));
-      const current = store.getProject(projectId)?.tptListing ?? listing;
-      store.updateProject(projectId, {
-        tptListing: {
-          ...current,
-          thumbnailPaths,
-          status: 'thumbnails_failed',
-          thumbnailError: error.message,
-          thumbnailProgress: { completed: thumbnailPaths.filter(Boolean).length, total: 4 }
-        }
-      });
+    } catch (error) {
+      store.updateProjectTransactionally(projectId, (c) => ({ tptListing: applyMockupsToListing((c.tptListing || listing || {}), {
+          paths: thumbnailPaths,
+          error: error.message,
+          progress: { completed: thumbnailPaths.filter(Boolean).length, total: 4 }
+        }, { status: 'thumbnails_failed' }) }));
       store.appendEvent({ projectId, level: 'error', message: `TPT thumbnail ${index + 1} regeneration paused: ${error.message}` });
       await broadcastState();
       throw error;
@@ -3953,12 +4687,13 @@ function registerIpc() {
   ipcMain.handle('project:mark-tpt-ready', async (_event, projectId) => {
     const project = store.getProject(projectId);
     const listing = project?.tptListing;
-    const paidPrice = Number.parseFloat(listing?.suggestedPrice);
-    const licensePrice = Number.parseFloat(listing?.multipleLicensePrice);
-    const bundlePrice = Number.parseFloat(listing?.bundleDiscountPrice);
-    const pricingReady = listing?.isFreeResource === true || (Number.isFinite(paidPrice) && paidPrice >= 0);
+    const mSet = getMarketplace(project).settings;
+    const paidPrice = Number.parseFloat(mSet.suggestedPrice);
+    const licensePrice = Number.parseFloat(mSet.multipleLicensePrice);
+    const bundlePrice = Number.parseFloat(mSet.bundleDiscountPrice);
+    const pricingReady = mSet.isFreeResource === true || (Number.isFinite(paidPrice) && paidPrice >= 0);
     const licenseReady = Number.isFinite(licensePrice) && licensePrice >= 0;
-    const bundleReady = !listing?.bundleDiscountPrice || (Number.isFinite(bundlePrice) && bundlePrice >= 0);
+    const bundleReady = !mSet.bundleDiscountPrice || (Number.isFinite(bundlePrice) && bundlePrice >= 0);
     const metadataReady = Boolean(
       listing?.productPdfPath
       && listing?.title
@@ -3970,26 +4705,26 @@ function registerIpc() {
       && listing.subjects?.length
       && listing.subjects.length <= 3
       && (listing.formats?.length ?? 0) <= 3
-      && listing.taxCode
-      && ['original', 'licensed'].includes(listing.copyrightDeclaration)
+      && mSet.taxCode
+      && ['original', 'licensed'].includes(mSet.copyrightDeclaration)
     );
-    const thumbnailMode = ['auto', 'manual', 'later'].includes(listing?.thumbnailMode) ? listing.thumbnailMode : 'manual';
+    const mockups = getMockups(project);
+    const thumbnailMode = ['auto', 'manual', 'later'].includes(mockups.mode) ? mockups.mode : 'manual';
     const thumbnailsReady = thumbnailMode !== 'manual'
-      || Boolean(listing.thumbnailPaths?.[0] && existsSync(listing.thumbnailPaths[0]));
+      || Boolean(mockups.paths?.[0] && existsSync(mockups.paths[0]));
     if (!metadataReady || !thumbnailsReady || !pricingReady || !licenseReady || !bundleReady) {
       throw Object.assign(new Error('Complete the current TPT contract: PDF, title, description, tax code, grades, subjects, tags, price/free choice, multi-license price, copyright, and a Main Cover when manual thumbnails are selected.'), { code: 'TPT_REVIEW_INCOMPLETE' });
     }
     const reviewApprovedAt = new Date().toISOString();
     store.updateProject(projectId, {
       isReadyToPublish: 1,
-      tptListing: {
+      tptListing: mirrorMockupsOnListing(applyMarketplaceToListing({
         ...listing,
-        status: 'ready_to_upload',
-        reviewApprovedAt,
-        reviewedAt: reviewApprovedAt,
-        uploadError: null,
-        uploadMessage: null
-      }
+        status: 'ready_to_upload'
+      }, {
+        review: { approvedAt: reviewApprovedAt },
+        upload: { error: null, message: null }
+      }))
     });
     store.appendEvent({ projectId, level: 'success', message: 'GPT listing marked ready to upload after manual review.' });
     await broadcastState();
@@ -4000,41 +4735,43 @@ function registerIpc() {
     const project = store.getProject(projectId);
     const listing = project?.tptListing;
     if (!listing) throw Object.assign(new Error('Create the GPT listing draft first.'), { code: 'TPT_LISTING_REQUIRED' });
+    const seo = getSeo(project);
     const compactList = (value, limit) => String(value ?? '').split(/[\n,]/).map((item) => cleanText(item)).filter(Boolean).slice(0, limit);
-    const title = settings.title != null ? cleanText(settings.title, listing.title || project.name) : (listing.title || project.name || '');
-    const description = settings.description != null ? cleanText(settings.description, listing.description || '') : (listing.description || '');
-    const tags = settings.tags != null ? compactList(settings.tags, 6) : (listing.tags || []);
-    const grades = settings.grades != null ? compactList(settings.grades, 4) : (listing.grades || []);
-    const subjects = settings.subjects != null ? compactList(settings.subjects, 3) : (listing.subjects || []);
-    const formats = settings.formats != null ? compactList(settings.formats, 3) : (listing.formats || []);
-    const customCategories = settings.customCategories != null ? compactList(settings.customCategories, 8) : (listing.customCategories || []);
+    const title = settings.title != null ? cleanText(settings.title, seo.title || project.name) : (seo.title || project.name || '');
+    const description = settings.description != null ? cleanText(settings.description, seo.description || '') : (seo.description || '');
+    const tags = settings.tags != null ? compactList(settings.tags, 6) : (seo.tags || []);
+    const grades = settings.grades != null ? compactList(settings.grades, 4) : (seo.grades || []);
+    const subjects = settings.subjects != null ? compactList(settings.subjects, 3) : (seo.subjects || []);
+    const formats = settings.formats != null ? compactList(settings.formats, 3) : (seo.formats || []);
+    const customCategories = settings.customCategories != null ? compactList(settings.customCategories, 8) : (seo.customCategories || []);
     const sanitizedSeo = sanitizeSeoListingFields({ title, description, tags, subjects });
-    const pageCount = settings.pageCount != null ? Math.max(0, Number.parseInt(settings.pageCount, 10) || 0) : (listing.pageCount || 0);
+    const pageCount = settings.pageCount != null ? Math.max(0, Number.parseInt(settings.pageCount, 10) || 0) : (seo.pageCount || 0);
     const standards = {
-      ccss: settings.ccss != null ? compactList(settings.ccss, 50) : (listing.standards?.ccss || []),
-      ngss: settings.ngss != null ? compactList(settings.ngss, 50) : (listing.standards?.ngss || []),
-      teks: settings.teks != null ? compactList(settings.teks, 50) : (listing.standards?.teks || []),
-      vaSol: settings.vaSol != null ? compactList(settings.vaSol, 50) : (listing.standards?.vaSol || [])
+      ccss: settings.ccss != null ? compactList(settings.ccss, 50) : (seo.standards?.ccss || []),
+      ngss: settings.ngss != null ? compactList(settings.ngss, 50) : (seo.standards?.ngss || []),
+      teks: settings.teks != null ? compactList(settings.teks, 50) : (seo.standards?.teks || []),
+      vaSol: settings.vaSol != null ? compactList(settings.vaSol, 50) : (seo.standards?.vaSol || [])
     };
+    const m = getMarketplace({ tptListing: listing }).settings;
     const isFreeResource = settings.isFreeResource != null
       ? settings.isFreeResource === true
-      : listing.isFreeResource === true;
+      : m.isFreeResource === true;
     const suggestedPrice = settings.suggestedPrice != null
       ? cleanText(settings.suggestedPrice)
-      : (listing.suggestedPrice || '');
+      : (m.suggestedPrice || '');
     const multipleLicensePrice = settings.multipleLicensePrice != null
       ? cleanText(settings.multipleLicensePrice)
-      : (listing.multipleLicensePrice || '');
+      : (m.multipleLicensePrice || '');
     const bundleDiscountPrice = settings.bundleDiscountPrice != null
       ? cleanText(settings.bundleDiscountPrice)
-      : (listing.bundleDiscountPrice || '');
-    const taxCode = settings.taxCode != null ? cleanText(settings.taxCode) : (listing.taxCode || '');
+      : (m.bundleDiscountPrice || '');
+    const taxCode = settings.taxCode != null ? cleanText(settings.taxCode) : (m.taxCode || '');
     const copyrightDeclaration = settings.copyrightDeclaration != null
       ? (['original', 'licensed'].includes(settings.copyrightDeclaration) ? settings.copyrightDeclaration : '')
-      : (listing.copyrightDeclaration || '');
+      : (m.copyrightDeclaration || '');
     const publicationStatus = settings.publicationStatus != null
       ? (settings.publicationStatus === 'active' ? 'active' : 'draft')
-      : (listing.publicationStatus === 'active' ? 'active' : 'draft');
+      : (m.publicationStatus === 'active' ? 'active' : 'draft');
     const thumbnailMode = settings.thumbnailMode != null && ['auto', 'manual', 'later'].includes(settings.thumbnailMode)
       ? settings.thumbnailMode
       : (listing.thumbnailMode || 'manual');
@@ -4050,22 +4787,17 @@ function registerIpc() {
       teachingDuration: settings.teachingDuration != null ? cleanText(settings.teachingDuration) : (listing.teachingDuration || ''),
       answerKey: settings.answerKey != null ? cleanText(settings.answerKey) : (listing.answerKey || ''),
       standards,
-      isFreeResource,
-      suggestedPrice: isFreeResource ? '' : suggestedPrice,
-      multipleLicensePrice,
-      bundleDiscountPrice,
-      taxCode,
-      copyrightDeclaration,
-      publicationStatus,
+
       thumbnailMode,
       seoText: formatSeoBundleText(sanitizedSeo)
     };
     const materialChanged = Object.entries(publicationChanges)
       .some(([key, value]) => JSON.stringify(listing[key] ?? null) !== JSON.stringify(value ?? null));
+    const nextListing = materialChanged
+      ? invalidateTptListingReview(listing, { ...publicationChanges, status: 'draft_reviewing' })
+      : { ...listing, ...publicationChanges };
     store.updateProject(projectId, {
-      tptListing: materialChanged
-        ? invalidateTptListingReview(listing, { ...publicationChanges, status: 'draft_reviewing' })
-        : { ...listing, ...publicationChanges }
+      tptListing: applyMockupsToListing(nextListing, { mode: thumbnailMode })
     });
     store.appendEvent({ projectId, level: 'success', message: 'TPT publication settings saved locally.' });
     await broadcastState();
@@ -4093,7 +4825,19 @@ function registerIpc() {
     mkdirSync(assetDirectory, { recursive: true });
     const outputPath = join(assetDirectory, `${definition.stem}${extname(sourcePath).toLowerCase()}`);
     copyFileSync(sourcePath, outputPath);
-    store.updateProject(projectId, { tptListing: invalidateTptListingReview(listing, { [definition.key]: outputPath, status: 'draft_reviewing' }) });
+    store.updateProjectTransactionally(projectId, (currentProject) => {
+      let nextListing = invalidateTptListingReview(currentProject.tptListing || {}, { status: 'draft_reviewing' });
+      if (assetType === 'videoPreview') {
+        nextListing = applyVideoToListing(nextListing, {
+          path: outputPath,
+          status: 'ready',
+          error: null
+        });
+      } else {
+        nextListing = { ...nextListing, previewPdfPath: outputPath };
+      }
+      return { tptListing: nextListing };
+    });
     store.appendEvent({ projectId, level: 'success', message: `${assetType === 'videoPreview' ? 'Video preview' : 'Product preview'} saved to the local TPT asset package.` });
     await broadcastState();
     return store.getProject(projectId);
@@ -4103,14 +4847,26 @@ function registerIpc() {
     const project = store.getProject(projectId);
     const listing = project?.tptListing;
     if (!listing) throw Object.assign(new Error('Create the GPT listing draft first.'), { code: 'TPT_LISTING_REQUIRED' });
-    const key = assetType === 'videoPreview' ? 'videoPreviewPath' : 'previewPdfPath';
-    store.updateProject(projectId, { tptListing: invalidateTptListingReview(listing, { [key]: null, status: 'draft_reviewing' }) });
+    store.updateProjectTransactionally(projectId, (currentProject) => {
+      let nextListing = invalidateTptListingReview(currentProject.tptListing || {}, { status: 'draft_reviewing' });
+      if (assetType === 'videoPreview') {
+        nextListing = applyVideoToListing(nextListing, {
+          path: null,
+          status: 'pending',
+          error: null,
+          conversationUrl: null
+        });
+      } else {
+        nextListing = { ...nextListing, previewPdfPath: null };
+      }
+      return { tptListing: nextListing };
+    });
     await broadcastState();
     return store.getProject(projectId);
   });
 
-  ipcMain.handle('tpt:open-upload', () => browser.openTptDraftUpload());
-  ipcMain.handle('tpt:complete-human-verification', () => browser.completeTptHumanVerification());
+  ipcMain.handle('tpt:open-upload', () => { throw Object.assign(new Error('TPT posting has been permanently removed from VERSA (editable-only brain).'), { code: 'TPT_UPLOAD_REMOVED' }); });
+  ipcMain.handle('tpt:complete-human-verification', () => { throw Object.assign(new Error('TPT posting has been permanently removed from VERSA (editable-only brain).'), { code: 'TPT_UPLOAD_REMOVED' }); });
   ipcMain.handle('tpt:open-saved-listing', (_event, listingUrl) => {
     let parsed;
     try {
@@ -4126,6 +4882,8 @@ function registerIpc() {
 
   // Core helper — executes a single project TPT upload end-to-end (prepare + optional auto-submit).
   async function executeTptUpload(projectId) {
+  // VERSA editable-brain: TPT posting permanently removed. Single choke disables every entry path.
+  throw Object.assign(new Error('TPT posting has been permanently removed from VERSA (editable-only brain).'), { code: 'TPT_UPLOAD_REMOVED' });
     const project = store.getProject(projectId);
     const listing = project?.tptListing;
     if (!project || !listing?.productPdfPath || !tptListingReviewApproved(listing)) {
@@ -4134,42 +4892,48 @@ function registerIpc() {
     const updateProgress = async ({ stage, message }) => {
       const current = store.getProject(projectId)?.tptListing ?? listing;
       store.updateProject(projectId, {
-        tptListing: {
+        tptListing: applyMarketplaceToListing({
           ...current,
           status: stage === 'ready_for_listing_submit' ? 'listing_form_ready' : 'uploading_listing',
-          uploadStage: stage,
-          uploadMessage: message,
-          uploadError: null,
           uploadStartedAt: current.uploadStartedAt ?? new Date().toISOString()
-        }
+        }, {
+          upload: {
+            stage,
+            message,
+            error: null
+          }
+        })
       });
-      store.appendEvent({ projectId, level: 'info', message: `TPT upload — ${message}` });
+      store.appendEvent({ projectId, level: 'info', message: `TPT upload: ${message}` });
       await broadcastState();
     };
     await updateProgress({ stage: 'opening', message: 'Opening the app-owned Chromium and the TPT upload form…' });
     const result = await browser.runTptListingPreparation({ listing, projectId, onProgress: updateProgress });
     const current = store.getProject(projectId)?.tptListing ?? listing;
     store.updateProject(projectId, {
-      tptListing: {
+      tptListing: applyMarketplaceToListing({
         ...current,
         status: 'listing_form_ready',
         uploadUrl: result.url,
-        formContract: result.formContract,
-        standardsRequireReview: result.standardsRequireReview,
-        uploadStage: 'ready_for_listing_submit',
-        uploadError: null,
-        uploadMessage: listing.publicationStatus === 'active' || result.standardsRequireReview
-          ? `All automated steps completed. The TPT form is ready for final ${listing.publicationStatus === 'active' ? 'Active' : 'Draft'} submission.`
-          : 'All automated steps completed. Submitting the inactive TPT draft automatically…'
-      }
+        standardsRequireReview: result.standardsRequireReview
+      }, {
+        upload: {
+          formContract: result.formContract,
+          stage: 'ready_for_listing_submit',
+          error: null,
+          message: getMarketplace({ tptListing: listing }).settings.publicationStatus === 'active' || result.standardsRequireReview
+            ? `All automated steps completed. The TPT form is ready for final ${getMarketplace({ tptListing: listing }).settings.publicationStatus === 'active' ? 'Active' : 'Draft'} submission.`
+            : 'All automated steps completed. Submitting the inactive TPT draft automatically…'
+        }
+      })
     });
-    const autoSubmitDraft = listing.publicationStatus !== 'active' && !result.standardsRequireReview;
+    const autoSubmitDraft = getMarketplace(project).settings.publicationStatus !== 'active' && !result.standardsRequireReview;
     store.appendEvent({
       projectId,
       level: 'success',
       message: autoSubmitDraft
         ? 'TPT form prepared for an inactive draft. Continuing directly to final submission.'
-        : `TPT form prepared for ${listing.publicationStatus === 'active' ? 'an active listing' : 'a draft with education standards that require review'}. Review it in TPT before final submission.`
+        : `TPT form prepared for ${getMarketplace(project).settings.publicationStatus === 'active' ? 'an active listing' : 'a draft with education standards that require review'}. Review it in TPT before final submission.`
     });
     await broadcastState();
     if (autoSubmitDraft) {
@@ -4189,21 +4953,24 @@ function registerIpc() {
     tptListingAutomationActive = true;
     try {
       return await executeTptUpload(projectId);
-    } catch (error) { require("fs").writeFileSync("/tmp/tpt-error.log", error.stack || String(error));
+    } catch (error) {
       if (error?.tptSubmissionHandled) throw error;
       const project = store.getProject(projectId);
       const listing = project?.tptListing;
       if (listing) {
         store.updateProject(projectId, {
-          tptListing: {
+          tptListing: applyMarketplaceToListing({
             ...listing,
-            status: 'upload_failed',
-            uploadStage: listing.uploadStage ?? 'opening',
-            uploadError: error.message,
-            uploadMessage: `Stopped: ${error.message}`
-          }
+            status: 'upload_failed'
+          }, {
+            upload: {
+              stage: getMarketplace(project).upload.stage ?? 'opening',
+              error: error.message,
+              message: `Stopped: ${error.message}`
+            }
+          })
         });
-        store.appendEvent({ projectId, level: 'error', message: `TPT upload stopped at ${listing.uploadStage ?? 'opening'}: ${error.message}` });
+        store.appendEvent({ projectId, level: 'error', message: `TPT upload stopped at ${getMarketplace({ tptListing: listing }).upload.stage ?? 'opening'}: ${error.message}` });
         await broadcastState();
       }
       throw error;
@@ -4229,17 +4996,20 @@ function registerIpc() {
       onError: async (projectId, error, { handledFailure }) => {
         const project = store.getProject(projectId);
         const listing = project?.tptListing;
-        if (listing && !listing.uploadError) {
+        if (listing && !getMarketplace(project).upload.error) {
           store.updateProject(projectId, {
-            tptListing: {
+            tptListing: applyMarketplaceToListing({
               ...listing,
-              status: 'upload_failed',
-              uploadStage: listing.uploadStage ?? 'opening',
-              uploadError: error.message,
-              uploadMessage: handledFailure
-                ? `This product failed; the bundle continued safely: ${error.message}`
-                : `Bundle stopped: ${error.message}`
-            }
+              status: 'upload_failed'
+            }, {
+              upload: {
+                stage: getMarketplace({ tptListing: listing }).upload.stage ?? 'opening',
+                error: error.message,
+                message: handledFailure
+                  ? `This product failed; the bundle continued safely: ${error.message}`
+                  : `Bundle stopped: ${error.message}`
+              }
+            })
           });
           store.appendEvent({
             projectId,
@@ -4262,6 +5032,7 @@ function registerIpc() {
   }
 
   ipcMain.handle('bundle-upload:start', async () => {
+    throw Object.assign(new Error('TPT bundle upload has been permanently removed from VERSA (editable-only brain).'), { code: 'TPT_UPLOAD_REMOVED' });
     assertIdle();
     if (tptListingAutomationActive) {
       throw Object.assign(new Error('A TPT upload is already in progress. Wait for the current upload to finish first.'), { code: 'TPT_UPLOAD_ALREADY_RUNNING' });
@@ -4301,39 +5072,47 @@ function registerIpc() {
   async function submitPreparedTptListing(projectId, forceDraft = false) {
     const project = store.getProject(projectId);
     const listing = project?.tptListing;
-    const isReadyOrApprovedFailed = ['listing_form_ready', 'draft_form_ready'].includes(listing?.status) || (listing?.status === 'upload_failed' && Boolean(listing?.reviewApprovedAt));
+    const isReadyOrApprovedFailed = ['listing_form_ready', 'draft_form_ready'].includes(listing?.status) || (listing?.status === 'upload_failed' && Boolean(getMarketplace(project).review.approvedAt));
     if (!project || !isReadyOrApprovedFailed) {
       throw Object.assign(new Error('Prepare and review the TPT form before submitting it.'), { code: 'TPT_LISTING_NOT_READY' });
     }
-    const submissionListing = forceDraft ? { ...listing, publicationStatus: 'draft' } : listing;
-    const statusLabel = submissionListing.publicationStatus === 'active' ? 'active listing' : 'inactive draft';
+    const submissionListing = forceDraft ? applyMarketplaceToListing(listing, { settings: { publicationStatus: 'draft' } }) : listing;
+    const statusLabel = getMarketplace({ tptListing: submissionListing }).settings.publicationStatus === 'active' ? 'active listing' : 'inactive draft';
     const updateProgress = async ({ stage, message }) => {
-      const current = store.getProject(projectId)?.tptListing ?? listing;
-      store.updateProject(projectId, { tptListing: { ...current, status: 'submitting_listing', uploadStage: stage, uploadMessage: message } });
-      store.appendEvent({ projectId, level: 'info', message: `TPT upload — ${message}` });
+      store.updateProjectTransactionally(projectId, (currentProject) => {
+        const current = currentProject.tptListing || listing;
+        return { tptListing: applyMarketplaceToListing({ ...current, status: 'submitting_listing' }, { upload: { stage, message } }) };
+      });
+      store.appendEvent({ projectId, level: 'info', message: `TPT upload: ${message}` });
       await broadcastState();
     };
     try {
       const result = await browser.submitTptListing({ listing: submissionListing, projectId, onProgress: updateProgress });
       const current = store.getProject(projectId)?.tptListing ?? listing;
       const completedStatus = result.publicationStatus === 'active' ? 'listing_published' : 'draft_submitted';
-      store.updateProject(projectId, { tptListing: { ...current, publicationStatus: result.publicationStatus, status: completedStatus, uploadStage: completedStatus, uploadUrl: result.url, uploadVerified: result.verified, uploadedAt: new Date().toISOString() } });
+      store.updateProjectTransactionally(projectId, (currentProject) => {
+        const currentListing = currentProject.tptListing || listing;
+        return { tptListing: applyMarketplaceToListing({ ...currentListing, status: completedStatus, uploadedAt: new Date().toISOString() }, { settings: { publicationStatus: result.publicationStatus }, upload: { stage: completedStatus, productUrl: result.url, verified: result.verified } }) };
+      });
       store.appendEvent({ projectId, level: 'success', message: `TPT ${statusLabel} submitted and verified in My Products.` });
       await broadcastState();
       return result;
-    } catch (error) { require("fs").writeFileSync("/tmp/tpt-error.log", error.stack || String(error));
+    } catch (error) {
       error.tptSubmissionHandled = true;
       const current = store.getProject(projectId)?.tptListing ?? listing;
       const preparedFormLost = ['TPT_PAGE_CLOSED', 'TPT_PREPARED_FORM_STALE', 'TPT_REQUIRED_METADATA_MISSING'].includes(error.code);
       store.updateProject(projectId, {
-        tptListing: {
+        tptListing: applyMarketplaceToListing({
           ...current,
-          status: preparedFormLost ? 'upload_failed' : 'listing_form_ready',
-          uploadError: error.message,
-          uploadMessage: preparedFormLost
-            ? `The prepared TPT form needs automatic recovery. Resume uploading restores it without another listing review.`
-            : `Submission stopped: ${error.message}`
-        }
+          status: preparedFormLost ? 'upload_failed' : 'listing_form_ready'
+        }, {
+          upload: {
+            error: error.message,
+            message: preparedFormLost
+              ? `The prepared TPT form needs automatic recovery. Resume uploading restores it without another listing review.`
+              : `Submission stopped: ${error.message}`
+          }
+        })
       });
       store.appendEvent({ projectId, level: 'error', message: `GPT listing submission was not verified: ${error.message}` });
       await broadcastState();
@@ -4352,11 +5131,16 @@ function registerIpc() {
     }
   }
 
-  ipcMain.handle('project:submit-tpt-listing', async (_event, projectId) => submitTptListingExclusively(projectId, false));
-  ipcMain.handle('project:submit-tpt-draft', async (_event, projectId) => submitTptListingExclusively(projectId, true));
+  ipcMain.handle('project:submit-tpt-listing', async () => { throw Object.assign(new Error('TPT posting has been permanently removed from VERSA (editable-only brain).'), { code: 'TPT_UPLOAD_REMOVED' }); });
+  ipcMain.handle('project:submit-tpt-draft', async () => { throw Object.assign(new Error('TPT posting has been permanently removed from VERSA (editable-only brain).'), { code: 'TPT_UPLOAD_REMOVED' }); });
 
   ipcMain.handle('path:reveal', (_event, targetPath) => {
-    if (targetPath && existsSync(targetPath)) shell.showItemInFolder(targetPath);
+    if (!targetPath || !existsSync(targetPath)) return false;
+    // A directory is opened, not "revealed" - showItemInFolder on a folder selects it in
+    // its parent, which is one level away from what the user asked to see.
+    if (statSync(targetPath).isDirectory()) shell.openPath(targetPath);
+    else shell.showItemInFolder(targetPath);
+    return true;
   });
 
   ipcMain.handle('project:rename', async (_event, projectId, newName) => {
@@ -4373,27 +5157,52 @@ function registerIpc() {
     assertNotGeneratingProject(projectId, 'deleting this book');
     const project = store.getProject(projectId);
     if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
-    
+
     // 1. Delete SQLite record
     store.deleteProject(projectId);
-    
-    // 2. Delete files on disk recursively if outputDir exists
-    const fs = require('node:fs');
-    if (project.outputDir && fs.existsSync(project.outputDir)) {
-      try {
-        fs.rmSync(project.outputDir, { recursive: true, force: true });
-      } catch (err) {
-        console.error(`Failed to delete output directory ${project.outputDir}:`, err);
+
+    // 2. Move the book's folder to the Trash. Never rmSync.
+    //
+    // This used to be fs.rmSync(outputDir, { recursive: true, force: true }): permanent,
+    // instant, and unrecoverable. A book is hours of generation and the only copy of
+    // artwork that cost real credits to produce, so deleting it must be undoable. The
+    // Trash costs nothing and gives the operator a way back.
+    if (project.outputDir && existsSync(project.outputDir)) {
+      const target = resolve(project.outputDir);
+      const library = resolve(getLibraryRoot());
+      // Refuse anything that is not inside the library. A malformed outputDir - blank,
+      // "/", a home directory - would otherwise hand a recursive delete an enormous
+      // target. Belt and braces now that the call is trash-based anyway.
+      const insideLibrary = target !== library && target.startsWith(`${library}${sep}`);
+      if (!insideLibrary) {
+        store.appendEvent({
+          projectId, level: 'warn',
+          message: `Left files untouched: "${target}" is outside the book library, so it was not deleted.`
+        });
+      } else {
+        try {
+          await shell.trashItem(target);
+          store.appendEvent({
+            projectId, level: 'info',
+            message: 'Book files moved to the Trash. Recover them from there if this was a mistake.'
+          });
+        } catch (err) {
+          // Failing to delete is safe; deleting the wrong thing is not. Report and stop.
+          store.appendEvent({
+            projectId, level: 'warn',
+            message: `Book record removed, but its files could not be moved to the Trash: ${err.message}`
+          });
+        }
       }
     }
-    
+
     // 3. Reset selectedProjectId if deleted project was selected
     if (store.getSetting('selectedProjectId') === projectId) {
       const remaining = store.listProjects();
       const nextSelected = remaining[0]?.id || null;
       store.setSetting('selectedProjectId', nextSelected);
     }
-    
+
     await broadcastState();
     return buildState();
   });
@@ -4469,8 +5278,11 @@ function registerIpc() {
   });
 }
 
-if (singleInstanceAcquired) app.whenReady().then(() => {
+if (singleInstanceAcquired) app.whenReady().then(async () => {
   bootLog('whenReady');
+  agentLog('main.cjs:whenReady', 'whenReady', { windows: BrowserWindow.getAllWindows().length }, 'H5');
+  await createSplashWindow();
+  bootLog('splash created');
   startAutomationHttp({
     port: 31338,
     getAppName: () => APP_NAME,
@@ -4484,14 +5296,25 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
   app.setAccessibilitySupportEnabled(true);
   const userData = app.getPath('userData');
   store = new ProjectStore(join(userData, 'tpt-books.sqlite'));
+  setCustomizationSource(() => {
+    try {
+      return store?.getSetting('userPreferences', {})?.customization || null;
+    } catch {
+      return null;
+    }
+  });
+  const { setWorkspaceRoot, migrateProjectWorkingFiles } = require('./project-workspace.cjs');
+  setWorkspaceRoot(userData);
+  for (const listed of store.listProjects()) {
+    const loaded = store.getProject(listed.id);
+    if (loaded) migrateProjectWorkingFiles(store, loaded);
+  }
   applyNativeAppearance();
   nativeTheme.on('updated', () => {
     if (!store) return;
     applyNativeAppearance();
     broadcastState().catch(() => {});
   });
-  createSplashWindow();
-  bootLog('splash created');
   if (store.getSetting('loginSessionSchemaVersion', 0) !== LOGIN_SESSION_SCHEMA_VERSION) {
     store.setSetting('loginSessionSchemaVersion', LOGIN_SESSION_SCHEMA_VERSION);
     store.setSetting('enableProfileSwapping', false);
@@ -4500,9 +5323,10 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
     store.setSetting('chatgptLoginConfirmed', true);
     store.setSetting('geminiLoginConfirmed', true);
     store.setSetting('metaLoginConfirmed', true);
-    store.setSetting('canvaLoginConfirmed', true);
   }
   store.recoverInterrupted();
+  store.reconcileCompletedArtifacts();
+  reconcileCompletedPipelineSteps();
   protocol.handle('tpt-image', async (request) => {
     const fs = require('node:fs');
     const { extname: pathExtname } = require('node:path');
@@ -4520,12 +5344,13 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
       }
     };
     const serveLocalFile = async (filePath) => {
+      const serveStarted = Date.now();
       const body = await fs.promises.readFile(filePath);
       return new Response(body, {
         status: 200,
         headers: {
           'Content-Type': mimeForPath(filePath),
-          'Cache-Control': 'no-store'
+          'Cache-Control': 'private, max-age=86400'
         }
       });
     };
@@ -4542,13 +5367,13 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
       }
       if (url.hostname === 'thumbnail') {
         const [projectId, indexValue] = url.pathname.slice(1).split('/').map(decodeURIComponent);
-        const thumbnailPath = store.getProject(projectId)?.tptListing?.thumbnailPaths?.[Number.parseInt(indexValue, 10)];
+        const thumbnailPath = getMockups(store.getProject(projectId))?.paths?.[Number.parseInt(indexValue, 10)];
         if (!thumbnailPath || !fs.existsSync(thumbnailPath)) return new Response('Not found', { status: 404 });
         return serveLocalFile(thumbnailPath);
       }
       if (url.hostname === 'video-preview') {
         const projectId = decodeURIComponent(url.pathname.slice(1).split('/')[0] || '');
-        const videoPath = store.getProject(projectId)?.tptListing?.videoPreviewPath;
+        const videoPath = getVideo(store.getProject(projectId))?.path;
         if (!videoPath || !fs.existsSync(videoPath)) return new Response('Not found', { status: 404 });
         return serveLocalFile(videoPath);
       }
@@ -4557,6 +5382,9 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
         const mockupPath = store.getProject(projectId)?.competitorMockups?.images?.[Number.parseInt(indexValue, 10)]?.path;
         if (!mockupPath || !fs.existsSync(mockupPath)) return new Response('Not found', { status: 404 });
         return serveLocalFile(mockupPath);
+      }
+      if (url.hostname === 'maze') {
+        return require('./maze-ipc.cjs').serveMazeImage(store, request);
       }
       if (url.hostname !== 'job') {
         return new Response('Not found', { status: 404 });
@@ -4569,13 +5397,24 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
       if (!job.outputPath || !fs.existsSync(job.outputPath)) {
         return new Response('Not found', { status: 404 });
       }
-      
+
       const rawMode = url.searchParams.get('raw') === 'true';
+      const cardMode = url.searchParams.get('card') === '1';
       let targetPath = job.outputPath;
       if (rawMode && /\.png$/i.test(job.outputPath)) {
         const rawPath = job.outputPath.replace(/\.png$/i, '.raw.png');
         if (fs.existsSync(rawPath)) {
           targetPath = rawPath;
+        }
+      } else if (cardMode) {
+        const cardPath = cardPreviewPathFor(job.outputPath);
+        if (cardPath && fs.existsSync(cardPath)) {
+          targetPath = cardPath;
+        } else {
+          try {
+            const made = await ensureCardPreview(job.outputPath, cardPath);
+            if (made) targetPath = made;
+          } catch { /* fall back to the print PNG */ }
         }
       }
       // Serve SVG masters with image/svg+xml so <img> page-board / studio previews render.
@@ -4584,28 +5423,14 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
       return new Response('Bad request', { status: 400 });
     }
   });
-  fileManager = new FileManager({ nativeImage });
+  fileManager = new ProductFileManager({ nativeImage });
   browser = new BrowserController({
-    profileDir: require('os').homedir() + '/ChromeAutomationProfile',
+    profileDir: require('os').homedir() + '/VERSA_PROFILES',
     downloadDir: join(userData, 'browser-downloads'),
     getMetaConfig
   });
-  browser.on('canva-journal', (row) => {
-    try {
-      store.appendCanvaJournal({
-        projectId: row.projectId || liveOperation?.projectId || null,
-        state: row.state,
-        pageNumber: row.pageNumber,
-        action: row.action,
-        expected: row.expected,
-        detected: row.detected,
-        verification: row.verification,
-        outcome: row.outcome,
-        retryCount: row.retryCount,
-        details: row.details
-      });
-    } catch {}
-  });
+  browser.attachStore(store);
+  browser.on('supervisor', () => { broadcastState().catch(() => {}); });
 
   const savedRotation = store.getSetting('profileRotationList', []);
   const savedIndex = store.getSetting('currentProfileIndex', 0);
@@ -4614,16 +5439,82 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
   if (Array.isArray(savedRotation) && savedRotation.length) {
     browser.setProfileRotation(savedRotation, savedIndex);
   }
+  const savedPool = store.getSetting('accountPool', null);
+  if (typeof browser.setAccountPool === 'function') {
+    browser.setAccountPool({
+      ...(savedPool && typeof savedPool === 'object' ? savedPool : {}),
+      enabled: Boolean(savedSwappingEnabled)
+    });
+  }
   restoreSavedServiceLogins();
   browser.on('profile-swapped', (data) => {
     store.setSetting('currentProfileIndex', data.currentIndex);
+    if (browser.accountPool) store.setSetting('accountPool', browser.accountPool.toJSON());
     broadcastState();
   });
 
   applyActiveEngineToBrowser();
   queue = new QueueEngine({ store, browser, fileManager });
+
+  // The durable worker. Stages register as task handlers; the queue owns whether
+  // and when they run, so a stall is a deadline rather than a hang and a restart
+  // resumes instead of starting over.
+  pipelineRunner = createPipelineRunner({
+    store,
+    watchdog: ({ runner, now, activeIds = [] }) => {
+      const selectedId = store.getSetting('selectedProjectId', null);
+      const project = selectedId ? store.getProject(selectedId) : null;
+      const mazePages = project?.mazeProject?.pages || [];
+      const report = applyPipelineWatchdog({
+        store: store.tasks,
+        runner,
+        now,
+        activeIds,
+        mazePages,
+        queueJobs: project?.jobs || [],
+        lastProgressAt: browser?.supervisor?.checkpoint?.lastProgressAt || 0,
+        expectedMazeTotal: project?.mazeLab?.pageCount || mazePages.length,
+        expectedQueueTotal: project?.stats?.total || (project?.jobs || []).length
+      });
+      // #region agent log
+      if (report.abandoned.length || report.restartWorker || report.queueStalled) {
+        fetch('http://127.0.0.1:7482/ingest/8a51ab2a-6ab7-4bf8-85e4-1555cfa4896d',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d45d8d'},body:JSON.stringify({sessionId:'d45d8d',runId:'post-fix',hypothesisId:'H122',location:'src/main.cjs:pipelineWatchdog',message:'pipeline watchdog inspected the job',data:{abandoned:report.abandoned.length,restartWorker:report.restartWorker,queueStalled:report.queueStalled,canComplete:report.canComplete,missing:report.maze?.missing||report.queue?.missing||[]},timestamp:Date.now()})}).catch(()=>{});
+      }
+      // #endregion
+      return report;
+    },
+    handlers: {
+      [TASK_KIND.ANALYSIS]: runAnalysisTask,
+      [TASK_KIND.TREND_SCAN]: runTrendScanTask,
+      // Every other stage is the same function the automation manager runs, wrapped
+      // so the queue owns its durability. One definition, two callers: a stage
+      // cannot behave differently depending on which path reached it.
+      ...stageHandlers()
+    },
+    onEvent: (name, payload) => {
+      const task = payload?.task;
+      if (!task) return;
+      if (name === 'failed' && payload.error) {
+        store.appendEvent({
+          projectId: task.projectId || null,
+          level: 'error',
+          message: `${task.kind} failed (attempt ${task.attempts}/${task.maxAttempts}): ${payload.error.message}`
+        });
+      }
+      if (name === 'reclaimed') {
+        store.appendEvent({
+          projectId: task.projectId || null,
+          level: 'warn',
+          message: `${task.kind} was interrupted and has been requeued. It resumes from where it stopped.`
+        });
+      }
+      broadcastState().catch(() => {});
+    }
+  });
   queue.on('changed', broadcastState);
-  queue.on('log', broadcastState);
+  queue.on('log', (event) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('queue:log', event);
+  });
   queue.on('heartbeat', (payload) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('queue:heartbeat', payload);
   });
@@ -4634,14 +5525,21 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
     broadcastState();
   });
   queue.on('complete', async ({ projectId }) => {
-    try {
-      await ensureProductPdf(projectId, { force: true });
-    } catch (error) {
-      store.appendEvent({
-        projectId,
-        level: 'error',
-        message: `Pages are complete, but the book PDF could not be built: ${error.message}`
-      });
+    // An editable book's PDF/PPTX is published by the editable step, which the user
+    // has not run yet at this point. Building it here would only report it as stale.
+    // Maze books assemble locally after Maze Lab — they must not enter print-PDF.
+    const format = store.getProject(projectId)?.productFormat;
+    const awaitingEditableStep = format === 'editable';
+    if (!awaitingEditableStep && format !== 'maze') {
+      try {
+        await ensureProductPdf(projectId, { force: true });
+      } catch (error) {
+        store.appendEvent({
+          projectId,
+          level: 'error',
+          message: `Pages are complete, but the book PDF could not be built: ${error.message}`
+        });
+      }
     }
     const action = store.getSetting('whenCompleteAction', 'nothing');
     if (action === 'nothing') {
@@ -4678,7 +5576,12 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
       }
     }, 1000);
   });
-  browser.on('status', broadcastState);
+  browser.on('status', (status) => {
+    const key = `${Boolean(status?.connected)}|${Boolean(status?.unresponsive)}|${status?.engine || ''}`;
+    if (key === lastBrowserStatusKey) return;
+    lastBrowserStatusKey = key;
+    broadcastState().catch(() => {});
+  });
   browser.on('login-progress', (payload) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('browser:login-progress', payload);
@@ -4687,23 +5590,371 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
 
   // ─── AutomationManager instantiation ─────────────────────────────────────
   // Step runners delegate to the same functions used by the manual workflow.
+  const stepRunners = {
+      // Projects enter this pipeline only after project creation has persisted
+      // the overview, so the automated step validates that saved input.
+      overview: async (projectId, onProgress) => {
+        const project = store.getProject(projectId);
+        verifyOverview(project);
+        onProgress(100);
+      },
+      maze: async (projectId, onProgress) => {
+        const { runMazeBook } = require('./maze-ipc.cjs');
+        const { assertMazeBookReady } = require('./maze-export.cjs');
+        const result = await runMazeBook(store, projectId, {
+          skipArtwork: true,
+          onProgress: ({ completed, total }) => {
+            onProgress(total ? Math.round((completed / total) * 88) : 0);
+          }
+        }, { broadcastState, setLiveOperation });
+        if (result.cancelled) {
+          throw Object.assign(new Error('Maze generation was cancelled.'), { code: 'MAZE_CANCELLED' });
+        }
+        if (result.failed || result.remaining) {
+          throw Object.assign(new Error('Maze pages are incomplete.'), { code: 'BOOK_INCOMPLETE' });
+        }
+        await assertMazeBookReady(store, projectId);
+        onProgress(90);
+        await continueMazeProductPipeline(projectId, { fromAutomation: true });
+        onProgress(100);
+      },
+      // characters: generate all character references
+      characters: async (projectId, onProgress) => {
+        const project = ensureProjectOutputDirectory(projectId);
+        if (!project || project.projectType !== 'storybook') return; // only storybook has characters
+        await generateAllStorybookCharacterReferences(projectId);
+        onProgress(100);
+      },
+      // interior: generate every page, then convert + compress the print PDF
+      interior: async (projectId, onProgress) => {
+        const project = ensureProjectOutputDirectory(projectId);
+        if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+        if (!project.stats?.total) {
+          throw Object.assign(new Error('Cannot generate interior for a project with 0 pages.'), { code: 'NO_PAGES' });
+        }
+        requireActiveEngine('interior generation');
+        const finishPrintPdf = async () => {
+          await ensureProductPdf(projectId, {
+            onProgress: async (info) => {
+              if (info?.stage === 'converting') onProgress(96);
+              else if (info?.stage === 'compressing') onProgress(98);
+              else if (info?.stage === 'ready') onProgress(100);
+            }
+          });
+          onProgress(100);
+        };
+        if (project.stats.complete === project.stats.total && project.stats.total > 0) {
+          await finishPrintPdf();
+          return;
+        }
+        await runQueueToCompletion(projectId, onProgress);
+        await finishPrintPdf();
+      },
+      editable_generation: runNativeEditableForProject,
+      // Editable pipeline. Artwork reuses the interior page generator, minus the
+      // print-PDF tail that editable products do not build.
+      interior_artwork: async (projectId, onProgress) => {
+        const project = ensureProjectOutputDirectory(projectId);
+        if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+        if (!project.stats?.total) {
+          throw Object.assign(new Error('Cannot generate artwork for a project with 0 pages.'), { code: 'NO_PAGES' });
+        }
+        requireActiveEngine('artwork generation');
+        restoreDefaultArtworkPrompts(projectId);
+        // This stage only draws. Reading the pages belongs to Interior Text, which is
+        // what consumes the coordinates.
+        await runQueueToCompletion(projectId, onProgress);
+      },
+      interior_text: async (projectId, onProgress) => {
+        // Read every page locally, then compile each one into its own layered,
+        // editable PDF. MobileSAM finds the objects, PaddleOCR finds the words and
+        // where they sit, and the compiler redraws those words as live text in the
+        // face the artwork itself used.
+        const controller = new AbortController();
+        editableAbortController = controller;
+        // ComfyUI is a resident background server. Boot keeps it attached; this
+        // stage only waits until it answers. Never shut it down when the book ends.
+        const project = store.getProject(projectId);
+        const { isTextFreeProject, prepareTextFreeManifests } = require('./text-free-pipeline.cjs');
+        const { isRebuildPipelineEnabled, runRebuildLocalPass } = require('./rebuild-pipeline.cjs');
+        if (isRebuildPipelineEnabled(store, project)) {
+          const rebuildController = new AbortController();
+          editableAbortController = rebuildController;
+          try {
+            return await runRebuildLocalPass({
+              store,
+              projectId,
+              onProgress,
+              signal: rebuildController.signal,
+            });
+          } finally {
+            editableAbortController = null;
+          }
+        }
+        if (isTextFreeProject(store, project)) {
+          const prepared = prepareTextFreeManifests({ store, project });
+          store.appendEvent({
+            projectId,
+            level: 'success',
+            message: `Text-free masters confirmed: ${prepared.pages} page(s), ${prepared.zones} zone(s). Nothing was erased.`
+          });
+          onProgress(100);
+          editableAbortController = null;
+          return prepared;
+        }
+        const watchPages = (project?.jobs || []).map((job) => ({ jobId: job.id, pageNumber: job.pageNumber }));
+        const observer = attachTextLabObserver(projectId, watchPages);
+        try {
+          observer.setPhase('starting');
+          observer.setPhase('reading');
+          // Reading owns the first 60% of the bar, compiling the rest.
+          const vision = await runPageVision({
+            store,
+            projectId,
+            signal: controller.signal,
+            onActivity: textLabPageActivity(observer),
+            onProgress: (value) => onProgress(Math.round(value * 0.6))
+          });
+          if (vision.failures.length) {
+            console.warn(`[interior_text] ${vision.failures.length} page(s) could not be read: `
+              + vision.failures.map((failure) => `p${failure.pageNumber} ${failure.code}`).join(', '));
+          }
+          const preferences = getPreferences();
+          observer.setPhase('rebuilding');
+          const built = await buildEditablePages({
+            store,
+            projectId,
+            // Overlay keeps the artwork pixel-identical but leaves the text invisible,
+            // so it is only useful for search. Replace is what "editable" means here.
+            textMode: preferences.editableTextMode === 'overlay' ? 'overlay' : 'replace',
+            objectLayers: Boolean(preferences.editableObjectLayers),
+            signal: controller.signal,
+            onActivity: textLabPageActivity(observer),
+            onProgress: (value) => onProgress(60 + Math.round(value * 0.4))
+          });
+          console.log(`[interior_text] ${built.pages} editable pages `
+            + `(${built.compiled} compiled, ${built.reused} reused), `
+            + `${built.editableText} live text runs, ${built.bakedText} left in artwork, `
+            + `fonts: ${built.fonts.join(', ') || 'none matched'}`);
+          return;
+        } catch (error) {
+          if (error.code === 'CANCELLED') throw error;
+          // Fall through to the gem only when the local pipeline is genuinely absent.
+          if (!['PYTHON_ENV_MISSING', 'WORKER_MISSING', 'CHECKPOINT_MISSING', 'VISION_UNAVAILABLE'].includes(error.code)) {
+            throw error;
+          }
+          console.warn(`[interior_text] local vision unavailable (${error.code}); using the gem.`);
+        } finally {
+          observer.stop();
+          editableAbortController = null;
+        }
+        requireGeminiForPlanning('page text');
+        const fallback = new AbortController();
+        editableAbortController = fallback;
+        browser.beginWork?.();
+        try {
+          await generateEditablePageText({
+            store,
+            projectId,
+            provider: createEditableBrowserProvider(browser, { signal: fallback.signal, onActivity: () => {} }),
+            signal: fallback.signal,
+            onProgress
+          });
+        } finally {
+          editableAbortController = null;
+        }
+      },
+      // Editable PPTX - combine every editable page from Interior Text into one
+      // layered book. Concatenation, so the artwork keeps the exact bytes that stage
+      // produced and nothing is re-encoded.
+      editable_ppt: async (projectId, onProgress) => {
+        const project = store.getProject(projectId);
+        const { isTextFreeProject } = require('./text-free-pipeline.cjs');
+        const { isRebuildPipelineEnabled, runRebuildLocalPass } = require('./rebuild-pipeline.cjs');
+        if (isRebuildPipelineEnabled(store, project)) {
+          const { listRebuildPages } = require('./rebuild-page-record.cjs');
+          const { editableDeckPath } = require('./editable-layered-pptx.cjs');
+          const pages = listRebuildPages(store, project);
+          const deck = editableDeckPath(project);
+          if (pages.length && pages.every((page) => page.state === 'COMPLETE') && existsSync(deck)) {
+            onProgress(100);
+            return { outputPath: deck, reused: true };
+          }
+          return runRebuildLocalPass({ store, projectId, onProgress });
+        }
+        if (isTextFreeProject(store, project) || (project && listEditablePages(project).length)) {
+          await assembleEditableDeliverables(projectId, onProgress);
+          return;
+        }
+        await runNativeEditableForProject(projectId, onProgress);
+      },
+      // thumbnails: generate 4 marketing thumbnails
+      thumbnails: async (projectId, onProgress) => {
+        requireActiveEngine('thumbnail generation');
+        const project = await ensureListingShellForAssets(projectId);
+        const listing = project?.tptListing;
+        if (!project || !listing?.productPdfPath) {
+          throw Object.assign(new Error('Complete every page before mockups.'), { code: 'BOOK_INCOMPLETE' });
+        }
+        const thumbnailPaths = [...getMockups(project).paths];
+        store.updateProject(projectId, {
+          tptListing: applyMockupsToListing(
+            invalidateTptListingReview(listing, { status: 'thumbnails_generating' }),
+            {
+              paths: thumbnailPaths,
+              progress: { completed: thumbnailPaths.filter(Boolean).length, total: 4 },
+              error: null
+            }
+          )
+        });
+        await broadcastState();
+        let thumbCount = thumbnailPaths.filter(Boolean).length;
+        const sourceDocPath = await ensureMarketingGroundTruth(projectId);
+        await browser.generateTptThumbnailsWithGpt({ project, pdfPath: sourceDocPath, listing, onThumbnail: async ({ index, buffer, conversationUrl }) => {
+          const outputPath = await fileManager.saveGeneratedThumbnail({ buffer, fileName: `thumbnail_${index + 1}.png`, outputDir: project.outputDir });
+          thumbnailPaths[index] = outputPath;
+          thumbCount += 1;
+          store.updateProjectTransactionally(projectId, (c) => ({ tptListing: applyMockupsToListing((c.tptListing || listing || {}), {
+              paths: thumbnailPaths,
+              conversationUrl,
+              progress: { completed: thumbCount, total: 4 },
+              error: null
+            }, { status: 'thumbnails_generating' }) }));
+          store.appendEvent({ projectId, level: 'success', message: `[Automation] Thumbnail ${index + 1}/4 saved.` });
+          onProgress(Math.round((thumbCount / 4) * 100));
+          await broadcastState();
+        }});
+        store.updateProjectTransactionally(projectId, (c) => ({ tptListing: applyMockupsToListing((c.tptListing || listing || {}), {
+            paths: thumbnailPaths,
+            progress: { completed: 4, total: 4 },
+            error: null
+          }, { status: 'assets_ready' }) }));
+        await broadcastState();
+        onProgress(100);
+      },
+      preview: async (projectId, onProgress) => {
+        const project = await ensureListingShellForAssets(projectId);
+        const listing = project?.tptListing;
+        if (!project || !listing) {
+          throw Object.assign(new Error('Complete every page before preview.'), { code: 'BOOK_INCOMPLETE' });
+        }
+        if (hasValidVideoFile(project)) {
+          onProgress(100);
+          return;
+        }
+        await generatePreviewVideoForProject(projectId, { onProgress });
+      },
+      // export: manifest-backed ZIP pack with every required buyer deliverable.
+      export: async (projectId, onProgress) => {
+        const project = ensureProjectOutputDirectory(projectId);
+        if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
+        if (project.stats.complete !== project.stats.total || project.stats.total === 0) {
+          throw Object.assign(new Error('All pages must be complete before export.'), { code: 'BOOK_INCOMPLETE' });
+        }
+        onProgress(25);
+        const current = store.getProject(projectId) || project;
+        // Dual export for editable products. The deck is the primary deliverable - it
+        // is what a buyer can actually drag and retype in - and the layered PDF is the
+        // secondary. A failure in either is reported and does not cancel the other or
+        // the ZIP, because a missing optional artefact is not a reason to lose a
+        // finished book.
+        let deckPath = null;
+        try {
+          deckPath = await fileManager.exportPptx(current, { store });
+          onProgress(45);
+        } catch (error) {
+          store.appendEvent({
+            projectId, level: 'warn',
+            message: `[Automation] Editable PPTX skipped: ${error.code || error.message}`
+          });
+        }
+        await fileManager.exportZip(current, { store });
+        store.appendEvent({
+          projectId,
+          level: 'success',
+          message: deckPath
+            ? '[Automation] Export ZIP ready (editable PPTX, PDF, DOCX, 4 mockups, preview video, listing details).'
+            : '[Automation] Export ZIP ready (PDF, PPTX, DOCX, 4 mockups, preview video, listing details).'
+        });
+        await broadcastState();
+        onProgress(100);
+      }
+  };
+  // Published so the durable queue runs the same functions.
+  pipelineStepRunners = stepRunners;
+  // Started only once the handlers can reach their runners: a task leased before
+  // this line would fail for no reason other than boot order.
+  pipelineRunner.start();
+
   automation = new AutomationManager({
     store,
+    /**
+     * Run an automated step as a durable task.
+     *
+     * The manager keeps what it is good at — retries, verification, notifications,
+     * the stall watchdog. What it gives up is holding the work on its own stack:
+     * the stage becomes a committed row, so a crash mid-step resumes from its
+     * checkpoint instead of starting the stage again.
+     *
+     * maxAttempts is 1 on purpose. The manager already retries with its own
+     * backoff; letting the queue retry as well would multiply the two.
+     *
+     * A stage the queue does not know about falls through to the runner directly,
+     * so adding a step does not silently stop it working.
+     */
+    dispatchStep: async ({ step, projectId, onProgress, runner }) => {
+      const kind = stepToTaskKind(step);
+      if (!kind || !pipelineRunner) return runner(projectId, onProgress);
+      const task = store.tasks.enqueue({
+        kind,
+        projectId,
+        dedupeKey: dedupeKey(kind, projectId, step),
+        payload: { projectId, step },
+        maxAttempts: 1
+      });
+      const unsubscribe = (() => {
+        const onTaskProgress = ({ task: t, percent }) => {
+          if (t.id === task.id) onProgress(percent);
+        };
+        pipelineRunner.on('progress', onTaskProgress);
+        return () => pipelineRunner.off('progress', onTaskProgress);
+      })();
+      try {
+        const finished = await awaitTask(store, task.id, { timeoutMs: 24 * 60 * 60_000, pollMs: 500 });
+        return finished.result;
+      } finally {
+        unsubscribe();
+      }
+    },
     broadcast: broadcastState,
     abortStep: async (step, projectId) => {
+      if (['editable_generation', 'editable_ppt', 'interior_text'].includes(step)) editableAbortController?.abort();
+      if (step === 'maze') require('./maze-lab.cjs').abortMazeGeneration(projectId);
       store.appendEvent({
         projectId,
         level: 'warn',
         message: `[Automation] Force-closing the browser session for the frozen step "${step}".`,
         details: { code: 'STEP_ABORT' }
       });
+      let queueShutdown = null;
       if (step === 'interior') {
-        try { queue.pause(); } catch {}
+        try { queueShutdown = queue.pauseAndWait({ timeoutMs: 5_000 }); } catch {}
       }
       browser.abortTptHumanVerification?.(
         Object.assign(new Error(`The "${step}" step was aborted because it stopped responding.`), { code: 'STEP_ABORTED' })
       );
       await browser.close().catch(() => {});
+      if (queueShutdown) {
+        const result = await queueShutdown.catch(() => ({ settled: false }));
+        if (!result.settled) {
+          store.appendEvent({
+            projectId,
+            level: 'warn',
+            message: '[Automation] The interior queue is still shutting down; the retry fence will wait for the interior runner before allowing another attempt.',
+            details: { code: 'QUEUE_STOP_PENDING' }
+          });
+        }
+      }
     },
     resetBeforeRetry: async (step, projectId, attempt) => {
       browser.cancelWaits();
@@ -4714,13 +5965,15 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
       });
     },
     onPause: () => {
+      editableAbortController?.abort();
+      require('./maze-lab.cjs').abortAllMazeGeneration();
       try { queue.pause(); } catch {}
       try { browser.cancelWaits(); } catch {}
     },
     onResume: () => {
       const currentId = automation.getStatus().currentProjectId;
       const step = automation.getStatus().currentStep;
-      if (step === 'interior' && currentId && !queue.running) {
+      if (step === 'interior' && currentId) {
         const project = store.getProject(currentId);
         if (project?.stats?.total && project.stats.complete < project.stats.total) {
           queue.start(currentId);
@@ -4743,8 +5996,7 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
         }
       },
       thumbnails: (projectId) => {
-        const paths = store.getProject(projectId)?.tptListing?.thumbnailPaths ?? [];
-        const saved = paths.filter((filePath) => filePath && existsSync(filePath)).length;
+        const saved = countValidMockupPaths(store.getProject(projectId));
         if (saved < 4) {
           throw Object.assign(
             new Error(`Only ${saved} of 4 marketing thumbnails were generated.`),
@@ -4753,9 +6005,8 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
         }
       },
       preview: (projectId) => {
-        const listing = store.getProject(projectId)?.tptListing;
-        if (listing?.videoPreviewPath && existsSync(listing.videoPreviewPath)) return;
-        if (listing?.videoPreviewStatus === 'ready' && listing?.videoPreviewPath) return;
+        // Filesystem authority: only an existing MP4 counts as complete.
+        if (hasValidVideoFile(store.getProject(projectId))) return;
         throw Object.assign(
           new Error('The Veo 3 teacher preview video was not saved.'),
           { code: 'TPT_PREVIEW_INCOMPLETE' }
@@ -4770,16 +6021,7 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
             { code: 'BOOK_INCOMPLETE' }
           );
         }
-        if (project.productFormat === 'editable') {
-          const rasterPaths = collectProductPageImagePaths(project.jobs || []);
-          const want = (project.jobs || []).length;
-          if (rasterPaths.length < want) {
-            throw Object.assign(new Error('Generate every interior page before sending the book to Canva.'), {
-              code: 'CANVA_PAGES_MISSING'
-            });
-          }
-        }
-        const compressed = project.compressedPdfPath || project.printPdfJson?.compressedPdfPath || compressedPrintPdfDest(project.outputDir, project);
+        const compressed = hasValidPdfFile(getPdf(project).compressedPath) ? getPdf(project).compressedPath : compressedPrintPdfDest(project.outputDir, project);
         if (!compressed || !existsSync(compressed)) {
           throw Object.assign(
             new Error('Interior pages finished, but the compressed print PDF is not ready.'),
@@ -4787,248 +6029,49 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
           );
         }
       },
-      editable: (projectId) => {
+      editable_generation: (projectId) => {
+        verifyEditableOutput(store.getProject(projectId));
+      },
+      interior_artwork: (projectId) => {
         const project = store.getProject(projectId);
-        if (!project || project.productFormat !== 'editable') return;
-        const link = project.canvaTemplateLink;
-        if (link && isCanvaTemplateLink(link)) return;
-        throw Object.assign(
-          new Error('Canva template link was not saved. Run Build Canva layer (Magic Layers) first.'),
-          { code: 'CANVA_TEMPLATE_LINK_MISSING' }
-        );
-      }
+        if (!allInteriorPagesComplete(project)) {
+          throw Object.assign(new Error('Every page needs finished artwork.'), { code: 'BOOK_INCOMPLETE' });
+        }
+      },
+      interior_text: (projectId) => {
+        const project = store.getProject(projectId);
+        const { isTextFreeProject, readStoredManifest } = require('./text-free-pipeline.cjs');
+        if (isTextFreeProject(store, project)) {
+          const missing = (project.jobs || []).filter((job) => !readStoredManifest(store, project, job));
+          if (missing.length) {
+            throw Object.assign(new Error(`Text-free manifests are still missing for ${missing.length} page(s).`), { code: 'EDITABLE_MANIFEST_MISSING' });
+          }
+          return;
+        }
+        // Either output satisfies this stage: compiled editable pages when the local
+        // pipeline ran, or the cached per-page text when the gem fallback did.
+        if (listEditablePages(project).length) return;
+        const missing = (project.jobs || []).filter((job) => !readCachedPageText(store, project, job));
+        if (missing.length) {
+          throw Object.assign(new Error(`Page text is still missing for ${missing.length} page(s).`), { code: 'EDITABLE_PAGE_TEXT_MISSING' });
+        }
+      },
+      editable_ppt: (projectId) => {
+        const project = store.getProject(projectId);
+        const { isTextFreeProject } = require('./text-free-pipeline.cjs');
+        if (isTextFreeProject(store, project)) {
+          const deck = editableDeckPath(project);
+          if (deck && existsSync(deck) && statSync(deck).size >= 2048) return;
+          throw Object.assign(new Error('The text-free PowerPoint deck is missing.'), { code: 'PPTX_INVALID' });
+        }
+        if (existsSync(editableBookPath(project))) return;
+        verifyEditableOutput(project);
+      },
+      overview: (projectId) => verifyOverview(store.getProject(projectId)),
+      maze: (projectId) => require('./maze-export.cjs').assertMazeBookReady(store, projectId),
+      export: (projectId) => verifyExportZip(store.getProject(projectId))
     },
-    stepRunners: {
-      // Projects enter this pipeline only after project creation has persisted
-      // the overview, so the automated step validates that saved input.
-      overview: async (projectId, onProgress) => {
-        const project = store.getProject(projectId);
-        if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
-        if (!project.name || !project.theme) {
-          throw Object.assign(new Error('The saved project overview is incomplete.'), { code: 'PROJECT_OVERVIEW_INCOMPLETE' });
-        }
-        onProgress(100);
-      },
-      // characters: generate all character references
-      characters: async (projectId, onProgress) => {
-        const project = ensureProjectOutputDirectory(projectId);
-        if (!project || project.projectType !== 'storybook') return; // only storybook has characters
-        await generateAllStorybookCharacterReferences(projectId);
-        onProgress(100);
-      },
-      // interior: generate every page, then convert + compress the print PDF
-      interior: async (projectId, onProgress) => {
-        const project = ensureProjectOutputDirectory(projectId);
-        if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
-        requireActiveEngine('interior generation');
-        const finishPrintPdf = async () => {
-          await ensureProductPdf(projectId, {
-            onProgress: async (info) => {
-              if (info?.stage === 'converting') onProgress(96);
-              else if (info?.stage === 'compressing') onProgress(98);
-              else if (info?.stage === 'ready') onProgress(100);
-            }
-          });
-          onProgress(100);
-        };
-        if (project.stats.complete === project.stats.total && project.stats.total > 0) {
-          await finishPrintPdf();
-          return;
-        }
-        queue.start(projectId);
-        let lastRestartAt = 0;
-        await new Promise((resolve, reject) => {
-          const checkDone = async () => {
-            const p = store.getProject(projectId);
-            const pct = p?.stats?.total ? Math.round((p.stats.complete / p.stats.total) * 100) : 0;
-            onProgress(Math.min(95, pct));
-            if (p?.stats?.complete === p?.stats?.total && p?.stats?.total > 0) {
-              queue.removeListener('changed', checkDone);
-              resolve();
-            } else if (!queue.running) {
-              if (automation?.getStatus()?.paused) return;
-              const remaining = (p?.stats?.total || 0) - (p?.stats?.complete || 0);
-              if (remaining > 0 && automation?.getStatus()?.active) {
-                if (Date.now() - lastRestartAt < 2_000) return;
-                lastRestartAt = Date.now();
-                try { queue.start(projectId); } catch {}
-                return;
-              }
-              queue.removeListener('changed', checkDone);
-              reject(Object.assign(new Error('Queue stopped before all pages completed.'), { code: 'QUEUE_STOPPED' }));
-            }
-          };
-          queue.on('changed', checkDone);
-          checkDone().catch(reject);
-        });
-        await finishPrintPdf();
-      },
-      editable: async (projectId, onProgress) => {
-        const project = ensureProjectOutputDirectory(projectId);
-        if (!project || project.productFormat !== 'editable') {
-          onProgress(100);
-          return;
-        }
-        await runCanvaEditableForProject(projectId, onProgress);
-      },
-      listing: async (projectId, onProgress) => {
-        await assertListingChatSessionReady('listing generation');
-        const project = ensureProjectOutputDirectory(projectId);
-        if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
-        // #region agent log
-        try {
-          const fs = require('fs');
-          const path = require('path');
-          const logPath = path.join(__dirname, '..', '.cursor', 'debug-1c3662.log');
-          fs.mkdirSync(path.dirname(logPath), { recursive: true });
-          fs.appendFileSync(logPath, `${JSON.stringify({
-            sessionId: '1c3662',
-            runId: 'listing-debug',
-            hypothesisId: 'C',
-            location: 'main.cjs:automation.listing',
-            message: 'automation listing step start',
-            data: {
-              projectId,
-              engine: getActiveEngine(),
-              stepListingStatus: project.stepListingStatus || null,
-              pagesComplete: project.stats?.complete,
-              pagesTotal: project.stats?.total
-            },
-            timestamp: Date.now()
-          })}\n`);
-        } catch { /* ignore */ }
-        // #endregion
-        const pdfPath = await ensureProductPdf(projectId);
-        if (!pdfPath) {
-          throw Object.assign(new Error('Complete every page before preparing SEO.'), { code: 'BOOK_INCOMPLETE' });
-        }
-        let seoDocPath = null;
-        try {
-          seoDocPath = await ensureSeoBookDocument(projectId);
-        } catch {
-          seoDocPath = null;
-        }
-        // #region agent log
-        try {
-          const fs = require('fs');
-          const path = require('path');
-          fs.appendFileSync(path.join(__dirname, '..', '.cursor', 'debug-1c3662.log'), `${JSON.stringify({
-            sessionId: '1c3662', runId: 'seo-stage', hypothesisId: 'DOC', location: 'main.cjs:automation.listing:attach',
-            message: 'automation SEO attachment chosen',
-            data: {
-              projectId,
-              usedDoc: Boolean(seoDocPath),
-              attachmentExt: path.extname(pdfPath || ''),
-              attachMode: 'pdf-like-tpt-book-automation'
-            },
-            timestamp: Date.now()
-          })}\n`);
-        } catch { /* ignore */ }
-        // #endregion
-        const result = await browser.generateTptListingWithGpt({ project, pdfPath });
-        const previous = project.tptListing || {};
-        const listing = {
-          ...previous,
-          ...applyListingDefaults(parseTptListingResponse(result.rawText), getPreferences()),
-          rawResponse: result.rawText,
-          productPdfPath: pdfPath,
-          seoDocumentPath: seoDocPath || previous.seoDocumentPath || null,
-          conversationUrl: result.conversationUrl,
-          status: 'draft_ready',
-          thumbnailPaths: Array.isArray(previous.thumbnailPaths) ? previous.thumbnailPaths : [],
-          previewPdfPath: previous.previewPdfPath || null,
-          videoPreviewPath: previous.videoPreviewPath || null,
-          videoPreviewStatus: previous.videoPreviewStatus || null,
-          formContract: previous.formContract || null
-        };
-        listing.seoText = formatSeoBundleText(listing);
-        // #region agent log
-        try {
-          const fs = require('fs');
-          const path = require('path');
-          const logPath = path.join(__dirname, '..', '.cursor', 'debug-1c3662.log');
-          fs.appendFileSync(logPath, `${JSON.stringify({
-            sessionId: '1c3662',
-            runId: 'listing-debug',
-            hypothesisId: 'D',
-            location: 'main.cjs:automation.listing:parsed',
-            message: 'automation listing extracted',
-            data: {
-              projectId,
-              engine: getActiveEngine(),
-              hasTitle: Boolean(listing.title),
-              hasDescription: Boolean(listing.description),
-              tagCount: Array.isArray(listing.tags) ? listing.tags.length : 0,
-              subjectCount: Array.isArray(listing.subjects) ? listing.subjects.length : 0,
-              rawLen: String(result.rawText || '').length
-            },
-            timestamp: Date.now()
-          })}\n`);
-        } catch { /* ignore */ }
-        // #endregion
-        store.updateProject(projectId, { tptListing: listing, stepListingStatus: 'completed' });
-        store.appendEvent({ projectId, level: 'success', message: '[Automation] Best-seller SEO drafted from the finished book PDF.' });
-        onProgress(100);
-        await broadcastState();
-      },
-      // thumbnails: generate 4 marketing thumbnails
-      thumbnails: async (projectId, onProgress) => {
-        requireActiveEngine('thumbnail generation');
-        const project = await ensureListingShellForAssets(projectId);
-        const listing = project?.tptListing;
-        if (!project || !listing?.productPdfPath) {
-          throw Object.assign(new Error('Complete every page before mockups.'), { code: 'BOOK_INCOMPLETE' });
-        }
-        const thumbnailPaths = [...(listing.thumbnailPaths ?? [])];
-        store.updateProject(projectId, { tptListing: invalidateTptListingReview(listing, { thumbnailPaths, status: 'thumbnails_generating', thumbnailProgress: { completed: thumbnailPaths.length, total: 4 } }) });
-        await broadcastState();
-        let thumbCount = thumbnailPaths.filter(Boolean).length;
-        await browser.generateTptThumbnailsWithGpt({ project, pdfPath: listing.productPdfPath, listing, onThumbnail: async ({ index, buffer, conversationUrl }) => {
-          const outputPath = await fileManager.saveGeneratedThumbnail({ buffer, fileName: `thumbnail_${index + 1}.png`, outputDir: project.outputDir });
-          thumbnailPaths[index] = outputPath;
-          thumbCount += 1;
-          const current = store.getProject(projectId)?.tptListing ?? listing;
-          store.updateProject(projectId, { tptListing: { ...current, thumbnailPaths, thumbnailConversationUrl: conversationUrl, status: 'thumbnails_generating', thumbnailProgress: { completed: thumbCount, total: 4 } } });
-          store.appendEvent({ projectId, level: 'success', message: `[Automation] Thumbnail ${index + 1}/4 saved.` });
-          onProgress(Math.round((thumbCount / 4) * 100));
-          await broadcastState();
-        }});
-        const current = store.getProject(projectId)?.tptListing ?? listing;
-        store.updateProject(projectId, { tptListing: { ...current, thumbnailPaths, status: 'assets_ready', thumbnailProgress: { completed: 4, total: 4 } } });
-        await broadcastState();
-        onProgress(100);
-      },
-      preview: async (projectId, onProgress) => {
-        const project = await ensureListingShellForAssets(projectId);
-        const listing = project?.tptListing;
-        if (!project || !listing) {
-          throw Object.assign(new Error('Complete every page before preview.'), { code: 'BOOK_INCOMPLETE' });
-        }
-        if (listing.videoPreviewPath && existsSync(listing.videoPreviewPath)) {
-          onProgress(100);
-          return;
-        }
-        await generatePreviewVideoForProject(projectId, { onProgress });
-      },
-      // export: ZIP pack (PDF + listing mockups + PPTX + DOCX)
-      export: async (projectId, onProgress) => {
-        const project = ensureProjectOutputDirectory(projectId);
-        if (!project) throw Object.assign(new Error('Project not found.'), { code: 'PROJECT_NOT_FOUND' });
-        if (project.stats.complete !== project.stats.total || project.stats.total === 0) {
-          throw Object.assign(new Error('All pages must be complete before export.'), { code: 'BOOK_INCOMPLETE' });
-        }
-        await ensureThankYouPdfForProject(projectId);
-        onProgress(25);
-        await fileManager.exportZip(store.getProject(projectId) || project);
-        store.appendEvent({
-          projectId,
-          level: 'success',
-          message: '[Automation] Export ZIP ready (print PDF, listing mockups, PPTX, DOCX).'
-        });
-        await broadcastState();
-        onProgress(100);
-      }
-    }
+    stepRunners,
   });
 
   // Forward automation events to the renderer via IPC
@@ -5036,7 +6079,6 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('automation:progress', payload);
     }
-    broadcastState().catch(() => {});
   });
   automation.on('ask_required', (payload) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -5065,14 +6107,31 @@ if (singleInstanceAcquired) app.whenReady().then(() => {
   bootLog('main window created');
   configureAutoUpdates();
   prewarmBackgroundBrowser();
+  comfy.connectForever().then((state) => {
+    bootLog(state?.ok ? `comfy ready ${state.url || ''}` : `comfy unavailable ${state?.error || ''}`);
+    if (!state?.ok && store) {
+      store.appendEvent({
+        level: 'warn',
+        message: state?.error || 'ComfyUI is not running in the background.'
+      });
+    }
+    broadcastState().catch(() => {});
+  }).catch((error) => {
+    bootLog(`comfy connect failed ${error?.message || error}`);
+  });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (!presentMainWindow() && store) createWindow();
   });
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('will-quit', () => {
+  comfy.shutdownSync();
+  bookManagementService.shutdownSync();
 });
 
 app.on('before-quit', (event) => {
@@ -5083,15 +6142,22 @@ app.on('before-quit', (event) => {
   const installUpdateOnQuit = updateManager?.getState().status === 'ready';
   updateManager?.stop();
   queue?.pause();
-  Promise.resolve(browser?.close()).finally(() => {
-    if (installUpdateOnQuit) {
-      installingUpdate = true;
-      const started = updateManager.install();
+  Promise.resolve(comfy.shutdown({ force: true }))
+    .catch(() => {})
+    .then(() => bookManagementService.shutdown({ force: true }))
+    .catch(() => {})
+    .then(() => browser?.close())
+    .finally(() => {
+      comfy.shutdownSync();
+      bookManagementService.shutdownSync();
+      if (installUpdateOnQuit) {
+        installingUpdate = true;
+        const started = updateManager.install();
+        store?.close();
+        if (started) return;
+        installingUpdate = false;
+      }
       store?.close();
-      if (started) return;
-      installingUpdate = false;
-    }
-    store?.close();
-    app.exit(0);
-  });
+      app.exit(0);
+    });
 });

@@ -1,26 +1,31 @@
-const {
-  CONTENT_GPT_URL,
-  MOCKUPS_GPT_URL,
-  SEO_GPT_URL
-} = require('./prompt-builder.cjs');
+const { DEFAULT_LINKS, resolveLink, getResolvedLinks } = require('./customization.cjs');
 
 const CHATGPT_URL = 'https://chatgpt.com/';
 const GEMINI_URL = 'https://gemini.google.com/app';
 const STANDARD_GEMINI_URL = GEMINI_URL;
-const CONTENT_PLANNING_GEM_URL = 'https://gemini.google.com/gem/a825fb54b4cf';
-const CONTENT_GEM_URL = CONTENT_PLANNING_GEM_URL;
-const SEO_GEM_URL = 'https://gemini.google.com/gem/b44e0aed9a86';
+const CONTENT_PLANNING_GEM_URL = DEFAULT_LINKS.geminiPlanning;
+const CONTENT_GEM_URL = DEFAULT_LINKS.geminiPages;
+const CONTENT_GPT_URL = DEFAULT_LINKS.chatgptContent;
+const MOCKUPS_GPT_URL = DEFAULT_LINKS.chatgptMockups;
+const SEO_GPT_URL = DEFAULT_LINKS.chatgptSeo;
+// Canonical id of the editable gem. The ?usp=sharing link 1qNgkNbAK7oO23hV9b8CyO5iN7_l6EMdc
+// resolves to this id, and every chat opened in the gem is served under it. Using the
+// share id here made isRetiredGeminiGemUrl() read live chats as a deleted gem, so the
+// studio guard navigated them to the content gem mid-generation.
+const SEO_GEM_URL = DEFAULT_LINKS.geminiSeo;
 // mode=image_creator is the Book Automation trick that opens the Mockups Gem
 // already armed for Imagen — without it Gemini often answers in text mode.
-const MOCKUPS_GEM_URL = 'https://gemini.google.com/gem/6d30d7350cbc?mode=image_creator';
-const PREVIEW_GEM_URL = 'https://gemini.google.com/gem/03e82ade1eb7';
-const META_URL = 'https://www.meta.ai/';
+const MOCKUPS_GEM_URL = DEFAULT_LINKS.geminiMockups;
+const PREVIEW_GEM_URL = DEFAULT_LINKS.geminiPreview;
+const META_URL = DEFAULT_LINKS.metaPages;
 const META_LOCAL_URL = 'meta://local';
 const RETIRED_GEM_IDS = new Set([
   'be5ff5bc0446',
   'd8064e71d731',
   '863ed43ea7fa',
-  '27dd6b9dc38a'
+  '27dd6b9dc38a',
+  '03e82ade1eb7',
+  'b44e0aed9a86'
 ]);
 
 const CHATGPT_HOST_PATTERN = /^(chatgpt\.com|chat\.openai\.com)$/i;
@@ -63,6 +68,13 @@ const CONTENT_PAGE_JOB_KINDS = new Set([
   'content'
 ]);
 const SEO_JOB_KINDS = new Set(['listing', 'tpt_listing', 'seo', 'title', 'description']);
+const EDITABLE_JOB_KINDS = new Set([
+  'editable',
+  'editable_page',
+  'editable_artwork',
+  'editable_text',
+  'artwork'
+]);
 const PLANNING_JOB_KINDS = new Set([
   'analysis',
   'analysis-first',
@@ -107,31 +119,67 @@ function getEngineHomeUrl(engine) {
 function jobRouteKind(job = {}) {
   const kind = String(job.kind || job.jobKind || job.promptKind || '').toLowerCase();
   const purpose = String(job.purpose || '').toLowerCase();
+  const productFormat = String(job.productFormat || job.format || '').toLowerCase();
   if (PREVIEW_JOB_KINDS.has(kind) || /^(preview|video|veo)/i.test(purpose)) return 'preview';
   if (PLANNING_JOB_KINDS.has(kind) || /^(planning|analysis|blueprint|prompts)$/i.test(purpose)) return 'planning';
   if (MOCKUP_JOB_KINDS.has(kind) || /^(mockup|mockups|thumbnail|thumbnails)$/i.test(purpose)) return 'mockups';
   if (SEO_JOB_KINDS.has(kind) || /^(seo|listing|title|description)$/i.test(purpose)) return 'seo';
+  if (EDITABLE_JOB_KINDS.has(kind) || productFormat === 'editable' || /editable|artwork/i.test(kind) || /editable|artwork/i.test(purpose)) return 'editable';
   if (CONTENT_PAGE_JOB_KINDS.has(kind) || /^(image|images|page|interior|content)$/i.test(purpose)) return 'content';
   return 'content';
 }
 
-function getJobStartUrl(job = {}, engine = 'chatgpt') {
+function linkOverrides(overrides) {
+  if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) return undefined;
+  if (overrides.links && typeof overrides.links === 'object') return overrides;
+  return { links: overrides };
+}
+
+function pickLink(key, overrides) {
+  return resolveLink(key, linkOverrides(overrides));
+}
+
+function resolvedContentGemUrl(overrides) {
+  return pickLink('geminiPlanning', overrides);
+}
+
+function getJobStartUrl(job = {}, engine = 'chatgpt', overrides) {
   const route = jobRouteKind(job);
-  if (route === 'preview') return PREVIEW_GEM_URL;
-  if (route === 'planning') return CONTENT_GEM_URL;
+  if (route === 'preview') return pickLink('geminiPreview', overrides);
+  // Planning, artwork and page images all go to the one content gem, for static
+  // and editable books alike.
+  //
+  // The editable gem existed because the old pipeline needed briefs written a
+  // particular way for an artwork turn that later baked text into the pixels.
+  // That pipeline is gone: Interior Text now lifts the words with MobileSAM and
+  // PaddleOCR, erases them with LaMa and rebuilds them as live text in a matched
+  // face, locally. Nothing downstream depends on which gem wrote the brief.
+  //
+  // It was also actively losing work — asked for 100 page prompts it returned 7 —
+  // so routing an editable book through it cost pages on every run.
+  // Planning is Gemini's job whatever the image engine is: the content gem writes
+  // analysis, blueprints and page prompts, and ChatGPT stays on images.
+  if (route === 'planning') return pickLink('geminiPlanning', overrides);
+  // The artwork turn follows the active image engine, like any other page image.
+  if (route === 'editable') {
+    return normalizeEngine(engine) === 'chatgpt'
+      ? pickLink('chatgptContent', overrides)
+      : pickLink('geminiPages', overrides);
+  }
   const norm = normalizeEngine(engine);
   if (norm === 'meta') {
-    if (route === 'seo') return SEO_GEM_URL;
-    return META_URL;
+    if (route === 'seo') return pickLink('geminiSeo', overrides);
+    if (route === 'mockups') return pickLink('metaMockups', overrides);
+    return pickLink('metaPages', overrides);
   }
   if (norm === 'gemini') {
-    if (route === 'mockups') return MOCKUPS_GEM_URL;
-    if (route === 'seo') return SEO_GEM_URL;
-    return CONTENT_GEM_URL;
+    if (route === 'mockups') return pickLink('geminiMockups', overrides);
+    if (route === 'seo') return pickLink('geminiSeo', overrides);
+    return pickLink('geminiPages', overrides);
   }
-  if (route === 'mockups') return MOCKUPS_GPT_URL;
-  if (route === 'seo') return SEO_GPT_URL;
-  return CONTENT_GPT_URL;
+  if (route === 'mockups') return pickLink('chatgptMockups', overrides);
+  if (route === 'seo') return pickLink('chatgptSeo', overrides);
+  return pickLink('chatgptContent', overrides);
 }
 
 const GEMINI_IMAGE_PROMPT_KINDS = new Set([
@@ -242,12 +290,42 @@ function geminiGemId(value) {
   }
 }
 
+// Opening a gem through its ?usp=sharing link makes Gemini resolve the share token to
+// the gem's canonical id. Both ids address the same gem, so both must count as live and
+// as the same surface — otherwise the resolved page reads as a retired gem and the app
+// bounces back to the content gem.
+const GEMINI_GEM_ALIASES = new Map();
+
+function canonicalGeminiGemId(value) {
+  const id = geminiGemId(value);
+  return id ? (GEMINI_GEM_ALIASES.get(id) || id) : id;
+}
+
+function liveGeminiStudioUrls() {
+  const resolved = getResolvedLinks();
+  return [
+    CONTENT_GEM_URL,
+    SEO_GEM_URL,
+    MOCKUPS_GEM_URL,
+    PREVIEW_GEM_URL,
+    resolved.geminiPlanning,
+    resolved.geminiPages,
+    resolved.geminiSeo,
+    resolved.geminiMockups,
+    resolved.geminiPreview
+  ].filter(Boolean);
+}
+
 function liveGeminiGemIds() {
-  return new Set(
-    [CONTENT_GEM_URL, SEO_GEM_URL, MOCKUPS_GEM_URL, PREVIEW_GEM_URL]
-      .map((item) => geminiGemId(item))
-      .filter(Boolean)
-  );
+  const ids = new Set();
+  for (const item of liveGeminiStudioUrls()) {
+    const id = geminiGemId(item);
+    if (!id) continue;
+    ids.add(id);
+    const alias = GEMINI_GEM_ALIASES.get(id);
+    if (alias) ids.add(alias);
+  }
+  return ids;
 }
 
 function isRetiredGeminiGemUrl(value) {
@@ -374,7 +452,7 @@ function isPersistedConversationUrl(value) {
     const url = new URL(String(value));
     if (!isGeminiHost(url.hostname)) return false;
     const normalized = `${url.origin}${url.pathname}`.replace(/\/+$/, '');
-    const gemHomes = [GEMINI_URL, CONTENT_GEM_URL, MOCKUPS_GEM_URL, SEO_GEM_URL, PREVIEW_GEM_URL]
+    const gemHomes = [GEMINI_URL, ...liveGeminiStudioUrls()]
       .map((item) => String(item).split('?')[0].replace(/\/+$/, ''));
     if (gemHomes.includes(normalized) && !url.search) return false;
     if (isGeminiHomeUrl(value) || isGemHomeUrl(value)) return false;
@@ -417,18 +495,18 @@ function accountProfileKey(engine) {
 
 function listGeminiStudios() {
   return [
-    { id: 'planning', name: 'Content Pages Gem', kind: 'analysis', engine: 'gemini', url: CONTENT_GEM_URL },
-    { id: 'seo-gem', name: 'SEO / Listing Gem', kind: 'listing', engine: 'gemini', url: SEO_GEM_URL },
-    { id: 'mockups-gem', name: 'Mockups Gem', kind: 'thumbnail', engine: 'gemini', url: MOCKUPS_GEM_URL },
-    { id: 'preview', name: 'Veo 3 Preview Gem', kind: 'preview', engine: 'gemini', url: PREVIEW_GEM_URL }
+    { id: 'planning', name: 'Content Pages Gem', kind: 'analysis', engine: 'gemini', url: resolveLink('geminiPlanning') },
+    { id: 'seo-gem', name: 'SEO / Listing Gem', kind: 'listing', engine: 'gemini', url: resolveLink('geminiSeo') },
+    { id: 'mockups-gem', name: 'Mockups Gem', kind: 'thumbnail', engine: 'gemini', url: resolveLink('geminiMockups') },
+    { id: 'preview', name: 'Veo 3 Preview Gem', kind: 'preview', engine: 'gemini', url: resolveLink('geminiPreview') }
   ];
 }
 
 function listChatGptStudios() {
   return [
-    { id: 'content-gpt', name: 'VERSA CLASS Gems Custom GPT', kind: 'content', engine: 'chatgpt', url: CONTENT_GPT_URL },
-    { id: 'mockups-gpt', name: 'TPT Winner Mockups Custom GPT', kind: 'thumbnail', engine: 'chatgpt', url: MOCKUPS_GPT_URL },
-    { id: 'seo-gpt', name: 'TPT Title SEO Custom GPT', kind: 'listing', engine: 'chatgpt', url: SEO_GPT_URL }
+    { id: 'content-gpt', name: 'VERSA CLASS Gems Custom GPT', kind: 'content', engine: 'chatgpt', url: resolveLink('chatgptContent') },
+    { id: 'mockups-gpt', name: 'TPT Winner Mockups Custom GPT', kind: 'thumbnail', engine: 'chatgpt', url: resolveLink('chatgptMockups') },
+    { id: 'seo-gpt', name: 'TPT Title SEO Custom GPT', kind: 'listing', engine: 'chatgpt', url: resolveLink('chatgptSeo') }
   ];
 }
 
@@ -457,6 +535,8 @@ module.exports = {
   getEngineHomeUrl,
   jobRouteKind,
   getJobStartUrl,
+  resolvedContentGemUrl,
+  liveGeminiStudioUrls,
   GEMINI_IMAGE_PROMPT_KINDS,
   wantsGeminiImageMode,
   isMetaLocalUrl,
@@ -482,6 +562,7 @@ module.exports = {
   isPersistedConversationUrl,
   isChatGptConversationUrl,
   jobPageNeedsNavigation,
+  canonicalGeminiGemId,
   geminiSurfaceId,
   chatgptSurfaceId,
   loginConfirmedKey,

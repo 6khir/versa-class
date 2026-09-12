@@ -1,44 +1,49 @@
 'use strict';
 
-/**
- * AutomationManager — Fully Automated Book Publishing Pipeline Engine
- *
- * Manages sequential book processing through seven pipeline steps:
- *   1. overview      — Idea analysis / concept extraction
- *   2. characters    — Character generation & reference images
- *   3. interior      — Book interior page generation, then print PDF convert + compress
- *   4. editable      — Canva Magic Layers + public template link (editable products only)
- *   5. thumbnails    — Marketing thumbnails creation
- *   6. preview       — Veo 3 teacher preview video (MP4)
- *   7. export        — PDF, ZIP & PPTX export
- *   8. listing       — Best-seller SEO (title, description, tags) from book Google Doc
- *
- * Per-step modes (configured in automation_settings table):
- *   - 'always'  → Execute automatically without stopping
- *   - 'ask'     → Pause, emit automation:ask_required, wait for resolve
- *   - 'manual'  → Skip (mark as 'skipped'), move to next step
- */
-
 const EventEmitter = require('node:events');
-const { sanitizeSeoListingFields } = require('./prompt-builder.cjs');
 
-const PIPELINE_STEPS = [
-  'overview',
-  'characters',
-  'interior',
-  'editable',
-  'thumbnails',
-  'preview',
-  'export',
-  'listing'
-];
+const { detectProductEngine, ENGINE_TYPES } = require('./product-engine-boundary.cjs');
+const NORMAL_PIPELINE = Object.freeze(['overview', 'interior', 'thumbnails', 'preview', 'export']);
+// Editable products replace the single "interior" step with the three-stage editable
+// pipeline: artwork, then the text written against it, then the PowerPoint assembly.
+const EDITABLE_PIPELINE = Object.freeze([
+  'overview', 'interior_artwork', 'interior_text', 'editable_ppt',
+  'thumbnails', 'preview', 'export'
+]);
+const MAZE_PIPELINE = Object.freeze(['overview', 'maze', 'thumbnails', 'preview', 'export']);
+const PIPELINE_STEPS = NORMAL_PIPELINE;
+const EDITABLE_ONLY_STEPS = Object.freeze(['interior_artwork', 'interior_text', 'editable_ppt']);
+const MAZE_ONLY_STEPS = Object.freeze(['maze']);
+function getPipelineSteps(project) {
+  const engine = detectProductEngine(project);
+  if (engine === ENGINE_TYPES.NATIVE_TEXT_EDITABLE) return EDITABLE_PIPELINE;
+  if (engine === ENGINE_TYPES.MAZE) return MAZE_PIPELINE;
+  return NORMAL_PIPELINE;
+}
+function pipelineDependencies(pipeline) {
+  return Object.fromEntries(pipeline.map((step, i) => [step, i ? [pipeline[i - 1]] : []]));
+}
+// Each pipeline is a strict chain, so a step depends only on the one before it in
+// whichever pipeline the project actually runs. Shared downstream keys stay on the
+// static/editable maps so maze does not rewrite thumbnails → preview → export.
+const STEP_DEPENDENCIES = {
+  ...pipelineDependencies(EDITABLE_PIPELINE),
+  ...pipelineDependencies(NORMAL_PIPELINE),
+  maze: ['overview']
+};
+function getStepDependencies(project, step) {
+  return pipelineDependencies(getPipelineSteps(project))[step] || [];
+}
 
 const STEP_LABELS = {
   overview: 'Overview & Idea Extraction',
   characters: 'Character Generation',
   interior: 'Book Interior Generation',
-  editable: 'Canva Magic Layers',
-  listing: 'Best-seller SEO',
+  interior_artwork: 'Interior Artwork',
+  interior_text: 'Interior Text',
+  editable_ppt: 'Editable PowerPoint',
+  editable_generation: 'Editable Page Generation',
+  maze: 'Maze Lab',
   thumbnails: 'Marketing Thumbnails Creation',
   preview: 'Preview Video Generation',
   export: 'PDF, ZIP & PPTX Exporting'
@@ -54,15 +59,19 @@ const RETRY_DELAYS_MS = [5_000, 15_000, 30_000]; // exponential backoff
  *
  * Steps that report incremental progress (interior, thumbnails, characters) get a
  * short idle window and a generous ceiling. Steps that only report 0% then 100%
- * (overview, listing, export) cannot be judged on idleness, so their idle window
+ * (overview, export) cannot be judged on idleness, so their idle window
  * equals their ceiling.
  */
 const STEP_TIMEOUTS = {
   overview: { idleMs: 120_000, hardCapMs: 120_000 },
   characters: { idleMs: 20 * 60_000, hardCapMs: 90 * 60_000 },
   interior: { idleMs: 45 * 60_000, hardCapMs: 12 * 60 * 60_000 },
-  editable: { idleMs: 20 * 60_000, hardCapMs: 180 * 60_000 },
-  listing: { idleMs: 25 * 60_000, hardCapMs: 25 * 60_000 },
+  interior_artwork: { idleMs: 45 * 60_000, hardCapMs: 12 * 60 * 60_000 },
+  interior_text: { idleMs: 20 * 60_000, hardCapMs: 180 * 60_000 },
+  // Assembly is local and finishes in milliseconds.
+  editable_ppt: { idleMs: 5 * 60_000, hardCapMs: 10 * 60_000 },
+  editable_generation: { idleMs: 20 * 60_000, hardCapMs: 180 * 60_000 },
+  maze: { idleMs: 20 * 60_000, hardCapMs: 180 * 60_000 },
   thumbnails: { idleMs: 30 * 60_000, hardCapMs: 90 * 60_000 },
   preview: { idleMs: 45 * 60_000, hardCapMs: 90 * 60_000 },
   export: { idleMs: 30 * 60_000, hardCapMs: 30 * 60_000 }
@@ -85,12 +94,42 @@ function formatDuration(ms) {
   return `${minutes}m ${seconds}s`;
 }
 
+function stepStatusKey(step) {
+  return `step${step.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('')}Status`;
+}
+
+// Editable stages share the store columns written by updateProjectStepStatus:
+// interior_artwork → step_interior_status, interior_text → step_editable_status,
+// editable_ppt → step_editable_generation_status. The camelCase keys from
+// stepStatusKey() are not on production project rows, so a missing field must
+// fall back to those shared columns instead of treating the step as pending.
+const STEP_STATUS_COLUMNS = Object.freeze({
+  interior_artwork: 'stepInteriorStatus',
+  interior_text: 'stepEditableStatus',
+  editable_ppt: 'stepEditableGenerationStatus'
+});
+
+function readStepStatus(project, step) {
+  const direct = project?.[stepStatusKey(step)];
+  if (direct != null) return direct;
+  const shared = STEP_STATUS_COLUMNS[step];
+  return project?.[shared] ?? 'pending';
+}
+
+function isStepSatisfied(status) {
+  return status === 'completed' || status === 'skipped';
+}
+
 class AutomationManager extends EventEmitter {
   /**
    * @param {object}   options
    * @param {Function} [options.abortStep] - async (step, projectId, reason) invoked when a
    *   step stalls. Must tear down whatever the step is blocked on (browser, queue) so the
    *   runner's pending awaits reject instead of hanging forever.
+   * @param {Function} [options.dispatchStep] - async ({ step, projectId, onProgress, runner }).
+   *   When present, steps run through it instead of being called directly — this is how
+   *   the durable queue takes ownership of a stage without the manager losing its
+   *   retry, verify and notify semantics.
    * @param {object}   [options.stepVerifiers] - map of step → async (projectId) that throws
    *   when the runner returned without producing usable output.
    * @param {Function} [options.resetBeforeRetry] - async (step, projectId, attempt) invoked
@@ -106,6 +145,7 @@ class AutomationManager extends EventEmitter {
     onPause = null,
     onResume = null,
     stepVerifiers = {},
+    dispatchStep = null,
     stepTimeouts = STEP_TIMEOUTS,
     watchdogTickMs = WATCHDOG_TICK_MS,
     orphanSettleGraceMs = ORPHAN_SETTLE_GRACE_MS,
@@ -120,6 +160,7 @@ class AutomationManager extends EventEmitter {
     this._onPause = typeof onPause === 'function' ? onPause : null;
     this._onResume = typeof onResume === 'function' ? onResume : null;
     this._stepVerifiers = stepVerifiers;
+    this._dispatchStep = dispatchStep;
     this._stepTimeouts = stepTimeouts;
     this._watchdogTickMs = watchdogTickMs;
     this._orphanSettleGraceMs = orphanSettleGraceMs;
@@ -230,17 +271,15 @@ class AutomationManager extends EventEmitter {
 
   async _runLoop() {
     for (const project of this._automationProjects()) {
-      for (const step of PIPELINE_STEPS) {
-        const stepKey = `step${step.charAt(0).toUpperCase() + step.slice(1)}Status`;
-        if ((project[stepKey] ?? 'pending') === 'completed') {
+      for (const step of getPipelineSteps(project)) {
+        if (readStepStatus(project, step) === 'completed') {
           await this._ensureCompletedStepStillValid(project.id, step);
         }
       }
     }
 
-    const projects = this._automationProjects().filter((project) => PIPELINE_STEPS.some((step) => {
-      const stepKey = `step${step.charAt(0).toUpperCase() + step.slice(1)}Status`;
-      return !['completed', 'skipped'].includes(project[stepKey] ?? 'pending');
+    const projects = this._automationProjects().filter((project) => getPipelineSteps(project).some((step) => {
+      return !(step === 'editable_generation' ? ['completed'] : ['completed', 'skipped']).includes(readStepStatus(project, step));
     }));
     this._totalBooks = projects.length;
     this._currentBookIndex = 0;
@@ -346,55 +385,25 @@ class AutomationManager extends EventEmitter {
   }
 
   async _processBook(projectId) {
-    for (const step of PIPELINE_STEPS) {
+    // The editable pipeline is longer than the static one, and classification can
+    // change which pipeline applies at index 1, so bound by whichever is longest.
+    const maxSteps = Math.max(NORMAL_PIPELINE.length, EDITABLE_PIPELINE.length, MAZE_PIPELINE.length);
+    for (let pipelineIndex = 0; pipelineIndex < maxSteps; pipelineIndex++) {
+      // Re-read classification AFTER overview, then persist the engine lock.
+      if (pipelineIndex === 1 && this._store.lockProductEngine) this._store.lockProductEngine(projectId);
+      const step = getPipelineSteps(this._store.getProject(projectId))[pipelineIndex];
+      if (!step) break;
       await this._waitWhilePaused();
       if (!this._active) return 'stopped';
       const project = this._store.getProject(projectId);
       if (!project) return 'stopped';
 
-      const stepKey = `step${step.charAt(0).toUpperCase() + step.slice(1)}Status`;
-      let currentStatus = project[stepKey] ?? 'pending';
+      let currentStatus = readStepStatus(project, step);
 
-      // Listing must never stay skipped / stuck processing without output.
-      if (step === 'listing' && (currentStatus === 'skipped' || currentStatus === 'processing')) {
-        const listing = project.tptListing;
-        const cleaned = sanitizeSeoListingFields(listing || {});
-        const hasListing = Boolean(cleaned.title && cleaned.description && cleaned.tags?.length);
-        // #region agent log
-        try {
-          const fs = require('fs');
-          const path = require('path');
-          const logPath = path.join(__dirname, '..', '.cursor', 'debug-1c3662.log');
-          fs.mkdirSync(path.dirname(logPath), { recursive: true });
-          fs.appendFileSync(logPath, `${JSON.stringify({
-            sessionId: '1c3662',
-            runId: 'listing-debug',
-            hypothesisId: 'B',
-            location: 'automation-manager.cjs:_processBook',
-            message: 'listing status before gate',
-            data: {
-              projectId,
-              currentStatus,
-              hasListing,
-              hadSkipStubDescription: Boolean(listing?.description && !cleaned.description),
-              hadSkipStubTags: Boolean(listing?.tags?.length && !(cleaned.tags?.length)),
-              mode: (this._store.getAutomationSettings() || {}).listing
-            },
-            timestamp: Date.now()
-          })}\n`);
-        } catch { /* ignore */ }
-        // #endregion
-        if (!hasListing) {
-          this._store.updateProjectStepStatus(projectId, step, 'pending');
-          currentStatus = 'pending';
-          this._store.appendEvent({
-            projectId,
-            level: 'info',
-            message: '[Automation] Listing will run — previous skip/stuck state was cleared.'
-          });
-        }
+      if (step === 'editable_generation' && currentStatus === 'skipped') {
+        this._store.updateProjectStepStatus(projectId, step, 'pending');
+        currentStatus = 'pending';
       }
-
       if (currentStatus === 'skipped') {
         this._emitProgress(step, 100);
         continue;
@@ -406,9 +415,33 @@ class AutomationManager extends EventEmitter {
         }
       }
 
+      const dependencyBlock = this._unsatisfiedDependency(projectId, step);
+      if (dependencyBlock) {
+        this._store.updateProjectStepStatus(projectId, step, 'failed');
+        this._store.appendEvent({
+          projectId,
+          level: 'error',
+          message: `[Automation] Cannot run "${STEP_LABELS[step] || step}" until "${STEP_LABELS[dependencyBlock.step] || dependencyBlock.step}" is completed or skipped (status: ${dependencyBlock.status}).`,
+          details: { code: 'PIPELINE_DEPENDENCY_BLOCKED', step, dependency: dependencyBlock.step }
+        });
+        this.emit('notify', {
+          type: 'step_failed',
+          level: 'error',
+          projectId,
+          project: this._store.getProject(projectId),
+          step,
+          stepName: step,
+          bookIndex: this._currentBookIndex,
+          totalBooks: this._totalBooks,
+          title: 'Pipeline Order Blocked',
+          message: `Step "${STEP_LABELS[step] || step}" cannot start before "${STEP_LABELS[dependencyBlock.step] || dependencyBlock.step}" finishes.`
+        });
+        return 'failed';
+      }
+
       const settings = this._store.getAutomationSettings();
       let mode = settings[step] ?? 'always';
-      if (step === 'listing') mode = 'always';
+      if (['interior', 'editable_generation'].includes(step)) mode = 'always';
 
       if (mode === 'manual') {
         this._store.updateProjectStepStatus(projectId, step, 'awaiting_input');
@@ -443,7 +476,7 @@ class AutomationManager extends EventEmitter {
           project,
           step,
           stepName: step,
-          stepIndex: PIPELINE_STEPS.indexOf(step),
+          stepIndex: getPipelineSteps(project).indexOf(step),
           bookIndex: this._currentBookIndex,
           totalBooks: this._totalBooks
         };
@@ -469,14 +502,11 @@ class AutomationManager extends EventEmitter {
         await this._waitWhilePaused();
         if (!this._active) return 'stopped';
         if (decision === 'skip') {
-          if (step === 'listing') {
-            this._store.appendEvent({
-              projectId,
-              level: 'warn',
-              message: '[Automation] Listing cannot be skipped. Running listing now.'
-            });
-            // fall through to execute
-          } else {
+          if (step === 'editable_generation') {
+            this._store.updateProjectStepStatus(projectId, step, 'awaiting_input');
+            return 'stopped';
+          }
+          {
             this._store.updateProjectStepStatus(projectId, step, 'skipped');
             this._store.appendEvent({ projectId, level: 'info', message: `[Automation] Step "${step}" skipped by user.` });
             this._emitProgress(step, 100);
@@ -492,7 +522,7 @@ class AutomationManager extends EventEmitter {
         this._store.appendEvent({
           projectId,
           level: 'error',
-          message: `[Automation] Book halted — step "${step}" failed after all retries.`
+          message: `[Automation] Halted at "${step}".`
         });
         return 'failed';
       }
@@ -512,9 +542,34 @@ class AutomationManager extends EventEmitter {
     return 'completed';
   }
 
+  /**
+   * Returns the first unsatisfied predecessor for `step`, or null when order is OK.
+   * Completed/skipped predecessors satisfy the gate. Failed/pending/processing block.
+   */
+  _unsatisfiedDependency(projectId, step) {
+    const project = this._store.getProject(projectId);
+    const steps = getPipelineSteps(project);
+    const index = steps.indexOf(step);
+    const deps = index > 0 ? [steps[index - 1]] : [];
+    if (!deps.length) return null;
+    if (!project) return { step: deps[0], status: 'missing_project' };
+    for (const dep of deps) {
+      const status = readStepStatus(project, dep);
+      const mustComplete = dep === 'editable_generation' || EDITABLE_ONLY_STEPS.includes(dep) || MAZE_ONLY_STEPS.includes(dep);
+      if (mustComplete ? status !== 'completed' : !isStepSatisfied(status)) return { step: dep, status };
+    }
+    return null;
+  }
+
   async _executeStepWithRetry(projectId, step) {
     const runner = this._stepRunners[step];
     if (!runner) {
+      // Editable stages must fail closed: skipping one would ship a book whose
+      // artwork, text or PowerPoint was never built.
+      if (step === 'editable_generation' || EDITABLE_ONLY_STEPS.includes(step) || MAZE_ONLY_STEPS.includes(step)) {
+        this._store.updateProjectStepStatus(projectId, step, 'failed');
+        return false;
+      }
       this._store.updateProjectStepStatus(projectId, step, 'skipped');
       return true;
     }
@@ -547,7 +602,7 @@ class AutomationManager extends EventEmitter {
         this._store.appendEvent({
           projectId,
           level: 'info',
-          message: `[Automation] Step "${step}" — attempt ${attempt + 1}/${retryDelays.length + 1}.`
+          message: `[Automation] Step "${step}" attempt ${attempt + 1}/${retryDelays.length + 1}.`
         });
         await this._broadcast();
         this._emitProgress(step, 0);
@@ -583,7 +638,11 @@ class AutomationManager extends EventEmitter {
 
         return true;
       } catch (error) {
-        const isLastAttempt = attempt === retryDelays.length;
+        // Some recovery failures mean the previous runner may still be alive.
+        // Retrying those errors could run two copies of the same step against the
+        // same browser profile, so they must fail closed on the current attempt.
+        const retryAllowed = error?.retryable !== false;
+        const isLastAttempt = attempt === retryDelays.length || !retryAllowed;
         this._stepRetryCount = attempt + 1;
         this._store.appendEvent({
           projectId,
@@ -606,7 +665,9 @@ class AutomationManager extends EventEmitter {
             bookIndex: this._currentBookIndex,
             totalBooks: this._totalBooks,
             title: proj?.name || 'Step Failed',
-            message: `Step "${STEP_LABELS[step] || step}" failed for "${proj?.name || 'Book'}" after all retry attempts.`
+            message: retryAllowed
+              ? `Step "${STEP_LABELS[step] || step}" failed for "${proj?.name || 'Book'}" after all retry attempts.`
+              : `Step "${STEP_LABELS[step] || step}" could not be recovered safely for "${proj?.name || 'Book'}". No overlapping retry was started.`
           });
 
           return false;
@@ -633,7 +694,16 @@ class AutomationManager extends EventEmitter {
     let finished = false;
     let timer = null;
 
-    const runPromise = (async () => runner(projectId, (pct) => {
+    // A step is dispatched through the durable queue when one is wired in, so its
+    // progress is committed and a crash mid-step resumes rather than restarts.
+    // Without a dispatcher the runner is called directly, which is what the unit
+    // tests do and what a build with no queue falls back to. Either way this
+    // watchdog is still the backstop for a wait that never returns.
+    const invoke = typeof this._dispatchStep === 'function'
+      ? (onProgress) => this._dispatchStep({ step, projectId, onProgress, runner })
+      : (onProgress) => runner(projectId, onProgress);
+
+    const runPromise = (async () => invoke((pct) => {
       lastActivityAt = Date.now();
       this._onStepProgress(step, pct);
     }))();
@@ -714,15 +784,37 @@ class AutomationManager extends EventEmitter {
       stepName: step,
       bookIndex: this._currentBookIndex,
       totalBooks: this._totalBooks,
-      title: 'Step Frozen — Recovering',
+      title: 'Recovering',
       message: `${STEP_LABELS[step] || step} stopped responding. Closing the stuck session and retrying.`
     });
     await this._broadcast().catch(() => {});
 
     if (typeof this._abortStep === 'function') {
-      try {
-        await this._abortStep(step, projectId, error);
-      } catch (abortError) {
+      const abortPromise = Promise.resolve().then(() => this._abortStep(step, projectId, error));
+      // Keep a late rejection handled if the timeout wins the race.
+      abortPromise.catch(() => {});
+      const abortOutcome = await Promise.race([
+        abortPromise.then(
+          () => ({ settled: true, error: null }),
+          (abortError) => ({ settled: true, error: abortError })
+        ),
+        this._sleep(this._orphanSettleGraceMs).then(() => ({ settled: false, error: null }))
+      ]);
+      if (!abortOutcome.settled) {
+        const abortTimeout = Object.assign(
+          new Error(`The frozen "${step}" cleanup did not finish within ${formatDuration(this._orphanSettleGraceMs)}. The step was stopped without retrying to prevent overlapping runs.`),
+          { code: 'STEP_ABORT_TIMEOUT', retryable: false, step }
+        );
+        this._store.appendEvent({
+          projectId,
+          level: 'error',
+          message: `[Automation] ${abortTimeout.message}`,
+          details: { code: abortTimeout.code, step }
+        });
+        throw abortTimeout;
+      }
+      if (abortOutcome.error) {
+        const abortError = abortOutcome.error;
         this._store.appendEvent({
           projectId,
           level: 'error',
@@ -738,12 +830,17 @@ class AutomationManager extends EventEmitter {
       this._sleep(this._orphanSettleGraceMs).then(() => false)
     ]);
     if (!settled) {
+      const orphanError = Object.assign(
+        new Error(`The frozen "${step}" run did not shut down within ${formatDuration(this._orphanSettleGraceMs)}. The step was stopped without retrying to prevent overlapping runs.`),
+        { code: 'STEP_ORPHAN_LINGERING', retryable: false, step }
+      );
       this._store.appendEvent({
         projectId,
-        level: 'warn',
-        message: `[Automation] The frozen "${step}" run did not shut down within ${formatDuration(this._orphanSettleGraceMs)}. Continuing anyway.`,
+        level: 'error',
+        message: `[Automation] ${orphanError.message}`,
         details: { code: 'STEP_ORPHAN_LINGERING' }
       });
+      throw orphanError;
     }
   }
 
@@ -785,7 +882,6 @@ class AutomationManager extends EventEmitter {
 
   _onStepProgress(step, percentage) {
     this._emitProgress(step, Math.min(100, Math.max(0, Number(percentage) || 0)));
-    this._broadcast().catch(() => {});
   }
 
   _waitForAskDecision() {
@@ -804,4 +900,11 @@ class AutomationManager extends EventEmitter {
   }
 }
 
-module.exports = { AutomationManager, PIPELINE_STEPS, STEP_TIMEOUTS };
+module.exports = {
+  AutomationManager,
+  PIPELINE_STEPS, NORMAL_PIPELINE, EDITABLE_PIPELINE, MAZE_PIPELINE, EDITABLE_ONLY_STEPS, MAZE_ONLY_STEPS, getPipelineSteps,
+  STEP_DEPENDENCIES, getStepDependencies,
+  STEP_TIMEOUTS,
+  stepStatusKey,
+  readStepStatus
+};

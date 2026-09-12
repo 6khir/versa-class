@@ -17,11 +17,11 @@ function resolveAppearance(preference, systemDark) {
 }
 
 function windowBackground(resolved) {
-  return resolved === 'dark' ? '#061428' : '#F4F8FF';
+  return resolved === 'dark' ? '#07080C' : '#F3F8FC';
 }
 
 function splashBackground(resolved) {
-  return resolved === 'dark' ? '#061428' : '#EAF6FC';
+  return resolved === 'dark' ? '#07080C' : '#EAF6FC';
 }
 
 module.exports = {
